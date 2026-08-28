@@ -1,0 +1,18 @@
+{% extends 'base/layout.html' %}
+
+{% block title %}Applied changes{% endblock %}
+
+{% block content %}
+  <h1>Applied changes</h1>
+  <p class="text-secondary">A history of provider data written to this NetBox.</p>
+  <div class="card"><div class="table-responsive"><table class="table table-hover mb-0">
+    <thead><tr><th>Applied</th><th>Source</th><th>Review</th><th>Creates</th><th>Updates</th><th>Matches</th><th>Applied by</th></tr></thead>
+    <tbody>{% for apply_run in apply_runs %}<tr>
+      <td><a href="{% url 'plugins:netbox_ssot:apply_detail' pk=apply_run.pk %}">{{ apply_run.created_at }}</a></td>
+      <td>{{ apply_run.comparison.collection_run.source }}</td>
+      <td><a href="{% url 'plugins:netbox_ssot:comparison_detail' pk=apply_run.comparison_id %}"><code>{{ apply_run.comparison_id }}</code></a></td>
+      <td>{{ apply_run.create_count }}</td><td>{{ apply_run.update_count }}</td><td>{{ apply_run.no_change_count }}</td>
+      <td>{{ apply_run.applied_by }}</td>
+    </tr>{% empty %}<tr><td colspan="7" class="text-secondary">No changes have been applied.</td></tr>{% endfor %}</tbody>
+  </table></div></div>
+{% endblock %}

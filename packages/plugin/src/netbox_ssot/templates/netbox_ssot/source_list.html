@@ -1,0 +1,29 @@
+{% extends 'base/layout.html' %}
+
+{% block title %}Sources{% endblock %}
+
+{% block content %}
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div><h1>Sources</h1><p class="text-secondary mb-0">External systems that provide data to this NetBox.</p></div>
+    <a class="btn btn-primary" href="{% url 'plugins:netbox_ssot:provider_list' %}">Add source</a>
+  </div>
+  <div class="card">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead><tr><th>Name</th><th>Provider</th><th>Agent</th><th>Status</th><th>Last success</th><th>Next expected</th></tr></thead>
+        <tbody>
+          {% for source, health in source_rows %}
+            <tr>
+              <td><a href="{% url 'plugins:netbox_ssot:source_detail' pk=source.pk %}">{{ source.name }}</a></td>
+              <td>{{ source.provider_id }}</td>
+              <td>{% if source.assigned_agent %}{{ source.assigned_agent }}{% else %}<span class="text-warning">Agent required</span>{% endif %}</td>
+              <td><span class="badge text-bg-{{ health.status.color }}">{{ health.status.label }}</span><div class="small text-secondary mt-1">{{ health.status.detail }}</div></td>
+              <td>{{ health.last_success_at|default:"Never" }}</td>
+              <td>{{ health.next_expected_at|default:"Not scheduled" }}</td>
+            </tr>
+          {% empty %}<tr><td colspan="6" class="text-secondary">No sources are configured.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endblock %}

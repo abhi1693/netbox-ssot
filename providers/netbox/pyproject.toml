@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "netbox-ssot-provider-netbox"
+version = "0.1.0a0"
+description = "NetBox provider descriptor for NetBox SSoT"
+requires-python = ">=3.12"
+dependencies = [
+  "netbox-ssot-contracts==0.1.0a0",
+]
+
+[project.entry-points."netbox_ssot.providers"]
+netbox = "netbox_ssot_provider_netbox:provider_definition"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/netbox_ssot_provider_netbox"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"manifest.json" = "netbox_ssot_provider_netbox/manifest.json"

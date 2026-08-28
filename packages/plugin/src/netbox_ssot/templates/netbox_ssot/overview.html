@@ -1,0 +1,71 @@
+{% extends 'base/layout.html' %}
+
+{% block title %}Discovery overview{% endblock %}
+
+{% block content %}
+  <div class="d-flex justify-content-between align-items-start mb-4">
+    <div>
+      <h1>Discovery</h1>
+      <p class="text-secondary mb-0">Bring provider data into this NetBox through a reviewable, one-way workflow.</p>
+    </div>
+    {% if perms.netbox_ssot.add_discoverysource %}
+      <a class="btn btn-primary" href="{% url 'plugins:netbox_ssot:provider_list' %}">Add source</a>
+    {% endif %}
+  </div>
+
+  <div class="row row-cols-1 row-cols-md-3 g-3 mb-4">
+    <div class="col"><div class="card h-100"><div class="card-body">
+      <div class="text-secondary">Sources</div><div class="fs-2">{{ source_count|default_if_none:"—" }}</div>
+    </div></div></div>
+    <div class="col"><div class="card h-100"><div class="card-body">
+      <div class="text-secondary">Enabled agents</div><div class="fs-2">{{ enabled_agent_count|default_if_none:"—" }}</div>
+    </div></div></div>
+    <div class="col"><div class="card h-100"><div class="card-body">
+      <div class="text-secondary">Needs review</div><div class="fs-2">{{ pending_review_count|default_if_none:"—" }}</div>
+    </div></div></div>
+  </div>
+
+  <div class="row g-4">
+    <div class="col-xl-7">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h2 class="h4 mb-0">Sources</h2>
+        {% if can_view_sources %}<a href="{% url 'plugins:netbox_ssot:source_list' %}">View all</a>{% endif %}
+      </div>
+      <div class="card">
+        <div class="list-group list-group-flush">
+          {% for source, health in source_rows %}
+            <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-3" href="{% url 'plugins:netbox_ssot:source_detail' pk=source.pk %}">
+              <span>
+                <strong>{{ source.name }}</strong>
+                <span class="d-block small text-secondary">{{ source.provider_id }}</span>
+              </span>
+              <span class="text-end">
+                <span class="badge text-bg-{{ health.status.color }}">{{ health.status.label }}</span>
+                <span class="d-block small text-secondary mt-1">{% if source.latest_collection_at %}Last run {{ source.latest_collection_at|timesince }} ago{% else %}Never collected{% endif %}</span>
+              </span>
+            </a>
+          {% empty %}
+            <div class="list-group-item py-4 text-center text-secondary">No source is configured yet.</div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="col-xl-5">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h2 class="h4 mb-0">Recent activity</h2>
+        <a href="{% url 'plugins:netbox_ssot:activity' %}">View all</a>
+      </div>
+      <div class="card"><div class="list-group list-group-flush">
+        {% for event in events %}
+          <a class="list-group-item list-group-item-action py-3" href="{{ event.url }}">
+            <div class="d-flex justify-content-between gap-3">
+              <strong>{{ event.title }}</strong><span class="small text-secondary text-nowrap">{{ event.occurred_at|timesince }} ago</span>
+            </div>
+            <div class="small text-secondary">{{ event.kind }} · {{ event.detail }}</div>
+          </a>
+        {% empty %}<div class="list-group-item py-4 text-center text-secondary">No activity yet.</div>{% endfor %}
+      </div></div>
+    </div>
+  </div>
+{% endblock %}

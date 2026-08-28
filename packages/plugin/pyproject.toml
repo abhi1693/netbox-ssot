@@ -1,0 +1,18 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "netbox-ssot"
+version = "0.1.0a0"
+description = "Provider-driven discovery and reviewed reconciliation for NetBox"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "cryptography>=44,<47",
+  "diffsync>=2.2.3,<3",
+  "netbox-ssot-contracts==0.1.0a0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/netbox_ssot"]

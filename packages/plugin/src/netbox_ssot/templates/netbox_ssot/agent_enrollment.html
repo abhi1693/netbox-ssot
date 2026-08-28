@@ -1,0 +1,53 @@
+{% extends 'base/layout.html' %}
+
+{% block title %}Connect agent{% endblock %}
+
+{% block content %}
+  <div class="row justify-content-center"><div class="col-xl-9">
+    <h1>Connect agent</h1>
+    <p class="text-secondary">Create a short-lived enrollment token. The agent generates its signing key locally and sends only the public key to NetBox.</p>
+
+    {% if enrollment_token %}
+      <div class="alert alert-warning">
+        <strong>Copy this command now.</strong> The enrollment token is shown once and expires at
+        {{ created_enrollment.expires_at }}.
+      </div>
+      <div class="card mb-4">
+        <div class="card-header"><strong>Enroll {{ agent_name }}</strong></div>
+        <div class="card-body">
+          <pre class="mb-3">export NETBOX_SSOT_ENROLLMENT_TOKEN='{{ enrollment_token }}'
+sudo install -d -m 0700 /etc/netbox-ssot-agent
+sudo -E netbox-ssot-agent enroll \
+  --endpoint {{ enrollment_endpoint }} \
+  --token-ref env://NETBOX_SSOT_ENROLLMENT_TOKEN \
+  --private-key-path /etc/netbox-ssot-agent/signing-key{% if enrollment_endpoint_is_insecure %} \
+  --allow-insecure-http{% endif %}</pre>
+          <p class="mb-0 text-secondary">After enrollment, unset the token and start the agent using the private-key file shown on the Agents page.</p>
+        </div>
+      </div>
+      <a class="btn btn-primary" href="{% url 'plugins:netbox_ssot:agent_list' %}">Go to agents</a>
+    {% else %}
+      <form method="post" class="card">
+        {% csrf_token %}
+        <div class="card-body">
+          <div class="mb-3">
+            <label class="form-label" for="agent-name">Name</label>
+            <input class="form-control" id="agent-name" name="name" value="{{ agent_name }}" maxlength="100" required>
+          </div>
+          <label class="form-label">Sources to run <span class="text-secondary">(optional)</span></label>
+          {% for source in sources %}
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="sources" value="{{ source.pk }}" id="source-{{ source.pk }}" {% if source.pk|stringformat:"s" in selected_sources %}checked{% endif %}>
+              <label class="form-check-label" for="source-{{ source.pk }}">{{ source.name }}</label>
+            </div>
+          {% empty %}
+            <p class="text-secondary mb-0">No unassigned sources are available. This agent will connect as a standby and sources can be reassigned later.</p>
+          {% endfor %}
+        </div>
+        <div class="card-footer text-end">
+          <button class="btn btn-primary" type="submit">Create enrollment token</button>
+        </div>
+      </form>
+    {% endif %}
+  </div></div>
+{% endblock %}

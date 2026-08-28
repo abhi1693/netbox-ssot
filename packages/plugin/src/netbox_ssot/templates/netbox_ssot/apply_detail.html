@@ -1,0 +1,33 @@
+{% extends 'base/layout.html' %}
+
+{% block title %}Applied changes{% endblock %}
+
+{% block content %}
+  <h1>Changes applied</h1>
+  <p class="text-secondary">{{ apply_run.comparison.collection_run.source }} · {{ apply_run.created_at }} · {{ apply_run.applied_by }}</p>
+
+  <div class="row row-cols-1 row-cols-md-3 g-3 mb-3">
+    <div class="col"><div class="card h-100"><div class="card-body"><div class="text-secondary">Created</div><div class="fs-3">{{ apply_run.create_count }}</div></div></div></div>
+    <div class="col"><div class="card h-100"><div class="card-body"><div class="text-secondary">Updated</div><div class="fs-3">{{ apply_run.update_count }}</div></div></div></div>
+    <div class="col"><div class="card h-100"><div class="card-body"><div class="text-secondary">Matched</div><div class="fs-3">{{ apply_run.no_change_count }}</div></div></div></div>
+  </div>
+
+  <div class="alert alert-success">All changes were saved together. Records that only exist in this NetBox were left unchanged.</div>
+  <div class="card"><div class="card-header"><strong>Changed records</strong></div><div class="table-responsive"><table class="table table-hover mb-0">
+    <thead><tr><th>Result</th><th>Data type</th><th>Source record</th><th>Local record</th></tr></thead>
+    <tbody>{% for item, links in record_rows %}<tr>
+      <td>{{ item.get_action_display }}</td><td>{{ item.resource_kind }}</td><td>{% if links.source_url %}<a href="{{ links.source_url }}" target="_blank" rel="noopener noreferrer"><code>{{ item.source_external_id }}</code><i class="mdi mdi-open-in-new ms-1" aria-hidden="true"></i></a>{% else %}<code>{{ item.source_external_id }}</code>{% endif %}</td>
+      <td>{% if links.destination_url %}<a href="{{ links.destination_url }}"><code>{{ item.target_object_type }}:{{ item.target_object_id }}</code></a>{% else %}<code>{{ item.target_object_type }}:{{ item.target_object_id }}</code>{% endif %}</td>
+    </tr>{% empty %}<tr><td colspan="4" class="text-secondary">No changed records were recorded.</td></tr>{% endfor %}</tbody>
+  </table></div></div>
+
+  {% if page.paginator.num_pages > 1 %}<nav class="mt-3"><ul class="pagination">
+    {% if page.has_previous %}<li class="page-item"><a class="page-link" href="?page={{ page.previous_page_number }}">Previous</a></li>{% endif %}
+    <li class="page-item disabled"><span class="page-link">Page {{ page.number }} of {{ page.paginator.num_pages }}</span></li>
+    {% if page.has_next %}<li class="page-item"><a class="page-link" href="?page={{ page.next_page_number }}">Next</a></li>{% endif %}
+  </ul></nav>{% endif %}
+
+  <details class="card mt-3"><summary class="card-header"><strong>Technical details</strong></summary><div class="card-body small text-secondary">
+    Result ID <code>{{ apply_run.id }}</code> · Review <a href="{% url 'plugins:netbox_ssot:comparison_detail' pk=apply_run.comparison_id %}"><code>{{ apply_run.comparison_id }}</code></a>
+  </div></details>
+{% endblock %}

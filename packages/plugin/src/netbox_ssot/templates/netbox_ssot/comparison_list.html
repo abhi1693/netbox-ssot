@@ -1,0 +1,21 @@
+{% extends 'base/layout.html' %}
+
+{% block title %}Change reviews{% endblock %}
+
+{% block content %}
+  <h1>Change reviews</h1>
+  <p class="text-secondary">Provider data compared with the current local data.</p>
+  <div class="alert alert-info">Reviewing data does not change NetBox.</div>
+  <div class="card"><div class="table-responsive"><table class="table table-hover mb-0">
+    <thead><tr><th>Created</th><th>Engine</th><th>Source</th><th>Collection run</th><th>Creates</th><th>Updates</th><th>Matches</th><th>Conflicts</th><th>Skipped</th></tr></thead>
+    <tbody>
+      {% for comparison in comparisons %}
+        <tr>
+          <td><a href="{% url 'plugins:netbox_ssot:comparison_detail' pk=comparison.pk %}">{{ comparison.created_at }}</a></td><td>{{ comparison.engine_version }}</td>
+          <td>{{ comparison.collection_run.source }}</td><td><code>{{ comparison.collection_run_id }}</code></td>
+          <td>{{ comparison.create_count }}</td><td>{{ comparison.update_count }}</td><td>{{ comparison.no_change_count }}</td><td>{{ comparison.conflict_count }}</td><td>{{ comparison.skipped_count }}</td>
+        </tr>
+      {% empty %}<tr><td colspan="9" class="text-secondary">No comparisons have been generated.</td></tr>{% endfor %}
+    </tbody>
+  </table></div></div>
+{% endblock %}

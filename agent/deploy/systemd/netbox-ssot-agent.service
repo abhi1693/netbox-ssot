@@ -1,0 +1,28 @@
+[Unit]
+Description=NetBox SSoT collector agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+EnvironmentFile=/etc/netbox-ssot-agent/agent.env
+LoadCredential=agent-signing-key:/etc/netbox-ssot-agent/signing-key
+ExecStart=/usr/local/bin/netbox-ssot-agent run
+Restart=on-failure
+RestartSec=10s
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

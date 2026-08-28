@@ -1,0 +1,50 @@
+{% extends 'base/layout.html' %}
+
+{% block title %}Add source{% endblock %}
+
+{% block content %}
+  <div class="row mb-3">
+    <div class="col">
+      <h1>Add source</h1>
+      <p class="text-secondary">Choose where the data should come from.</p>
+    </div>
+  </div>
+
+  <div class="row row-cols-1 row-cols-lg-2 g-3">
+    {% for provider in providers %}
+      <div class="col">
+        <div class="card h-100">
+          <div class="card-body">
+            <h2 class="h4 card-title d-flex align-items-center gap-2"><i class="{{ provider.icon_class }} text-primary" aria-hidden="true"></i>{{ provider.display_name }}</h2>
+            <p class="card-text">{{ provider.description }}</p>
+            <a class="btn btn-primary" href="{% url 'plugins:netbox_ssot:source_wizard' provider_id=provider.provider_id %}">
+              Continue
+            </a>
+            <a class="btn btn-outline-secondary" href="{{ provider.documentation_url }}" rel="noopener noreferrer">
+              Learn more
+            </a>
+            <details class="small text-secondary mt-3">
+              <summary>Technical details</summary>
+              <div class="mt-2">Version {{ provider.implementation_version }} · Runs via {{ provider.execution_modes|join:", " }}</div>
+            </details>
+          </div>
+        </div>
+      </div>
+    {% empty %}
+      <div class="col">
+        <div class="alert alert-info">No compatible provider distributions are installed.</div>
+      </div>
+    {% endfor %}
+  </div>
+
+  {% if provider_failures %}
+    <div class="alert alert-warning mt-4">
+      <h2 class="h5">Unavailable providers</h2>
+      <ul class="mb-0">
+        {% for failure in provider_failures %}
+          <li><code>{{ failure.entry_point_name }}</code>: {{ failure.summary }} ({{ failure.error_type }})</li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+{% endblock %}

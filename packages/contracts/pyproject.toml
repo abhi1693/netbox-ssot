@@ -1,0 +1,17 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "netbox-ssot-contracts"
+version = "0.1.0a0"
+description = "Versioned provider, observation, and reconciliation contracts for NetBox SSoT"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "jsonschema[format]>=4.25,<5",
+  "pydantic>=2.11,<3",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/netbox_ssot_contracts"]

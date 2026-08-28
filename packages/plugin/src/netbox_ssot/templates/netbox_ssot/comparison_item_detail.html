@@ -1,0 +1,102 @@
+{% extends 'base/layout.html' %}
+
+{% block title %}{{ item.display_name }}{% endblock %}
+
+{% block content %}
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+    <div>
+      <div class="small text-secondary mb-1">
+        <a href="{% url 'plugins:netbox_ssot:comparison_detail' pk=item.comparison_id %}">Review changes</a>
+        <span class="mx-1">/</span>{{ source_name }}
+      </div>
+      <div class="d-flex align-items-center gap-2">
+        <h1 class="mb-0">{{ item.display_name }}</h1>
+        <span class="badge fs-6 {% if item.action == 'create' or item.action == 'no_change' %}text-bg-success{% elif item.action == 'update' %}text-bg-warning{% elif item.action == 'conflict' %}text-bg-danger{% else %}text-bg-secondary{% endif %}">{{ item.get_action_display }}</span>
+      </div>
+      <p class="text-secondary mb-0 mt-1">{{ source_name }} comparison</p>
+    </div>
+    <div class="btn-group" role="group" aria-label="Record navigation">
+      <a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_ssot:comparison_detail' pk=item.comparison_id %}">Back to review</a>
+      {% if previous_item %}<a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_ssot:comparison_item_detail' comparison_pk=item.comparison_id pk=previous_item.pk %}" title="{{ previous_item.display_name }}"><i class="mdi mdi-chevron-left" aria-hidden="true"></i> Previous</a>{% else %}<button class="btn btn-outline-secondary" disabled><i class="mdi mdi-chevron-left" aria-hidden="true"></i> Previous</button>{% endif %}
+      {% if next_item %}<a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_ssot:comparison_item_detail' comparison_pk=item.comparison_id pk=next_item.pk %}" title="{{ next_item.display_name }}">Next <i class="mdi mdi-chevron-right" aria-hidden="true"></i></a>{% else %}<button class="btn btn-outline-secondary" disabled>Next <i class="mdi mdi-chevron-right" aria-hidden="true"></i></button>{% endif %}
+    </div>
+  </div>
+
+  <div class="alert {% if item.action == 'no_change' %}alert-success{% elif item.action == 'update' %}alert-warning{% elif item.action == 'conflict' %}alert-danger{% elif item.action == 'skipped' %}alert-secondary{% else %}alert-info{% endif %} mb-3">
+    <strong>{% if item.action == 'no_change' %}This record already matches.{% elif item.action == 'create' %}This record will be created.{% elif item.action == 'update' %}This record has changes.{% elif item.action == 'conflict' %}This record needs attention.{% else %}This record will not be changed.{% endif %}</strong>
+    <span class="ms-1">{{ item.reason }}</span>
+  </div>
+
+  <div class="row g-3 mb-3">
+    <div class="col-lg-6">
+      <div class="card h-100">
+        <div class="card-body d-flex justify-content-between align-items-center gap-3">
+          <div>
+            <div class="small text-uppercase text-secondary mb-1">Provider record</div>
+            <div class="fw-semibold fs-4">{{ item.display_name }}</div>
+            <div class="text-secondary">{{ provider_name }} · <code>{{ source_model }}</code></div>
+          </div>
+          {% if record_links.source_url %}<a class="btn btn-outline-primary" href="{{ record_links.source_url }}" target="_blank" rel="noopener noreferrer">Open record<i class="mdi mdi-open-in-new ms-1" aria-hidden="true"></i></a>{% endif %}
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-6">
+      <div class="card h-100">
+        <div class="card-body d-flex justify-content-between align-items-center gap-3">
+          <div>
+            <div class="small text-uppercase text-secondary mb-1">Local record</div>
+            {% if item.target_object_id %}
+              <div class="fw-semibold fs-4">{{ item.display_name }}</div>
+              <div class="text-secondary">NetBox · <code>{{ item.target_object_type }}</code></div>
+            {% else %}
+              <div class="fw-semibold fs-4 text-secondary">No matching record</div>
+              <div class="text-secondary">{% if item.action == 'create' %}A new {{ destination_name }} is proposed.{% else %}No exact local identity was found.{% endif %}</div>
+            {% endif %}
+          </div>
+          {% if record_links.destination_url %}<a class="btn btn-outline-primary" href="{{ record_links.destination_url }}">Open record</a>{% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <strong>Field comparison</strong>
+      <span class="text-secondary">{{ field_rows|length }} observed field{{ field_rows|length|pluralize }}</span>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-hover table-vcenter mb-0">
+        <thead><tr><th>Field</th><th>{{ provider_name }}</th><th>Local NetBox</th><th>Result</th></tr></thead>
+        <tbody>
+          {% for row in field_rows %}
+            <tr{% if row.changed and row.status_color != 'secondary' %} class="table-{% if row.status_color == 'danger' %}danger{% elif row.status_color == 'warning' %}warning{% else %}info{% endif %}"{% endif %}>
+              <td><div class="fw-semibold">{{ row.label }}</div><div class="small text-secondary">{% if row.category == 'relationships' %}Relationship{% else %}Attribute{% endif %}</div></td>
+              <td class="text-break">{% if row.provider_present %}{{ row.provider_value }}{% else %}<span class="text-secondary">Not provided</span>{% endif %}</td>
+              <td class="text-break">{% if row.local_present %}{{ row.local_value }}{% elif item.target_object_id %}<span class="text-secondary">Not set</span>{% else %}<span class="text-secondary">No local record</span>{% endif %}</td>
+              <td><span class="badge text-bg-{{ row.status_color }}">{{ row.status }}</span></td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="4" class="text-secondary">No comparable fields were recorded for this object.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <details class="card">
+    <summary class="card-header"><strong>Technical details</strong></summary>
+    <div class="card-body">
+      <dl class="row mb-3">
+        <dt class="col-sm-3">Natural identity</dt><dd class="col-sm-9"><code class="text-wrap">{{ item.identity_key }}</code></dd>
+        <dt class="col-sm-3">Provider object</dt><dd class="col-sm-9">{% if record_links.source_url %}<a href="{{ record_links.source_url }}" target="_blank" rel="noopener noreferrer"><code>{{ item.source_external_id }}</code><i class="mdi mdi-open-in-new ms-1" aria-hidden="true"></i></a>{% else %}<code>{{ item.source_external_id }}</code>{% endif %}</dd>
+        <dt class="col-sm-3">Local object</dt><dd class="col-sm-9">{% if record_links.destination_url %}<a href="{{ record_links.destination_url }}"><code>{{ item.target_object_type }}:{{ item.target_object_id }}</code></a>{% elif item.target_object_id %}<code>{{ item.target_object_type }}:{{ item.target_object_id }}</code>{% else %}None{% endif %}</dd>
+        <dt class="col-sm-3">Match method</dt><dd class="col-sm-9"><code>{{ item.match_basis|default:"none" }}</code></dd>
+      </dl>
+      <div class="row g-3">
+        <div class="col-xl-6"><details><summary class="mb-2">Provider JSON</summary><pre class="mb-0 border rounded p-3">{{ source_data }}</pre></details></div>
+        <div class="col-xl-6"><details><summary class="mb-2">Local JSON</summary><pre class="mb-0 border rounded p-3">{{ target_data }}</pre></details></div>
+        {% if item.changes %}<div class="col-12"><details><summary class="mb-2">Stored change set</summary><pre class="mb-0 border rounded p-3">{{ changes }}</pre></details></div>{% endif %}
+      </div>
+    </div>
+  </details>
+{% endblock %}

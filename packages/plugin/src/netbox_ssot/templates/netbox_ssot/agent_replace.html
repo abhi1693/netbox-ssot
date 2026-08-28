@@ -1,0 +1,33 @@
+{% extends 'base/layout.html' %}
+
+{% block title %}Replace {{ agent.name }}{% endblock %}
+
+{% block content %}
+  <div class="row justify-content-center"><div class="col-xl-9">
+    <div class="mb-3"><a href="{% url 'plugins:netbox_ssot:agent_edit' pk=agent.pk %}"><i class="mdi mdi-chevron-left" aria-hidden="true"></i> Agent settings</a></div>
+    <h1>Replace agent identity</h1>
+    <p class="text-secondary">{{ agent.name }} · <code>{{ agent.id }}</code></p>
+
+    {% if enrollment_token %}
+      <div class="alert alert-warning"><strong>Copy this command now.</strong> The token is shown once and expires at {{ created_enrollment.expires_at }}.</div>
+      <div class="card mb-3"><div class="card-header"><strong>Enroll the replacement host</strong></div><div class="card-body">
+        <pre class="mb-3">export NETBOX_SSOT_ENROLLMENT_TOKEN='{{ enrollment_token }}'
+sudo install -d -m 0700 /etc/netbox-ssot-agent
+sudo -E netbox-ssot-agent enroll \
+  --endpoint {{ enrollment_endpoint }} \
+  --token-ref env://NETBOX_SSOT_ENROLLMENT_TOKEN \
+  --private-key-path /etc/netbox-ssot-agent/signing-key{% if enrollment_endpoint_is_insecure %} \
+  --allow-insecure-http{% endif %}</pre>
+        <p class="mb-0">Run this on the replacement host where the target signing-key file does not already exist. When enrollment succeeds, NetBox atomically revokes the previous keys, preserves the agent ID and source assignments, and enables the replacement identity.</p>
+      </div></div>
+      <a class="btn btn-primary" href="{% url 'plugins:netbox_ssot:agent_edit' pk=agent.pk %}">Return to agent</a>
+    {% else %}
+      <div class="alert alert-danger"><strong>This changes the agent identity.</strong> The current agent continues working until the replacement successfully enrolls. At that moment its keys are revoked and active actions are cancelled.</div>
+      <div class="card mb-3"><div class="card-body">
+        <h2 class="h5">Assignments preserved</h2>
+        <ul class="mb-0">{% for source in agent.sources.all %}<li>{{ source.name }} <span class="text-secondary">({{ source.provider_id }})</span></li>{% empty %}<li class="text-secondary">This standby agent has no assigned sources.</li>{% endfor %}</ul>
+      </div></div>
+      <form method="post">{% csrf_token %}<button class="btn btn-danger" type="submit">Create replacement token</button></form>
+    {% endif %}
+  </div></div>
+{% endblock %}

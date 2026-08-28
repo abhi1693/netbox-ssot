@@ -1,0 +1,88 @@
+[dependency-groups]
+dev = [
+  "mypy>=1.17,<2",
+  "pytest>=8.4,<9",
+  "pytest-cov>=6.2,<7",
+  "ruff>=0.12,<1",
+  "types-jsonschema>=4.25,<5",
+]
+
+[tool.uv.workspace]
+members = [
+  "packages/contracts",
+  "packages/plugin",
+  "providers/netbox",
+]
+
+[tool.uv.sources]
+netbox-ssot-contracts = { workspace = true }
+netbox-ssot = { workspace = true }
+netbox-ssot-provider-netbox = { workspace = true }
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-config --strict-markers"
+# NetBox-independent tests only. The plugin suite requires NetBox, PostgreSQL,
+# and Redis and is run via manage.py in the dedicated netbox-plugin CI job.
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = [
+  "netbox_ssot_contracts",
+  "netbox_ssot.providers",
+  "netbox_ssot_provider_netbox",
+]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+skip_covered = true
+
+[tool.ruff]
+line-length = 120
+src = [
+  "packages/contracts/src",
+  "packages/plugin/src",
+  "providers/netbox/src",
+  "tests",
+]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+  "B",
+  "C4",
+  "E",
+  "F",
+  "I",
+  "N",
+  "PERF",
+  "PIE",
+  "PT",
+  "PTH",
+  "RUF",
+  "SIM",
+  "UP",
+  "W",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+  "netbox_ssot",
+  "netbox_ssot_contracts",
+  "netbox_ssot_provider_netbox",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/migrations/*.py" = ["RUF012"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = [
+  "packages/contracts/src",
+  "packages/plugin/src/netbox_ssot/ingestion/signing.py",
+  "packages/plugin/src/netbox_ssot/providers",
+  "providers/netbox/src",
+]
+plugins = ["pydantic.mypy"]

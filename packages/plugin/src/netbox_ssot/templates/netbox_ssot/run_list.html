@@ -1,0 +1,12 @@
+{% extends 'base/layout.html' %}
+
+{% block title %}Collections{% endblock %}
+
+{% block content %}
+  <h1>Collections</h1><p class="text-secondary">Data recently received from configured sources.</p>
+  <div class="card"><div class="table-responsive"><table class="table table-hover mb-0">
+    <thead><tr><th>Received</th><th>Source</th><th>Agent</th><th>Status</th><th>Records</th></tr></thead><tbody>
+    {% for run in runs %}<tr><td><a href="{% url 'plugins:netbox_ssot:run_detail' pk=run.pk %}">{{ run.completed_at }}</a></td><td>{{ run.source }}</td><td>{{ run.agent }}</td><td>{{ run.state }}</td><td>{{ run.observation_count }}</td></tr>
+    {% empty %}<tr><td colspan="5" class="text-secondary">No data has been received.</td></tr>{% endfor %}
+    </tbody></table></div></div>
+{% endblock %}

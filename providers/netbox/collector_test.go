@@ -1,0 +1,497 @@
+package netboxprovider
+
+import (
+	"context"
+	"crypto/x509"
+	"encoding/json"
+	"errors"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"sync/atomic"
+	"syscall"
+	"testing"
+
+	contracts "github.com/abhi1693/netbox-ssot/internal/contracts"
+)
+
+type staticSecrets struct {
+	value     string
+	reference string
+}
+
+func (s *staticSecrets) Resolve(_ context.Context, reference string) (string, error) {
+	s.reference = reference
+	return s.value, nil
+}
+
+func TestManifestMatchesCompiledCollector(t *testing.T) {
+	manifest, err := New().Manifest()
+	if err != nil {
+		t.Fatalf("Manifest() error = %v", err)
+	}
+	if manifest.ProviderID != "netbox" {
+		t.Fatalf("ProviderID = %q, want netbox", manifest.ProviderID)
+	}
+	if manifest.AgentCompatibility.CollectorID != manifest.ProviderID {
+		t.Fatalf("collector ID = %q, want %q", manifest.AgentCompatibility.CollectorID, manifest.ProviderID)
+	}
+	if len(manifest.Capabilities) != 1 || manifest.Capabilities[0] != "source_read" {
+		t.Fatalf("Capabilities = %v, want source_read only", manifest.Capabilities)
+	}
+}
+
+func TestConnectionReadsStatusWithoutExposingToken(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			t.Errorf("method = %s, want GET", request.Method)
+		}
+		if request.URL.Path != "/api/status/" {
+			t.Errorf("path = %s, want /api/status/", request.URL.Path)
+		}
+		if request.Header.Get("Authorization") != "Token source-token" {
+			t.Error("authorization header was not set from the secret resolver")
+		}
+		response.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(response).Encode(map[string]any{"netbox-version": "4.6.9"})
+	}))
+	defer server.Close()
+
+	resolver := &staticSecrets{value: "source-token"}
+	result := NewWithClient(server.Client()).TestConnection(context.Background(), connectionRequest(server.URL), resolver)
+
+	if !result.Succeeded || result.Summary != "Connected to NetBox 4.6.9." {
+		t.Fatalf("result = %+v", result)
+	}
+	if resolver.reference != "env://NETBOX_TOKEN" {
+		t.Fatalf("resolved reference = %q", resolver.reference)
+	}
+	encoded, _ := json.Marshal(result)
+	if strings.Contains(string(encoded), "source-token") || strings.Contains(string(encoded), "NETBOX_TOKEN") {
+		t.Fatalf("connection result leaked secret material: %s", encoded)
+	}
+}
+
+func TestConnectionRejectsHTTPSDowngradeRedirectBeforeForwardingToken(t *testing.T) {
+	var destinationReached atomic.Bool
+	destination := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		destinationReached.Store(true)
+		response.WriteHeader(http.StatusOK)
+	}))
+	defer destination.Close()
+
+	source := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "Token source-token" {
+			t.Error("authorization header was not sent to the configured source")
+		}
+		http.Redirect(response, request, destination.URL+"/api/status/", http.StatusFound)
+	}))
+	defer source.Close()
+
+	request := connectionRequest(source.URL)
+	request.Configuration["verify_tls"] = false
+	result := New().TestConnection(context.Background(), request, &staticSecrets{value: "source-token"})
+
+	if result.Succeeded || len(result.Details) != 1 || result.Details[0].Code != "http_status" {
+		t.Fatalf("result = %+v", result)
+	}
+	if destinationReached.Load() {
+		t.Fatal("redirect destination was contacted")
+	}
+}
+
+func TestAuthorizationHeaderSelectsNetBoxTokenVersion(t *testing.T) {
+	tests := []struct {
+		name  string
+		token string
+		want  string
+	}{
+		{name: "v1", token: "legacy-token", want: "Token legacy-token"},
+		{name: "v2", token: "nbt_key.secret", want: "Bearer nbt_key.secret"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := authorizationHeader(test.token)
+			if err != nil {
+				t.Fatalf("authorizationHeader() error = %v", err)
+			}
+			if got != test.want {
+				t.Fatalf("authorizationHeader() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestAuthorizationHeaderRejectsMalformedTokensWithoutEchoingThem(t *testing.T) {
+	for _, token := range []string{"", "contains whitespace", "nbt_missing_separator", "nbt_.secret", "nbt_key.", "nbt_key.secret\n"} {
+		_, err := authorizationHeader(token)
+		if err == nil {
+			t.Fatalf("authorizationHeader(%q) accepted malformed token", token)
+		}
+		if strings.Contains(err.Error(), token) && token != "" {
+			t.Fatalf("authorizationHeader() leaked malformed token: %v", err)
+		}
+	}
+}
+
+func TestConnectionReportsInvalidTokenFormat(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		t.Fatal("network request was attempted with a malformed token")
+		return nil, nil
+	})}
+	result := NewWithClient(client).TestConnection(
+		context.Background(),
+		connectionRequest("https://netbox.example.test"),
+		&staticSecrets{value: "nbt_missing_separator"},
+	)
+
+	if result.Succeeded || len(result.Details) != 1 || result.Details[0].Code != "invalid_token_format" || result.Details[0].Retryable {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestRequestFailureClassification(t *testing.T) {
+	tests := []struct {
+		name      string
+		err       error
+		code      string
+		retryable bool
+	}{
+		{name: "deadline", err: context.DeadlineExceeded, code: "request_timeout", retryable: true},
+		{name: "dns", err: &url.Error{Op: "Get", URL: "redacted", Err: &net.DNSError{Err: "no such host", Name: "redacted"}}, code: "dns_resolution_failed", retryable: true},
+		{name: "tls", err: &url.Error{Op: "Get", URL: "redacted", Err: x509.UnknownAuthorityError{}}, code: "tls_validation_failed", retryable: false},
+		{name: "refused", err: &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}, code: "connection_refused", retryable: true},
+		{name: "generic", err: errors.New("opaque transport failure"), code: "connection_failed", retryable: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			failure := classifyRequestError(test.err)
+			if failure.code != test.code || failure.retryable != test.retryable {
+				t.Fatalf("failure = %+v, want code %q retryable %t", failure, test.code, test.retryable)
+			}
+		})
+	}
+}
+
+func TestCollectPaginatesAndProducesCompleteCanonicalObservations(t *testing.T) {
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if isReferenceEndpoint(request.URL.Path) {
+			response.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(response).Encode(map[string]any{"next": nil, "results": []any{}})
+			return
+		}
+		if request.URL.Path != "/api/dcim/regions/" {
+			http.NotFound(response, request)
+			return
+		}
+		if request.Header.Get("Authorization") != "Token source-token" {
+			t.Error("authorization header was not set")
+		}
+		response.Header().Set("Content-Type", "application/json")
+		if request.URL.Query().Get("offset") == "1" {
+			json.NewEncoder(response).Encode(map[string]any{
+				"next": nil,
+				"results": []any{
+					map[string]any{"id": 2, "name": "Child", "slug": "child", "parent": map[string]any{"id": 1}},
+				},
+			})
+			return
+		}
+		if request.URL.Query().Get("limit") != "1" {
+			t.Errorf("limit = %q, want 1", request.URL.Query().Get("limit"))
+		}
+		json.NewEncoder(response).Encode(map[string]any{
+			"next": server.URL + "/api/dcim/regions/?limit=1&offset=1",
+			"results": []any{
+				map[string]any{"id": 1, "name": "Parent", "slug": "parent", "parent": nil},
+			},
+		})
+	}))
+	defer server.Close()
+
+	resolver := &staticSecrets{value: "source-token"}
+	request := collectionRequest(server.URL)
+	request.Configuration["page_size"] = 1
+	batch := NewWithClient(server.Client()).Collect(context.Background(), request, resolver)
+
+	if batch.State != "complete" {
+		t.Fatalf("state = %q, messages = %+v", batch.State, batch.Messages)
+	}
+	if batch.CompletenessToken == "" {
+		t.Fatal("complete collection has no completeness token")
+	}
+	if len(batch.Observations) != 2 {
+		t.Fatalf("observation count = %d, want 2", len(batch.Observations))
+	}
+	if batch.Observations[0].ExternalID != "netbox:region:1" || batch.Observations[1].ExternalID != "netbox:region:2" {
+		t.Fatalf("external IDs = %q, %q", batch.Observations[0].ExternalID, batch.Observations[1].ExternalID)
+	}
+	if len(batch.Observations[1].Relationships) != 1 || batch.Observations[1].Relationships[0].TargetExternalID != "netbox:region:1" {
+		t.Fatalf("child relationships = %+v", batch.Observations[1].Relationships)
+	}
+	encoded, _ := json.Marshal(batch)
+	if strings.Contains(string(encoded), "source-token") || strings.Contains(string(encoded), "NETBOX_TOKEN") {
+		t.Fatalf("observation batch leaked secret material: %s", encoded)
+	}
+}
+
+func TestCollectRegionsSitesAndLocationsWithFullCoreFieldCoverage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		var results []any
+		switch request.URL.Path {
+		case "/api/extras/tags/":
+			results = []any{
+				map[string]any{
+					"id": 10, "name": "managed", "slug": "managed", "color": "00ff00", "weight": 100,
+					"description": "Managed object", "object_types": []any{"dcim.site", "dcim.region"},
+				},
+				map[string]any{
+					"id": 11, "name": "critical", "slug": "critical", "color": "ff0000", "weight": 200,
+				},
+			}
+		case "/api/users/owner-groups/":
+			results = []any{map[string]any{"id": 20, "name": "Infrastructure", "description": "Owner group"}}
+		case "/api/users/owners/":
+			results = []any{map[string]any{
+				"id": 21, "name": "Network team", "description": "Network owners", "group": map[string]any{"id": 20},
+			}}
+		case "/api/tenancy/tenant-groups/":
+			results = []any{map[string]any{
+				"id": 30, "name": "Internal", "slug": "internal", "description": "Internal tenants",
+				"owner": map[string]any{"id": 21}, "tags": []any{map[string]any{"id": 10}},
+			}}
+		case "/api/tenancy/tenants/":
+			results = []any{map[string]any{
+				"id": 31, "name": "Internal", "slug": "internal", "group": map[string]any{"id": 30},
+				"description": "Internal tenant", "owner": map[string]any{"id": 21},
+				"tags": []any{map[string]any{"id": 10}},
+			}}
+		case "/api/dcim/site-groups/":
+			results = []any{map[string]any{
+				"id": 40, "name": "Production", "slug": "production", "description": "Production sites",
+				"owner": map[string]any{"id": 21}, "tags": []any{map[string]any{"id": 10}},
+			}}
+		case "/api/ipam/rirs/":
+			results = []any{map[string]any{
+				"id": 50, "name": "Private", "slug": "private", "is_private": true,
+				"description": "Private ASN space", "tags": []any{map[string]any{"id": 10}},
+			}}
+		case "/api/ipam/asns/":
+			results = []any{
+				map[string]any{
+					"id": 51, "asn": 64512, "rir": map[string]any{"id": 50}, "tenant": map[string]any{"id": 31},
+					"description": "Primary ASN", "tags": []any{map[string]any{"id": 10}},
+				},
+				map[string]any{"id": 52, "asn": 64513, "rir": map[string]any{"id": 50}},
+			}
+		case "/api/dcim/regions/":
+			results = []any{map[string]any{
+				"id": 1, "name": "World", "slug": "world", "description": "Root", "comments": "Region notes",
+				"owner": map[string]any{"id": 21}, "tags": []any{map[string]any{"id": 10}},
+			}}
+		case "/api/dcim/sites/":
+			results = []any{map[string]any{
+				"id": 2, "name": "Datacenter", "slug": "dc1", "status": map[string]any{"value": "active"},
+				"region": map[string]any{"id": 1}, "group": map[string]any{"id": 40},
+				"tenant": map[string]any{"id": 31}, "owner": map[string]any{"id": 21},
+				"facility": "DC-01", "time_zone": "UTC", "description": "Primary", "comments": "Site notes",
+				"physical_address": "1 Main Street", "shipping_address": "Loading dock", "latitude": 1.25,
+				"longitude": 2.5, "asns": []any{map[string]any{"id": 52}, map[string]any{"id": 51}},
+				"tags": []any{map[string]any{"id": 11}, map[string]any{"id": 10}},
+			}}
+		case "/api/dcim/locations/":
+			results = []any{
+				map[string]any{
+					"id": 3, "name": "Building", "slug": "building", "site": map[string]any{"id": 2},
+					"status": map[string]any{"value": "active"}, "facility": "BLDG-A", "description": "Main building",
+					"comments": "Location notes", "tenant": map[string]any{"id": 31},
+					"owner": map[string]any{"id": 21},
+				},
+				map[string]any{
+					"id": 4, "name": "Room", "slug": "room", "site": map[string]any{"id": 2},
+					"parent": map[string]any{"id": 3}, "status": map[string]any{"value": "active"},
+				},
+			}
+		default:
+			http.NotFound(response, request)
+			return
+		}
+		json.NewEncoder(response).Encode(map[string]any{"next": nil, "results": results})
+	}))
+	defer server.Close()
+
+	request := collectionRequest(server.URL)
+	request.Datasets = []string{"locations"}
+	batch := NewWithClient(server.Client()).Collect(
+		context.Background(),
+		request,
+		&staticSecrets{value: "source-token"},
+	)
+
+	if batch.State != "complete" || len(batch.Observations) != 14 {
+		t.Fatalf("batch state = %q, observations = %d, messages = %+v", batch.State, len(batch.Observations), batch.Messages)
+	}
+	if strings.Join(batch.Datasets, ",") != "references,regions,sites,locations" {
+		t.Fatalf("datasets = %v", batch.Datasets)
+	}
+	site := findObservation(t, batch, "site", "netbox:site:2")
+	if site.ResourceKind != "site" || attributeValue(site, "/comments") != "Site notes" {
+		t.Fatalf("site = %+v", site)
+	}
+	if attributeValue(site, "/asns") != nil || attributeValue(site, "/tags") != nil {
+		t.Fatalf("site references were emitted as attributes: %+v", site.Attributes)
+	}
+	if len(site.Relationships) != 8 || site.Relationships[0].Kind != "asn" || site.Relationships[7].Kind != "tenant" {
+		t.Fatalf("site relationships = %+v", site.Relationships)
+	}
+	child := findObservation(t, batch, "location", "netbox:location:4")
+	if child.ResourceKind != "location" || len(child.Relationships) != 2 {
+		t.Fatalf("child location = %+v", child)
+	}
+	if child.Relationships[0].Kind != "parent" || child.Relationships[1].Kind != "site" {
+		t.Fatalf("child relationships = %+v", child.Relationships)
+	}
+}
+
+func TestCollectRejectsCrossOriginPaginationAsPartial(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(response).Encode(map[string]any{
+			"next": "https://evil.example/api/dcim/regions/?offset=1",
+			"results": []any{
+				map[string]any{"id": 1, "name": "Parent", "slug": "parent"},
+			},
+		})
+	}))
+	defer server.Close()
+
+	batch := NewWithClient(server.Client()).Collect(
+		context.Background(),
+		collectionRequest(server.URL),
+		&staticSecrets{value: "source-token"},
+	)
+
+	if batch.State != "partial" || batch.CompletenessToken != "" {
+		t.Fatalf("state = %q, completeness token = %q", batch.State, batch.CompletenessToken)
+	}
+	if len(batch.Messages) != 1 || batch.Messages[0].Code != "unsafe_pagination_url" {
+		t.Fatalf("messages = %+v", batch.Messages)
+	}
+}
+
+func TestCollectRefusesUnsupportedScopeBeforeNetworkAccess(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		t.Fatal("network request was attempted for unsupported scope")
+		return nil, nil
+	})}
+	request := collectionRequest("https://netbox.example.test")
+	request.Scope = []contracts.ScopeDimension{{Name: "site", Value: "home"}}
+
+	batch := NewWithClient(client).Collect(context.Background(), request, &staticSecrets{value: "source-token"})
+
+	if batch.State != "failed" || len(batch.Messages) != 1 || batch.Messages[0].Code != "unsupported_scope" {
+		t.Fatalf("batch = %+v", batch)
+	}
+}
+
+func TestCollectLetsSourceNetBoxApplyItsConfiguredPageSizeLimit(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Query().Get("limit") != "1000" {
+			t.Errorf("limit = %q, want 1000", request.URL.Query().Get("limit"))
+		}
+		response.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(response).Encode(map[string]any{"next": nil, "results": []any{}})
+	}))
+	defer server.Close()
+	request := collectionRequest(server.URL)
+	request.Configuration["page_size"] = 1000
+	batch := NewWithClient(server.Client()).Collect(
+		context.Background(), request, &staticSecrets{value: "source-token"},
+	)
+
+	if batch.State != "complete" {
+		t.Fatalf("batch = %+v", batch)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return function(request)
+}
+
+func attributeValue(observation contracts.Observation, path string) any {
+	for _, attribute := range observation.Attributes {
+		if attribute.Path == path {
+			return attribute.Value
+		}
+	}
+	return nil
+}
+
+func findObservation(
+	t *testing.T,
+	batch contracts.ObservationBatch,
+	resourceKind string,
+	externalID string,
+) contracts.Observation {
+	t.Helper()
+	for _, observation := range batch.Observations {
+		if observation.ResourceKind == resourceKind && observation.ExternalID == externalID {
+			return observation
+		}
+	}
+	t.Fatalf("observation %s %s was not collected", resourceKind, externalID)
+	return contracts.Observation{}
+}
+
+func isReferenceEndpoint(path string) bool {
+	for _, candidate := range []string{
+		"/api/extras/tags/",
+		"/api/users/owner-groups/",
+		"/api/users/owners/",
+		"/api/tenancy/tenant-groups/",
+		"/api/tenancy/tenants/",
+		"/api/dcim/site-groups/",
+		"/api/ipam/rirs/",
+		"/api/ipam/asns/",
+	} {
+		if path == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func connectionRequest(baseURL string) contracts.ConnectionTestRequest {
+	return contracts.ConnectionTestRequest{
+		SourceID:      "00000000-0000-0000-0000-000000000001",
+		ProviderID:    "netbox",
+		ExecutionMode: "agent",
+		Configuration: map[string]any{
+			"base_url":        baseURL,
+			"token_ref":       "env://NETBOX_TOKEN",
+			"verify_tls":      true,
+			"page_size":       500,
+			"timeout_seconds": 30,
+		},
+	}
+}
+
+func collectionRequest(baseURL string) contracts.CollectionRequest {
+	connection := connectionRequest(baseURL)
+	return contracts.CollectionRequest{
+		RunID:         "00000000-0000-0000-0000-000000000002",
+		SourceID:      connection.SourceID,
+		ProviderID:    connection.ProviderID,
+		ExecutionMode: connection.ExecutionMode,
+		Datasets:      []string{"regions"},
+		Scope:         []contracts.ScopeDimension{},
+		Configuration: connection.Configuration,
+	}
+}

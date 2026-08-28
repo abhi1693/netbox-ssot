@@ -1,0 +1,158 @@
+{% extends 'base/layout.html' %}
+
+{% block title %}{% if editing %}Edit {{ source.name }}{% else %}Connect {{ wizard.provider.display_name }}{% endif %}{% endblock %}
+
+{% block content %}
+  <div class="row justify-content-center">
+    <div class="col-xl-8">
+      <h1 class="d-flex align-items-center gap-2"><i class="{{ wizard.provider.icon_class }} text-primary" aria-hidden="true"></i>{% if editing %}Edit {{ source.name }}{% else %}Connect {{ wizard.provider.display_name }}{% endif %}</h1>
+      <p class="text-secondary">{{ wizard.provider.description }}</p>
+
+      <div class="alert alert-info">
+        Credentials stay on the agent host and are never stored in NetBox.
+      </div>
+
+      <form method="post" novalidate>
+        {% csrf_token %}
+        <div class="card">
+          <div class="card-header"><strong>Source details</strong></div>
+          <div class="card-body">
+            <div class="mb-3">
+              <label class="form-label" for="source-name">Source name <span class="text-danger">*</span></label>
+              <input class="form-control" id="source-name" name="source_name" value="{{ source_name }}" maxlength="100" required>
+            </div>
+            <div id="provider-fields"></div>
+            <div class="mb-3">
+              <label class="form-label" for="collection-interval">Collect every</label>
+              <div class="input-group">
+                <input class="form-control" id="collection-interval" name="collection_interval_minutes" type="number" min="1" max="43200" value="{{ collection_interval_minutes }}" required>
+                <span class="input-group-text">minutes</span>
+              </div>
+              <div class="form-text">The agent automatically fetches updated configuration before running.</div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="assigned-agent">Execution agent</label>
+              <select class="form-select" id="assigned-agent" name="assigned_agent">
+                <option value="">Not assigned</option>
+                {% for choice in agent_choices %}<option value="{{ choice.agent.pk }}" {% if choice.agent.pk|stringformat:"s" == selected_agent %}selected{% endif %} {% if choice.issue and choice.agent.pk|stringformat:"s" != selected_agent %}disabled{% endif %}>{{ choice.agent.name }}{% if choice.issue %} — incompatible: {{ choice.issue }}{% endif %}</option>{% endfor %}
+              </select>
+              <div class="form-text">Only agents advertising the installed provider and contract version can be assigned.</div>
+            </div>
+            {% if editing %}<div class="form-check">
+              <input class="form-check-input" id="source-enabled" name="enabled" type="checkbox" {% if enabled %}checked{% endif %}>
+              <label class="form-check-label" for="source-enabled">Enable automatic collection</label>
+            </div>{% endif %}
+          </div>
+        </div>
+
+        <div class="card mt-3">
+          <div class="card-header"><strong>Collection retention</strong></div>
+          <div class="card-body">
+            <p class="text-secondary">Both successful-run limits apply. Reviewed and applied collections are always protected.</p>
+            <div class="row g-3">
+              <div class="col-md-4">
+                <label class="form-label" for="retention-days">Keep successful collections for</label>
+                <div class="input-group"><input class="form-control" id="retention-days" name="retention_days" type="number" min="1" max="3650" value="{{ retention_days }}" required><span class="input-group-text">days</span></div>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label" for="retention-successful-runs">Keep at most</label>
+                <div class="input-group"><input class="form-control" id="retention-successful-runs" name="retention_successful_runs" type="number" min="1" max="100000" value="{{ retention_successful_runs }}" required><span class="input-group-text">successful runs</span></div>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label" for="retention-failure-days">Keep partial and failed collections for</label>
+                <div class="input-group"><input class="form-control" id="retention-failure-days" name="retention_failure_days" type="number" min="1" max="3650" value="{{ retention_failure_days }}" required><span class="input-group-text">days</span></div>
+              </div>
+            </div>
+            <div class="form-text mt-3">The newest collection and newest successful collection are retained even after these limits. Cleanup runs only through the explicit maintenance command.</div>
+          </div>
+        </div>
+
+        <div class="card mt-3">
+          <div class="card-header"><strong>Data to collect</strong></div>
+          <div class="card-body">
+            {% for dataset in dataset_fields %}
+              <div class="form-check mb-2">
+                <input class="form-check-input" type="checkbox" name="datasets" value="{{ dataset.id }}"
+                       id="dataset-{{ dataset.id }}" {% if dataset.id in selected_datasets %}checked{% endif %}>
+                <label class="form-check-label" for="dataset-{{ dataset.id }}">
+                  <strong>{{ dataset.title }}</strong> — {{ dataset.description }}
+                </label>
+              </div>
+            {% endfor %}
+          </div>
+          <div class="card-footer d-flex justify-content-end gap-2">
+            {% if editing %}<a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_ssot:source_detail' pk=source.pk %}">Cancel</a>{% endif %}
+            <button class="btn btn-primary" type="submit">{% if editing %}Save changes{% else %}Create source{% endif %}</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  {{ wizard_fields|json_script:"provider-field-contract" }}
+  {{ safe_values|json_script:"provider-safe-values" }}
+  {{ editing|json_script:"source-editing" }}
+{% endblock %}
+
+{% block javascript %}
+  {{ block.super }}
+  <script>
+    (() => {
+      const fields = JSON.parse(document.getElementById('provider-field-contract').textContent);
+      const values = JSON.parse(document.getElementById('provider-safe-values').textContent);
+      const editing = JSON.parse(document.getElementById('source-editing').textContent);
+      const container = document.getElementById('provider-fields');
+
+      const makeText = (tag, text, className) => {
+        const element = document.createElement(tag);
+        element.textContent = text;
+        if (className) element.className = className;
+        return element;
+      };
+
+      fields.forEach((field) => {
+        const group = document.createElement('div');
+        group.className = 'mb-3';
+        const label = makeText('label', field.title, 'form-label');
+        label.htmlFor = `provider-field-${field.name}`;
+        if (field.required) label.append(makeText('span', ' *', 'text-danger'));
+        group.append(label);
+
+        let input;
+        if (field.widget === 'select' || field.widget === 'multiselect') {
+          input = document.createElement('select');
+          if (field.widget === 'multiselect') input.multiple = true;
+          field.choices.forEach((choice) => {
+            const option = document.createElement('option');
+            option.value = String(choice);
+            option.textContent = String(choice);
+            const current = values[field.name];
+            option.selected = Array.isArray(current) ? current.includes(choice) : current === choice;
+            input.append(option);
+          });
+        } else {
+          input = document.createElement('input');
+          input.type = field.widget === 'checkbox' ? 'checkbox' : field.widget === 'number' ? 'number' : 'text';
+          if (field.widget === 'url') input.type = 'url';
+          if (field.widget === 'secret-reference') {
+            input.autocomplete = 'off';
+            input.placeholder = editing ? 'Leave blank to keep the current reference' : field.placeholder || 'Opaque secret reference';
+          } else if (field.widget === 'checkbox') {
+            input.checked = values[field.name] ?? field.default ?? false;
+          } else {
+            input.value = values[field.name] ?? field.default ?? '';
+            input.placeholder = field.placeholder || '';
+          }
+        }
+
+        input.id = `provider-field-${field.name}`;
+        input.name = field.name;
+        input.required = field.required && !(editing && field.secret);
+        input.className = field.widget === 'checkbox' ? 'form-check-input' : 'form-control';
+        group.append(input);
+        if (field.description) group.append(makeText('div', field.description, 'form-text'));
+        container.append(group);
+      });
+    })();
+  </script>
+{% endblock %}

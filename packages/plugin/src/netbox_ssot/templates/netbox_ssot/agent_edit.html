@@ -1,0 +1,51 @@
+{% extends 'base/layout.html' %}
+
+{% block title %}Agent settings{% endblock %}
+
+{% block content %}
+  <div class="mb-4"><h1>Agent settings</h1><p class="text-secondary mb-0">{{ agent.name }}</p></div>
+
+  <form method="post" class="card mb-4">
+    {% csrf_token %}
+    <div class="card-body">
+      <div class="mb-3"><label class="form-label" for="name">Name</label><input class="form-control" id="name" name="name" value="{{ agent.name }}" maxlength="100" required></div>
+      <div class="mb-3">
+        <label class="form-label" for="control_interval_seconds">Admin action pickup interval</label>
+        <select class="form-select" id="control_interval_seconds" name="control_interval_seconds">
+          <option value="2"{% if agent.control_interval_seconds == 2 %} selected{% endif %}>2 seconds</option>
+          <option value="5"{% if agent.control_interval_seconds == 5 %} selected{% endif %}>5 seconds</option>
+          <option value="10"{% if agent.control_interval_seconds == 10 %} selected{% endif %}>10 seconds</option>
+          <option value="15"{% if agent.control_interval_seconds == 15 %} selected{% endif %}>15 seconds</option>
+          <option value="30"{% if agent.control_interval_seconds == 30 %} selected{% endif %}>30 seconds</option>
+        </select>
+        <div class="form-hint">Controls heartbeat and administrator-action polling only. Source schedules are unchanged.</div>
+      </div>
+      <label class="form-check form-switch mb-0"><input class="form-check-input" type="checkbox" name="enabled"{% if agent.enabled %} checked{% endif %}><span class="form-check-label">Enabled</span></label>
+    </div>
+    <div class="card-footer d-flex justify-content-end gap-2"><a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_ssot:agent_list' %}">Cancel</a><button class="btn btn-primary" type="submit">Save settings</button></div>
+  </form>
+
+  <div class="card mb-4">
+    <div class="card-header d-flex justify-content-between"><strong>Provider capabilities</strong><span class="text-secondary">Reported {{ agent.capabilities_reported_at|default:"Never" }}</span></div>
+    <div class="table-responsive"><table class="table mb-0"><thead><tr><th>Provider</th><th>Implementation</th><th>Contract</th></tr></thead><tbody>
+      {% for capability in capability_rows %}<tr><td>{{ capability.provider_id }}</td><td><code>{{ capability.implementation_version }}</code></td><td><code>{{ capability.contract_version }}</code></td></tr>{% empty %}<tr><td colspan="3" class="text-secondary">This agent has not reported its compiled providers. Upgrade and restart it before assigning new sources.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-header"><strong>Signing keys</strong></div>
+    <div class="table-responsive"><table class="table mb-0"><thead><tr><th>Fingerprint</th><th>State</th><th>Activated</th><th>Last used</th><th>Retires</th></tr></thead><tbody>
+      {% for key in signing_keys %}<tr><td><code title="{{ key.fingerprint }}">{{ key.fingerprint|slice:":24" }}…</code></td><td><span class="badge text-bg-{% if key.state == 'active' %}success{% elif key.state == 'retiring' %}warning{% elif key.state == 'revoked' %}danger{% else %}secondary{% endif %}">{{ key.get_state_display }}</span></td><td>{{ key.activated_at }}</td><td>{{ key.last_used_at|default:"Never" }}</td><td>{{ key.retire_after|default:"—" }}</td></tr>{% empty %}<tr><td colspan="5" class="text-secondary">No signing keys are recorded.</td></tr>{% endfor %}
+    </tbody></table></div>
+    <div class="card-body border-top"><p class="mb-2">Rotate from the agent host as the owner of the root-managed signing key, then restart the running agent within ten minutes so it reloads the replaced key. The previous key remains valid during that overlap.</p><pre class="mb-0">sudo netbox-ssot-agent rotate-key --endpoint {{ rotation_endpoint }} --agent-id {{ agent.id }} --private-key-ref file:///etc/netbox-ssot-agent/signing-key{% if rotation_endpoint_is_insecure %} --allow-insecure-http{% endif %}
+sudo systemctl restart netbox-ssot-agent</pre></div>
+  </div>
+
+  <div class="card mb-4"><div class="card-header"><strong>Security activity</strong></div><div class="list-group list-group-flush">
+    {% for event in security_events %}<div class="list-group-item"><div class="d-flex justify-content-between"><strong>{{ event.get_kind_display }}</strong><span class="text-secondary">{{ event.occurred_at }}</span></div><div class="small text-secondary">{% if event.actor %}by {{ event.actor }} · {% endif %}{{ event.details }}</div></div>{% empty %}<div class="list-group-item text-secondary">No security activity is recorded.</div>{% endfor %}
+  </div></div>
+
+  <div class="card border-warning mb-4"><div class="card-header text-warning"><strong>Replace agent identity</strong></div><div class="card-body"><p>Use this when moving the agent to another host or recovering from a lost private key. The agent ID and source assignments are preserved.</p><a class="btn btn-warning" href="{% url 'plugins:netbox_ssot:agent_replace' pk=agent.pk %}">Replace agent</a></div></div>
+
+  <div class="card border-danger"><div class="card-header text-danger"><strong>Revoke agent access</strong></div><div class="card-body"><p>Immediately revoke active and overlapping signing keys, disable this agent, and fail its in-progress actions.</p><form method="post" action="{% url 'plugins:netbox_ssot:agent_revoke_keys' pk=agent.pk %}" onsubmit="return confirm('Revoke all signing keys and disable this agent?');">{% csrf_token %}<button class="btn btn-danger" type="submit">Revoke keys and disable</button></form></div></div>
+{% endblock %}

@@ -1,0 +1,160 @@
+{
+  "provider_id": "netbox",
+  "display_name": "NetBox",
+  "icon_class": "mdi mdi-cube-outline",
+  "description": "Collects infrastructure and IPAM data from a remote NetBox REST API.",
+  "instance_url_field": "base_url",
+  "implementation_version": "0.0.4",
+  "contract_version": "1.0",
+  "documentation_url": "https://github.com/abhi1693/netbox-ssot",
+  "execution_modes": [
+    "agent"
+  ],
+  "capabilities": [
+    "source_read"
+  ],
+  "agent_compatibility": {
+    "protocol_version": "1.0",
+    "minimum_agent_version": "0.1.0-alpha.0",
+    "collector_id": "netbox"
+  },
+  "config_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "title": "NetBox source configuration",
+    "description": "Connection settings passed to an enrolled Go agent. Secret values remain agent-local.",
+    "additionalProperties": false,
+    "x-netbox-ssot-order": [
+      "base_url",
+      "token_ref",
+      "verify_tls",
+      "page_size",
+      "timeout_seconds"
+    ],
+    "properties": {
+      "base_url": {
+        "type": "string",
+        "title": "NetBox URL",
+        "description": "Base URL of the source NetBox instance, without the /api path.",
+        "format": "uri",
+        "x-netbox-ssot-placeholder": "https://netbox.example.com"
+      },
+      "token_ref": {
+        "type": "string",
+        "title": "API token reference",
+        "description": "Agent-local env:// or absolute file:/// secret reference. The token itself is never sent to the plugin.",
+        "pattern": "^(env://[A-Z_][A-Z0-9_]*|file:///[^\\s?#]+)$",
+        "writeOnly": true,
+        "x-netbox-ssot-secret": true,
+        "x-netbox-ssot-widget": "secret-reference"
+      },
+      "verify_tls": {
+        "type": "boolean",
+        "title": "Verify TLS",
+        "description": "Require the source certificate to validate against the agent trust store.",
+        "default": true
+      },
+      "page_size": {
+        "type": "integer",
+        "title": "REST page size",
+        "description": "Number of records requested per page. The source NetBox applies its configured MAX_PAGE_SIZE.",
+        "default": 500,
+        "minimum": 1
+      },
+      "timeout_seconds": {
+        "type": "number",
+        "title": "Request timeout",
+        "description": "Per-request timeout in seconds.",
+        "default": 30,
+        "minimum": 1,
+        "maximum": 120
+      }
+    },
+    "required": [
+      "base_url",
+      "token_ref"
+    ]
+  },
+  "secret_fields": [
+    "/token_ref"
+  ],
+  "datasets": [
+    {
+      "id": "references",
+      "title": "Supporting references",
+      "description": "Automatically collected dependencies for complete Region, Site, and Location compatibility.",
+      "resource_kinds": [
+        "tag",
+        "owner_group",
+        "owner",
+        "tenant_group",
+        "tenant",
+        "site_group",
+        "rir",
+        "asn"
+      ],
+      "default_enabled": false,
+      "selectable": false,
+      "completeness": "declared_scope",
+      "depends_on": [],
+      "data_mappings": [
+        {"source_name": "Tag", "source_model": "extras.Tag", "source_path": "extras/tags/", "destination_kind": "tag"},
+        {"source_name": "Owner group", "source_model": "users.OwnerGroup", "source_path": "users/owner-groups/", "destination_kind": "owner_group"},
+        {"source_name": "Owner", "source_model": "users.Owner", "source_path": "users/owners/", "destination_kind": "owner"},
+        {"source_name": "Tenant group", "source_model": "tenancy.TenantGroup", "source_path": "tenancy/tenant-groups/", "destination_kind": "tenant_group"},
+        {"source_name": "Tenant", "source_model": "tenancy.Tenant", "source_path": "tenancy/tenants/", "destination_kind": "tenant"},
+        {"source_name": "Site group", "source_model": "dcim.SiteGroup", "source_path": "dcim/site-groups/", "destination_kind": "site_group"},
+        {"source_name": "RIR", "source_model": "ipam.RIR", "source_path": "ipam/rirs/", "destination_kind": "rir"},
+        {"source_name": "ASN", "source_model": "ipam.ASN", "source_path": "ipam/asns/", "destination_kind": "asn"}
+      ]
+    },
+    {
+      "id": "regions",
+      "title": "Regions",
+      "description": "Complete Region hierarchy, core fields, ownership references, and tags.",
+      "resource_kinds": [
+        "region"
+      ],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": [
+        "references"
+      ],
+      "data_mappings": [
+        {"source_name": "Region", "source_model": "dcim.Region", "source_path": "dcim/regions/", "destination_kind": "region"}
+      ]
+    },
+    {
+      "id": "sites",
+      "title": "Sites",
+      "description": "Complete Site fields and Region placement, including reference identities and tags.",
+      "resource_kinds": [
+        "site"
+      ],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": [
+        "regions"
+      ],
+      "data_mappings": [
+        {"source_name": "Site", "source_model": "dcim.Site", "source_path": "dcim/sites/", "destination_kind": "site"}
+      ]
+    },
+    {
+      "id": "locations",
+      "title": "Locations",
+      "description": "Complete Location hierarchy and Site placement, including reference identities and tags.",
+      "resource_kinds": [
+        "location"
+      ],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": [
+        "sites"
+      ],
+      "data_mappings": [
+        {"source_name": "Location", "source_model": "dcim.Location", "source_path": "dcim/locations/", "destination_kind": "location"}
+      ]
+    }
+  ]
+}

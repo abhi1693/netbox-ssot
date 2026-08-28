@@ -1,0 +1,74 @@
+{% extends 'base/layout.html' %}
+
+{% block title %}Review changes{% endblock %}
+
+{% block content %}
+  <h1>Review changes</h1>
+  <p class="text-secondary"><a href="{% url 'plugins:netbox_ssot:source_detail' pk=comparison.collection_run.source_id %}">{{ comparison.collection_run.source }}</a> · {{ comparison.created_at }}</p>
+
+  {% if application %}
+    <div class="alert alert-success"><strong>Changes applied.</strong> <a class="alert-link" href="{% url 'plugins:netbox_ssot:apply_detail' pk=application.pk %}">View result</a></div>
+  {% elif comparison.conflict_count or comparison.skipped_count %}
+    <div class="alert alert-warning"><strong>Review required.</strong> Some records could not be safely matched or applied.</div>
+  {% elif has_changes %}
+    <div class="alert alert-info"><strong>{{ comparison.create_count|add:comparison.update_count }} changes are ready.</strong> Review them below before applying.</div>
+  {% else %}
+    <div class="alert alert-success"><strong>Everything already matches.</strong> No changes are needed.</div>
+  {% endif %}
+
+  <div class="row row-cols-2 row-cols-lg-5 g-3 mb-3">
+    <div class="col"><div class="card h-100"><div class="card-body"><div class="text-secondary">Creates</div><div class="fs-3">{{ comparison.create_count }}</div></div></div></div>
+    <div class="col"><div class="card h-100"><div class="card-body"><div class="text-secondary">Updates</div><div class="fs-3">{{ comparison.update_count }}</div></div></div></div>
+    <div class="col"><div class="card h-100"><div class="card-body"><div class="text-secondary">Matches</div><div class="fs-3">{{ comparison.no_change_count }}</div></div></div></div>
+    <div class="col"><div class="card h-100"><div class="card-body"><div class="text-secondary">Conflicts</div><div class="fs-3">{{ comparison.conflict_count }}</div></div></div></div>
+    <div class="col"><div class="card h-100"><div class="card-body"><div class="text-secondary">Skipped</div><div class="fs-3">{{ comparison.skipped_count }}</div></div></div></div>
+  </div>
+
+  {% if not application and readiness.ready and has_changes %}
+    <div class="card border-warning mb-3"><div class="card-body">
+      <h2 class="h5">Apply changes</h2>
+      <p>This will create {{ comparison.create_count }} and update {{ comparison.update_count }} local records. Existing destination-only records are left alone.</p>
+      {% if perms.netbox_ssot.add_applyrun %}
+        <form method="post" action="{% url 'plugins:netbox_ssot:apply_add' pk=comparison.pk %}">
+          {% csrf_token %}
+          <div class="form-check mb-3">
+            <input class="form-check-input" id="confirm-apply" name="confirm" type="checkbox" value="apply" required>
+            <label class="form-check-label" for="confirm-apply">I reviewed these changes and want to apply them.</label>
+          </div>
+          <button class="btn btn-warning" type="submit">Apply changes</button>
+        </form>
+      {% else %}
+        <p class="text-secondary mb-0">You do not have permission to apply changes.</p>
+      {% endif %}
+    </div></div>
+  {% elif not application and not readiness.ready %}
+    <div class="alert alert-danger"><h2 class="h5">Apply blocked</h2><ul class="mb-0">{% for reason in readiness.reasons %}<li>{{ reason }}</li>{% endfor %}</ul></div>
+  {% endif %}
+
+  <div class="card mb-3">
+    <div class="card-header"><strong>Review individual records</strong></div>
+    <div class="card-body border-bottom"><form method="get"><div class="row g-2 align-items-end">
+      <div class="col-md-4"><label class="form-label" for="action">Result</label><select class="form-select" id="action" name="action"><option value="">All results</option>{% for value, label in actions %}<option value="{{ value }}" {% if selected_action == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+      <div class="col-md-4"><label class="form-label" for="kind">Data type</label><select class="form-select" id="kind" name="kind"><option value="">All types</option>{% for kind in kinds %}<option value="{{ kind }}" {% if selected_kind == kind %}selected{% endif %}>{{ kind }}</option>{% endfor %}</select></div>
+      <div class="col-md-4"><button class="btn btn-primary" type="submit">Filter</button> <a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_ssot:comparison_detail' pk=comparison.pk %}">Reset</a></div>
+    </div></form></div>
+    <div class="table-responsive"><table class="table table-hover mb-0">
+      <thead><tr><th>Result</th><th>Data type</th><th>Record</th><th>Changes</th><th>Note</th></tr></thead>
+      <tbody>{% for item in page %}<tr>
+        <td><span class="badge {% if item.action == 'create' %}text-bg-success{% elif item.action == 'update' %}text-bg-warning{% elif item.action == 'conflict' %}text-bg-danger{% elif item.action == 'skipped' %}text-bg-secondary{% else %}text-bg-info{% endif %}">{{ item.get_action_display }}</span></td>
+        <td>{{ item.resource_kind }}</td><td><a href="{% url 'plugins:netbox_ssot:comparison_item_detail' comparison_pk=comparison.pk pk=item.pk %}">{{ item.display_name }}</a></td><td>{{ item.changes|length }}</td><td>{{ item.reason }}</td>
+      </tr>{% empty %}<tr><td colspan="5" class="text-secondary">No records match the selected filters.</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </div>
+
+  {% if page.paginator.num_pages > 1 %}<nav class="mb-3"><ul class="pagination">
+    {% if page.has_previous %}<li class="page-item"><a class="page-link" href="?action={{ selected_action }}&kind={{ selected_kind }}&page={{ page.previous_page_number }}">Previous</a></li>{% endif %}
+    <li class="page-item disabled"><span class="page-link">Page {{ page.number }} of {{ page.paginator.num_pages }}</span></li>
+    {% if page.has_next %}<li class="page-item"><a class="page-link" href="?action={{ selected_action }}&kind={{ selected_kind }}&page={{ page.next_page_number }}">Next</a></li>{% endif %}
+  </ul></nav>{% endif %}
+
+  <details class="card"><summary class="card-header"><strong>Technical details</strong></summary><div class="card-body small text-secondary">
+    <p>Collection: <a href="{% url 'plugins:netbox_ssot:run_detail' pk=comparison.collection_run_id %}"><code>{{ comparison.collection_run_id }}</code></a> · Engine {{ comparison.engine_version }}</p>
+    Source digest <code>{{ comparison.source_payload_digest }}</code><br>Target snapshot digest <code>{{ comparison.target_snapshot_digest }}</code>
+  </div></details>
+{% endblock %}
