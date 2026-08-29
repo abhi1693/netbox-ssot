@@ -117,6 +117,25 @@ var datasetEndpoints = map[string][]endpoint{
 		{Path: "dcim/power-panels/", Kind: "power_panel"},
 		{Path: "dcim/power-feeds/", Kind: "power_feed"},
 	},
+	"circuit_catalog": {
+		{Path: "circuits/providers/", Kind: "provider"},
+		{Path: "circuits/provider-accounts/", Kind: "provider_account"},
+		{Path: "circuits/provider-networks/", Kind: "provider_network"},
+		{Path: "circuits/circuit-types/", Kind: "circuit_type"},
+		{Path: "circuits/virtual-circuit-types/", Kind: "virtual_circuit_type"},
+		{Path: "circuits/circuit-groups/", Kind: "circuit_group"},
+	},
+	"circuits": {
+		{Path: "circuits/circuits/", Kind: "circuit"},
+		{Path: "circuits/circuit-terminations/", Kind: "circuit_termination"},
+	},
+	"virtual_circuits": {
+		{Path: "circuits/virtual-circuits/", Kind: "virtual_circuit"},
+		{Path: "circuits/virtual-circuit-terminations/", Kind: "virtual_circuit_termination"},
+	},
+	"circuit_group_assignments": {
+		{Path: "circuits/circuit-group-assignments/", Kind: "circuit_group_assignment"},
+	},
 	"cabling": {
 		{Path: "dcim/cable-bundles/", Kind: "cable_bundle"},
 		{Path: "dcim/cables/", Kind: "cable"},
@@ -771,6 +790,30 @@ func attributesFor(kind string, record map[string]any) []contracts.ObservationAt
 		if values := unsupportedTerminationTypes(record); len(values) > 0 {
 			add("/unsupported_termination_types", values)
 		}
+	case "provider":
+		addFields("name", "slug", "description", "comments")
+	case "provider_account":
+		addFields("account", "name", "description", "comments")
+	case "provider_network":
+		addFields("name", "service_id", "description", "comments")
+	case "circuit_type", "virtual_circuit_type":
+		addFields("name", "slug", "color", "description", "comments")
+	case "circuit_group":
+		addFields("name", "slug", "description", "comments")
+	case "circuit":
+		addFields("cid", "install_date", "termination_date", "commit_rate", "description", "comments")
+		addChoices("status", "distance_unit")
+		addDecimals("distance")
+	case "circuit_termination":
+		addFields("term_side", "port_speed", "upstream_speed", "xconnect_id", "pp_info", "description", "mark_connected")
+	case "virtual_circuit":
+		addFields("cid", "description", "comments")
+		addChoices("status")
+	case "virtual_circuit_termination":
+		addFields("description")
+		addChoices("role")
+	case "circuit_group_assignment":
+		addChoices("priority")
 	}
 	return attributes
 }
@@ -1038,6 +1081,47 @@ func relationshipsFor(kind string, record map[string]any) []contracts.Relationsh
 		addMany("tag", "tag", record["tags"])
 		addTerminations("a", record["a_terminations"])
 		addTerminations("b", record["b_terminations"])
+	case "provider":
+		addMany("asn", "asn", record["asns"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "provider_account", "provider_network":
+		add("provider", "provider", record["provider"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "circuit_type", "virtual_circuit_type":
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "circuit_group":
+		add("tenant", "tenant", record["tenant"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "circuit":
+		add("provider", "provider", record["provider"])
+		add("provider_account", "provider_account", record["provider_account"])
+		add("type", "circuit_type", record["type"])
+		add("tenant", "tenant", record["tenant"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "circuit_termination":
+		add("circuit", "circuit", record["circuit"])
+		addGeneric("termination", record["termination_type"], record["termination_id"])
+		addMany("tag", "tag", record["tags"])
+	case "virtual_circuit":
+		add("provider_network", "provider_network", record["provider_network"])
+		add("provider_account", "provider_account", record["provider_account"])
+		add("type", "virtual_circuit_type", record["type"])
+		add("tenant", "tenant", record["tenant"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "virtual_circuit_termination":
+		add("virtual_circuit", "virtual_circuit", record["virtual_circuit"])
+		add("interface", "interface", record["interface"])
+		addMany("tag", "tag", record["tags"])
+	case "circuit_group_assignment":
+		add("group", "circuit_group", record["group"])
+		addGeneric("member", record["member_type"], record["member_id"])
+		addMany("tag", "tag", record["tags"])
 	}
 	return relationships
 }
@@ -1059,6 +1143,15 @@ func resourceKindForObjectType(objectType string) (string, bool) {
 		"dcim.rearport":                  "rear_port",
 		"dcim.frontport":                 "front_port",
 		"dcim.powerfeed":                 "power_feed",
+		"dcim.region":                    "region",
+		"dcim.sitegroup":                 "site_group",
+		"dcim.site":                      "site",
+		"dcim.location":                  "location",
+		"circuits.provider":              "provider",
+		"circuits.providernetwork":       "provider_network",
+		"circuits.circuit":               "circuit",
+		"circuits.circuittermination":    "circuit_termination",
+		"circuits.virtualcircuit":        "virtual_circuit",
 	}[objectType]
 	return kind, ok
 }

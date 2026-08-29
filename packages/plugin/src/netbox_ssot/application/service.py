@@ -20,8 +20,8 @@ from ..models import (
 )
 from ..planning.adapters import NO_DELETE_FLAGS, AdapterCapabilities, build_adapter_pair
 from ..planning.comparison import ENGINE_VERSION, SUPPORTED_RESOURCE_KINDS, CanonicalRecord, snapshot_digest
-from ..planning.dcim import ATTRIBUTE_FIELDS, RELATIONSHIP_FIELDS, TAGGED_KINDS, relationship_target
 from ..planning.netbox_target import MODEL_BY_KIND, load_netbox_target_records
+from ..planning.resource_registry import ATTRIBUTE_FIELDS, RELATIONSHIP_FIELDS, TAGGED_KINDS, relationship_target
 from ..review import review_integrity_issue
 from .planning import (
     REQUIRED_RELATIONSHIPS,
@@ -532,6 +532,22 @@ def _write_object(
                 target_by_key,
                 object_cache,
             )
+        elif kind == "circuit_termination":
+            obj.termination = _generic_relationship_object(
+                kind,
+                "termination_",
+                relationships,
+                target_by_key,
+                object_cache,
+            )
+        elif kind == "circuit_group_assignment":
+            obj.member = _generic_relationship_object(
+                kind,
+                "member_",
+                relationships,
+                target_by_key,
+                object_cache,
+            )
         elif kind == "cable":
             obj.a_terminations = _cable_termination_objects("a", relationships, target_by_key, object_cache)
             obj.b_terminations = _cable_termination_objects("b", relationships, target_by_key, object_cache)
@@ -550,6 +566,8 @@ def _write_object(
     if kind == "tag":
         obj.object_types.set(_content_types(attributes.get("/object_types", [])))
     if kind == "site":
+        obj.asns.set(_relationship_objects("asn", relationships.get("asn"), target_by_key, object_cache))
+    if kind == "provider":
         obj.asns.set(_relationship_objects("asn", relationships.get("asn"), target_by_key, object_cache))
     if kind in TAGGED_KINDS:
         obj.tags.set(_relationship_objects("tag", relationships.get("tag"), target_by_key, object_cache))

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Protocol, Self, cast
 from diffsync import Adapter, DiffSyncModel
 from diffsync.enum import DiffSyncFlags
 
-from .dcim import ATTRIBUTE_FIELDS, EXTRA_ATTRIBUTE_FIELDS, RELATIONSHIP_FIELDS, TAGGED_KINDS
+from .resource_registry import ATTRIBUTE_FIELDS, EXTRA_ATTRIBUTE_FIELDS, RELATIONSHIP_FIELDS, TAGGED_KINDS
 
 if TYPE_CHECKING:
     from .comparison import CanonicalRecord

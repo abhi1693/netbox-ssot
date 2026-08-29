@@ -4,7 +4,7 @@
   "icon_class": "mdi mdi-cube-outline",
   "description": "Collects infrastructure and IPAM data from a remote NetBox REST API.",
   "instance_url_field": "base_url",
-  "implementation_version": "0.0.7",
+  "implementation_version": "0.0.8",
   "contract_version": "1.0",
   "documentation_url": "https://github.com/abhi1693/netbox-ssot",
   "execution_modes": [
@@ -306,13 +306,70 @@
       ]
     },
     {
+      "id": "circuit_catalog",
+      "title": "Circuit catalog",
+      "description": "Providers, provider accounts and networks, physical and virtual circuit types, and circuit groups.",
+      "resource_kinds": [
+        "provider", "provider_account", "provider_network", "circuit_type", "virtual_circuit_type", "circuit_group"
+      ],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": ["references"],
+      "data_mappings": [
+        {"source_name": "Provider", "source_model": "circuits.Provider", "source_path": "circuits/providers/", "destination_kind": "provider"},
+        {"source_name": "Provider account", "source_model": "circuits.ProviderAccount", "source_path": "circuits/provider-accounts/", "destination_kind": "provider_account"},
+        {"source_name": "Provider network", "source_model": "circuits.ProviderNetwork", "source_path": "circuits/provider-networks/", "destination_kind": "provider_network"},
+        {"source_name": "Circuit type", "source_model": "circuits.CircuitType", "source_path": "circuits/circuit-types/", "destination_kind": "circuit_type"},
+        {"source_name": "Virtual circuit type", "source_model": "circuits.VirtualCircuitType", "source_path": "circuits/virtual-circuit-types/", "destination_kind": "virtual_circuit_type"},
+        {"source_name": "Circuit group", "source_model": "circuits.CircuitGroup", "source_path": "circuits/circuit-groups/", "destination_kind": "circuit_group"}
+      ]
+    },
+    {
+      "id": "circuits",
+      "title": "Circuits",
+      "description": "Physical circuits and their A/Z terminations, including provider, tenancy, geography, and tagging relationships.",
+      "resource_kinds": ["circuit", "circuit_termination"],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": ["locations", "circuit_catalog"],
+      "data_mappings": [
+        {"source_name": "Circuit", "source_model": "circuits.Circuit", "source_path": "circuits/circuits/", "destination_kind": "circuit"},
+        {"source_name": "Circuit termination", "source_model": "circuits.CircuitTermination", "source_path": "circuits/circuit-terminations/", "destination_kind": "circuit_termination"}
+      ]
+    },
+    {
+      "id": "virtual_circuits",
+      "title": "Virtual circuits",
+      "description": "Virtual circuits and their virtual-interface terminations.",
+      "resource_kinds": ["virtual_circuit", "virtual_circuit_termination"],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": ["device_components", "circuit_catalog"],
+      "data_mappings": [
+        {"source_name": "Virtual circuit", "source_model": "circuits.VirtualCircuit", "source_path": "circuits/virtual-circuits/", "destination_kind": "virtual_circuit"},
+        {"source_name": "Virtual circuit termination", "source_model": "circuits.VirtualCircuitTermination", "source_path": "circuits/virtual-circuit-terminations/", "destination_kind": "virtual_circuit_termination"}
+      ]
+    },
+    {
+      "id": "circuit_group_assignments",
+      "title": "Circuit group assignments",
+      "description": "Physical and virtual circuit membership in administrative circuit groups.",
+      "resource_kinds": ["circuit_group_assignment"],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": ["circuits", "virtual_circuits"],
+      "data_mappings": [
+        {"source_name": "Circuit group assignment", "source_model": "circuits.CircuitGroupAssignment", "source_path": "circuits/circuit-group-assignments/", "destination_kind": "circuit_group_assignment"}
+      ]
+    },
+    {
       "id": "cabling",
       "title": "Cabling",
       "description": "Cable bundles and cables with endpoint terminations managed as one aggregate.",
       "resource_kinds": ["cable_bundle", "cable"],
       "default_enabled": true,
       "completeness": "declared_scope",
-      "depends_on": ["device_components", "power"],
+      "depends_on": ["device_components", "power", "circuits"],
       "data_mappings": [
         {"source_name": "Cable bundle", "source_model": "dcim.CableBundle", "source_path": "dcim/cable-bundles/", "destination_kind": "cable_bundle"},
         {"source_name": "Cable", "source_model": "dcim.Cable", "source_path": "dcim/cables/", "destination_kind": "cable"}

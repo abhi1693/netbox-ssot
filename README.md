@@ -9,7 +9,7 @@ The project is being rebuilt from first principles. The current alpha foundation
 - a NetBox plugin with schema-driven sources, one-time agent enrollment, signing-key rotation, immutable observation storage, durable
   comparison previews, guarded local application, receipts, source-object bindings, and agent health visibility;
 - a real NetBox provider descriptor and Go-based read-only collector;
-- end-to-end comparison and guarded apply support for every public writable NetBox 4.6 DCIM resource;
+- end-to-end comparison and guarded apply support for every public writable NetBox 4.6 DCIM and Circuits resource;
 - timestamped Ed25519 batch signing with idempotent plugin ingestion; and
 - architecture decisions that make review, provenance, field ownership, and safe apply mandatory.
 
@@ -239,12 +239,12 @@ Comparison and apply records store their synchronization direction. The local Ne
 atomic write capability, so source-to-target execution is enabled. Target-to-source uses the same adapter contract but
 fails closed until the selected provider supplies an authenticated remote mutation backend.
 
-The NetBox provider exposes dependency-closed datasets for the complete public writable DCIM model surface: geography,
-device and module catalogs, component templates, racks and reservations, devices and installed components, inventory,
-MAC addresses, power, and cabling. Internal aggregate/helper rows such as cable terminations and port mappings travel
-with their owning DCIM object rather than as independent resources. References owned by other NetBox apps remain
-resolve-only: Config Templates and ASN Roles must match exactly, and Rack Reservation users must match a unique local
-username. A cable or generic assignment that crosses into an unsupported app is skipped rather than partially applied.
+The NetBox provider exposes dependency-closed datasets for the complete public writable DCIM and Circuits model
+surfaces: geography, device and module catalogs, component templates, racks and reservations, devices and installed
+components, inventory, MAC addresses, power, circuit catalogs, physical and virtual circuits, circuit groups, and
+cabling. Internal aggregate/helper rows such as cable terminations and port mappings travel with their owning DCIM
+object rather than as independent resources. References outside these owned graphs remain resolve-only or fail closed;
+Config Templates and ASN Roles must match exactly, and Rack Reservation users must match a unique local username.
 
 Deployments that require four-eyes approval can prevent the final reviewer from also applying the comparison:
 
@@ -259,8 +259,9 @@ PLUGINS_CONFIG = {
 ### Current NetBox compatibility scope
 
 The NetBox provider presents dependency-closed datasets spanning geography, catalogs, component templates, racks,
-devices, installed components, inventory, power, and cabling. Supporting resources are included automatically so the
-Go collector emits complete, stable references rather than lossy embedded names.
+devices, installed components, inventory, power, physical and virtual circuits, circuit groups, and cabling. Supporting
+resources are included automatically so the Go collector emits complete, stable references rather than lossy embedded
+names.
 
 Each dataset also declares its provider-native source model and canonical destination kind. The source detail UI joins
 that declaration with the installed destination model registry and presents an explicit source-to-destination mapping;
@@ -281,9 +282,14 @@ the shared UI never assumes that both systems use the same model names.
 - DCIM includes module profiles and types, every public component-template model, Devices and installed components,
   inventory items and MAC addresses, power panels and feeds, cable bundles, and cables. Helper rows such as port
   mappings and cable terminations remain part of their owning aggregate.
+- Circuits includes Providers, Provider Accounts and Networks, physical and virtual Circuit Types, Circuit Groups,
+  Circuits and their terminations, Virtual Circuits and their Interface terminations, and assignments of either circuit
+  kind to a group. Circuit terminations support Region, Site Group, Site, Location, and Provider Network targets.
+- Cables support Circuit Terminations as first-class endpoints. Cabling depends on the physical Circuits dataset so a
+  reviewed apply cannot create a partial cross-app path.
 
-Custom fields, contacts, images, cross-app IPAM/wireless/circuit assignments, and provider-external cable endpoints
-remain outside this compatibility boundary. They require an explicit ownership contract rather than shallow support.
+Custom fields, contacts, images, cross-app IPAM/wireless assignments, and wireless cable endpoints remain outside this
+compatibility boundary. They require an explicit ownership contract rather than shallow support.
 
 ## Safety defaults
 

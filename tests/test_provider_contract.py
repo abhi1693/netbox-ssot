@@ -24,7 +24,7 @@ def test_dataset_selection_adds_dependencies_in_manifest_order() -> None:
 
 
 def test_netbox_provider_is_agent_read_only() -> None:
-    assert MANIFEST.implementation_version == "0.0.7"
+    assert MANIFEST.implementation_version == "0.0.8"
     assert MANIFEST.execution_modes == (ExecutionMode.AGENT,)
     assert MANIFEST.capabilities == (ProviderCapability.SOURCE_READ,)
     assert MANIFEST.agent_compatibility.collector_id == "netbox"
@@ -68,6 +68,10 @@ def test_installed_netbox_provider_is_discovered_by_entry_point() -> None:
         "device_components",
         "rack_reservations",
         "power",
+        "circuit_catalog",
+        "circuits",
+        "virtual_circuits",
+        "circuit_group_assignments",
         "cabling",
     )
     assert MANIFEST.datasets[0].id == "references"
@@ -120,6 +124,17 @@ def test_installed_netbox_provider_is_discovered_by_entry_point() -> None:
         ("dcim.RackReservation", "rack_reservation"),
         ("dcim.PowerPanel", "power_panel"),
         ("dcim.PowerFeed", "power_feed"),
+        ("circuits.Provider", "provider"),
+        ("circuits.ProviderAccount", "provider_account"),
+        ("circuits.ProviderNetwork", "provider_network"),
+        ("circuits.CircuitType", "circuit_type"),
+        ("circuits.VirtualCircuitType", "virtual_circuit_type"),
+        ("circuits.CircuitGroup", "circuit_group"),
+        ("circuits.Circuit", "circuit"),
+        ("circuits.CircuitTermination", "circuit_termination"),
+        ("circuits.VirtualCircuit", "virtual_circuit"),
+        ("circuits.VirtualCircuitTermination", "virtual_circuit_termination"),
+        ("circuits.CircuitGroupAssignment", "circuit_group_assignment"),
         ("dcim.CableBundle", "cable_bundle"),
         ("dcim.Cable", "cable"),
     )

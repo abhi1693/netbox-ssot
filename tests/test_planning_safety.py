@@ -154,7 +154,7 @@ def test_dcim_catalog_and_rack_identities_follow_netbox_uniqueness_context() -> 
     assert rack != natural_identity("rack", {"/name": "A01"}, {"site": site})
 
 
-def test_cross_app_generic_assignments_and_cable_terminations_fail_closed() -> None:
+def test_unsupported_cross_app_generic_assignments_and_cable_terminations_fail_closed() -> None:
     with pytest.raises(ValueError, match="MAC address assignment"):
         natural_identity(
             "mac_address",
@@ -162,12 +162,64 @@ def test_cross_app_generic_assignments_and_cable_terminations_fail_closed() -> N
             {},
         )
 
-    with pytest.raises(ValueError, match=r"circuits\.circuittermination"):
+    with pytest.raises(ValueError, match=r"wireless\.wirelesslink"):
         natural_identity(
             "cable",
-            {"/unsupported_termination_types": ["circuits.circuittermination"]},
+            {"/unsupported_termination_types": ["wireless.wirelesslink"]},
             {"termination_a_interface": ["interface"]},
         )
+
+
+def test_circuit_identities_follow_netbox_uniqueness_context() -> None:
+    provider = natural_identity("provider", {"/slug": "carrier"}, {})
+    account = natural_identity(
+        "provider_account", {"/account": "1234"}, {"provider": provider}
+    )
+    network = natural_identity(
+        "provider_network", {"/name": "backbone"}, {"provider": provider}
+    )
+    circuit_type = natural_identity("circuit_type", {"/slug": "transit"}, {})
+    circuit = natural_identity(
+        "circuit",
+        {"/cid": "CID-1"},
+        {"provider": provider, "provider_account": account, "type": circuit_type},
+    )
+    termination = natural_identity(
+        "circuit_termination",
+        {"/term_side": "A"},
+        {"circuit": circuit, "termination_site": "site"},
+    )
+    virtual_type = natural_identity("virtual_circuit_type", {"/slug": "evpn"}, {})
+    virtual_circuit = natural_identity(
+        "virtual_circuit",
+        {"/cid": "VC-1"},
+        {"provider_network": network, "type": virtual_type},
+    )
+    group = natural_identity("circuit_group", {"/slug": "wan"}, {})
+
+    assert termination == natural_identity(
+        "circuit_termination",
+        {"/term_side": "A"},
+        {"circuit": circuit, "termination_provider_network": network},
+    )
+    assert natural_identity(
+        "virtual_circuit_termination",
+        {},
+        {"virtual_circuit": virtual_circuit, "interface": "interface"},
+    )
+    assert natural_identity(
+        "circuit_group_assignment",
+        {},
+        {"group": group, "member_circuit": circuit},
+    )
+    assert natural_identity(
+        "cable",
+        {},
+        {"termination_a_circuit_termination": [termination]},
+    )
+
+    with pytest.raises(ValueError, match="exactly one supported member"):
+        natural_identity("circuit_group_assignment", {}, {"group": group})
 
 
 def test_relationship_cardinality_preserves_single_many_to_many_values() -> None:
@@ -178,6 +230,8 @@ def test_relationship_cardinality_preserves_single_many_to_many_values() -> None
 
     with pytest.raises(ValueError, match="Scalar relationship"):
         normalize_relationship_cardinality("rack", {"site": ["dc1", "dc2"]})
+
+    assert normalize_relationship_cardinality("provider", {"asn": ["64512"]}) == {"asn": ["64512"]}
 
 
 @pytest.mark.parametrize(

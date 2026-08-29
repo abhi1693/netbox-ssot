@@ -109,6 +109,58 @@ def test_dependency_order_places_dcim_catalog_and_rack_dependencies_first() -> N
     assert positions[("rack_type", "rack-type")] < positions[("rack", "rack")]
 
 
+def test_dependency_order_places_circuit_catalog_endpoints_and_group_members_first() -> None:
+    records = [
+        record(
+            "circuit_group_assignment",
+            "assignment",
+            relationships={"group": "group", "member_virtual_circuit": "virtual-circuit"},
+        ),
+        record(
+            "virtual_circuit_termination",
+            "virtual-termination",
+            relationships={"virtual_circuit": "virtual-circuit", "interface": "interface"},
+        ),
+        record(
+            "virtual_circuit",
+            "virtual-circuit",
+            relationships={"provider_network": "network", "type": "virtual-type"},
+        ),
+        record(
+            "circuit_termination",
+            "termination",
+            relationships={"circuit": "circuit", "termination_location": "location"},
+        ),
+        record("circuit", "circuit", relationships={"provider": "provider", "type": "type"}),
+        record("provider_network", "network", relationships={"provider": "provider"}),
+        record("circuit_group", "group"),
+        record("virtual_circuit_type", "virtual-type"),
+        record("circuit_type", "type"),
+        record("provider", "provider", relationships={"asn": ["asn"]}),
+        record("asn", "asn", relationships={"rir": "rir"}),
+        record("rir", "rir"),
+        record("location", "location", relationships={"site": "site"}),
+        record("site", "site"),
+        record("interface", "interface", relationships={"device": "device"}),
+        record("device", "device", relationships={"site": "site", "device_type": "device-type", "role": "role"}),
+        record("device_type", "device-type", relationships={"manufacturer": "manufacturer"}),
+        record("manufacturer", "manufacturer"),
+        record("device_role", "role"),
+    ]
+
+    positions = {item.key: index for index, item in enumerate(dependency_order(records))}
+
+    assert positions[("provider", "provider")] < positions[("provider_network", "network")]
+    assert positions[("provider_network", "network")] < positions[("virtual_circuit", "virtual-circuit")]
+    assert positions[("virtual_circuit", "virtual-circuit")] < positions[
+        ("circuit_group_assignment", "assignment")
+    ]
+    assert positions[("interface", "interface")] < positions[
+        ("virtual_circuit_termination", "virtual-termination")
+    ]
+    assert positions[("location", "location")] < positions[("circuit_termination", "termination")]
+
+
 def test_dependency_order_rejects_duplicate_identity_and_cycles() -> None:
     duplicate = [record("region", "one"), record("region", "one")]
     with pytest.raises(ApplicationPlanError, match="duplicate"):
@@ -158,3 +210,23 @@ def test_deferred_relationships_are_validated_but_do_not_create_ordering_cycles(
 
     assert relationship_dependencies(virtual_chassis) == (("device", "device"),)
     assert relationship_dependencies(virtual_chassis, include_deferred=False) == ()
+
+
+def test_generic_circuit_relationships_fail_closed_on_ambiguous_cardinality() -> None:
+    with pytest.raises(ApplicationPlanError, match="at most one termination target"):
+        relationship_dependencies(
+            record(
+                "circuit_termination",
+                "termination",
+                relationships={
+                    "circuit": "circuit",
+                    "termination_site": "site",
+                    "termination_location": "location",
+                },
+            )
+        )
+
+    with pytest.raises(ApplicationPlanError, match="exactly one supported member"):
+        relationship_dependencies(
+            record("circuit_group_assignment", "assignment", relationships={"group": "group"})
+        )

@@ -89,7 +89,7 @@ func TestDynamicDCIMRelationshipsUseTheCorrectTargetKinds(t *testing.T) {
 func TestCableRecordsExposeUnsupportedTerminationTypes(t *testing.T) {
 	attributes := attributesFor("cable", map[string]any{
 		"a_terminations": []any{map[string]any{"object_type": "dcim.interface", "object_id": 9}},
-		"b_terminations": []any{map[string]any{"object_type": "circuits.circuittermination", "object_id": 3}},
+		"b_terminations": []any{map[string]any{"object_type": "wireless.wirelesslink", "object_id": 3}},
 	})
 	var got any
 	for _, attribute := range attributes {
@@ -98,8 +98,92 @@ func TestCableRecordsExposeUnsupportedTerminationTypes(t *testing.T) {
 		}
 	}
 	values, ok := got.([]string)
-	if !ok || len(values) != 1 || values[0] != "circuits.circuittermination" {
+	if !ok || len(values) != 1 || values[0] != "wireless.wirelesslink" {
 		t.Fatalf("unsupported termination types = %#v", got)
+	}
+
+	relationships := relationshipsFor("cable", map[string]any{
+		"a_terminations": []any{
+			map[string]any{"object_type": "circuits.circuittermination", "object_id": json.Number("3")},
+		},
+	})
+	if len(relationships) != 1 || relationships[0].TargetKind != "circuit_termination" {
+		t.Fatalf("circuit termination relationships = %+v", relationships)
+	}
+}
+
+func TestCircuitRecordsPreserveTypedFieldsAndPortableRelationships(t *testing.T) {
+	circuitAttributes := attributesFor("circuit", map[string]any{
+		"cid": "CID-100", "status": map[string]any{"value": "active"},
+		"install_date": "2026-01-02", "termination_date": "2028-01-02",
+		"commit_rate": json.Number("1000000"), "distance": json.Number("12.5"),
+		"distance_unit": map[string]any{"value": "km"}, "description": "Primary", "comments": "Notes",
+	})
+	values := make(map[string]any, len(circuitAttributes))
+	for _, attribute := range circuitAttributes {
+		values[attribute.Path] = attribute.Value
+	}
+	if values["/cid"] != "CID-100" || values["/status"] != "active" || values["/distance"] != 12.5 ||
+		values["/distance_unit"] != "km" {
+		t.Fatalf("circuit attributes = %#v", values)
+	}
+
+	tests := []struct {
+		kind   string
+		record map[string]any
+		want   map[string]string
+	}{
+		{
+			kind: "provider",
+			record: map[string]any{
+				"asns":  []any{map[string]any{"id": json.Number("1")}},
+				"owner": map[string]any{"id": json.Number("2")},
+				"tags":  []any{map[string]any{"id": json.Number("3")}},
+			},
+			want: map[string]string{"asn": "asn", "owner": "owner", "tag": "tag"},
+		},
+		{
+			kind: "circuit_termination",
+			record: map[string]any{
+				"circuit":          map[string]any{"id": json.Number("4")},
+				"termination_type": "dcim.location",
+				"termination_id":   json.Number("5"),
+			},
+			want: map[string]string{"circuit": "circuit", "termination_location": "location"},
+		},
+		{
+			kind: "virtual_circuit_termination",
+			record: map[string]any{
+				"virtual_circuit": map[string]any{"id": json.Number("6")},
+				"interface":       map[string]any{"id": json.Number("7")},
+			},
+			want: map[string]string{"virtual_circuit": "virtual_circuit", "interface": "interface"},
+		},
+		{
+			kind: "circuit_group_assignment",
+			record: map[string]any{
+				"group":       map[string]any{"id": json.Number("8")},
+				"member_type": "circuits.virtualcircuit",
+				"member_id":   json.Number("9"),
+			},
+			want: map[string]string{"group": "circuit_group", "member_virtual_circuit": "virtual_circuit"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.kind, func(t *testing.T) {
+			got := map[string]string{}
+			for _, relationship := range relationshipsFor(test.kind, test.record) {
+				got[relationship.Kind] = relationship.TargetKind
+			}
+			if len(got) != len(test.want) {
+				t.Fatalf("relationships = %+v, want %+v", got, test.want)
+			}
+			for kind, targetKind := range test.want {
+				if got[kind] != targetKind {
+					t.Errorf("relationship %q target = %q, want %q", kind, got[kind], targetKind)
+				}
+			}
+		})
 	}
 }
 

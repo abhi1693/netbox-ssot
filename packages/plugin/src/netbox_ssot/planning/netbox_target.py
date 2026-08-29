@@ -3,6 +3,19 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
+from circuits.models import (
+    Circuit,
+    CircuitGroup,
+    CircuitGroupAssignment,
+    CircuitTermination,
+    CircuitType,
+    Provider,
+    ProviderAccount,
+    ProviderNetwork,
+    VirtualCircuit,
+    VirtualCircuitTermination,
+    VirtualCircuitType,
+)
 from dcim.models import (
     Cable,
     CableBundle,
@@ -56,7 +69,7 @@ from tenancy.models import Tenant, TenantGroup
 from users.models import Owner, OwnerGroup
 
 from .comparison import CanonicalRecord, natural_identity, normalize_value
-from .dcim import ATTRIBUTE_FIELDS, RELATIONSHIP_FIELDS, TAGGED_KINDS
+from .resource_registry import ATTRIBUTE_FIELDS, RELATIONSHIP_FIELDS, TAGGED_KINDS
 
 MODEL_BY_KIND = {
     "tag": Tag,
@@ -109,6 +122,17 @@ MODEL_BY_KIND = {
     "mac_address": MACAddress,
     "power_panel": PowerPanel,
     "power_feed": PowerFeed,
+    "provider": Provider,
+    "provider_account": ProviderAccount,
+    "provider_network": ProviderNetwork,
+    "circuit_type": CircuitType,
+    "circuit_group": CircuitGroup,
+    "circuit": Circuit,
+    "circuit_termination": CircuitTermination,
+    "virtual_circuit_type": VirtualCircuitType,
+    "virtual_circuit": VirtualCircuit,
+    "virtual_circuit_termination": VirtualCircuitTermination,
+    "circuit_group_assignment": CircuitGroupAssignment,
     "cable_bundle": CableBundle,
     "cable": Cable,
 }
@@ -136,6 +160,8 @@ def _queryset(resource_kind: str) -> Iterable[Any]:
         "inventory_item": ("component_type",),
         "inventory_item_template": ("component_type",),
         "mac_address": ("assigned_object_type",),
+        "circuit_termination": ("termination_type",),
+        "circuit_group_assignment": ("member_type",),
     }.get(resource_kind, ())
     if extra_related:
         queryset = queryset.select_related(*extra_related)
@@ -148,10 +174,16 @@ def _queryset(resource_kind: str) -> Iterable[Any]:
         prefetch.append("object_types")
     if resource_kind == "site":
         prefetch.append("asns")
+    if resource_kind == "provider":
+        prefetch.append("asns")
     if resource_kind in {"front_port", "front_port_template"}:
         prefetch.append("mappings__rear_port")
     if resource_kind == "cable":
         prefetch.append("terminations")
+    if resource_kind == "circuit_termination":
+        prefetch.append("termination")
+    if resource_kind == "circuit_group_assignment":
+        prefetch.append("member")
     return queryset.prefetch_related(*prefetch) if prefetch else queryset
 
 
@@ -230,7 +262,7 @@ def _relationships(resource_kind: str, obj: Any) -> dict[str, Any]:
         add(name, target_kind, getattr(obj, field_name))
     if resource_kind in TAGGED_KINDS:
         add_many("tag", "tag", obj.tags.all())
-    if resource_kind == "site":
+    if resource_kind == "site" or resource_kind == "provider":
         add_many("asn", "asn", obj.asns.all())
     elif resource_kind == "interface":
         add_many("vdc", "virtual_device_context", obj.vdcs.all())
@@ -247,6 +279,14 @@ def _relationships(resource_kind: str, obj: Any) -> dict[str, Any]:
         target_kind = _kind_for_model(obj.assigned_object)
         if target_kind == "interface":
             add("assigned_interface", target_kind, obj.assigned_object)
+    elif resource_kind == "circuit_termination" and obj.termination is not None:
+        target_kind = _kind_for_model(obj.termination)
+        if target_kind:
+            add(f"termination_{target_kind}", target_kind, obj.termination)
+    elif resource_kind == "circuit_group_assignment" and obj.member is not None:
+        target_kind = _kind_for_model(obj.member)
+        if target_kind:
+            add(f"member_{target_kind}", target_kind, obj.member)
     elif resource_kind == "cable":
         for termination in obj.terminations.all():
             target = termination.termination
@@ -394,6 +434,36 @@ def _target_identity(resource_kind: str, obj: Any) -> str:
     elif resource_kind == "power_feed":
         attributes["/name"] = obj.name
         relationships["power_panel"] = _target_identity("power_panel", obj.power_panel)
+    elif resource_kind in {"provider", "circuit_type", "virtual_circuit_type", "circuit_group"}:
+        attributes["/slug"] = obj.slug
+    elif resource_kind == "provider_account":
+        attributes["/account"] = obj.account
+        relationships["provider"] = _target_identity("provider", obj.provider)
+    elif resource_kind == "provider_network":
+        attributes["/name"] = obj.name
+        relationships["provider"] = _target_identity("provider", obj.provider)
+    elif resource_kind == "circuit":
+        attributes["/cid"] = obj.cid
+        relationships["provider"] = _target_identity("provider", obj.provider)
+    elif resource_kind == "circuit_termination":
+        attributes["/term_side"] = obj.term_side
+        relationships["circuit"] = _target_identity("circuit", obj.circuit)
+        if obj.termination is not None:
+            target_kind = _kind_for_model(obj.termination)
+            if target_kind:
+                relationships[f"termination_{target_kind}"] = _target_identity(target_kind, obj.termination)
+    elif resource_kind == "virtual_circuit":
+        attributes["/cid"] = obj.cid
+        relationships["provider_network"] = _target_identity("provider_network", obj.provider_network)
+    elif resource_kind == "virtual_circuit_termination":
+        relationships["virtual_circuit"] = _target_identity("virtual_circuit", obj.virtual_circuit)
+        relationships["interface"] = _target_identity("interface", obj.interface)
+    elif resource_kind == "circuit_group_assignment":
+        relationships["group"] = _target_identity("circuit_group", obj.group)
+        if obj.member is not None:
+            target_kind = _kind_for_model(obj.member)
+            if target_kind:
+                relationships[f"member_{target_kind}"] = _target_identity(target_kind, obj.member)
     elif resource_kind == "cable":
         for termination in obj.terminations.all():
             target = termination.termination
@@ -410,6 +480,8 @@ def _target_identity(resource_kind: str, obj: Any) -> str:
 def _display_name(attributes: dict[str, Any], fallback: str) -> str:
     return str(
         attributes.get("/name")
+        or attributes.get("/cid")
+        or attributes.get("/account")
         or attributes.get("/model")
         or attributes.get("/asn")
         or attributes.get("/slug")

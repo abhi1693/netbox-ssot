@@ -19,8 +19,8 @@ from .comparison import (
     normalize_value,
     snapshot_digest,
 )
-from .dcim import is_identity_relationship
 from .netbox_target import load_netbox_target_records
+from .resource_registry import is_identity_relationship
 
 
 class ComparisonRejectedError(ValueError):
@@ -318,7 +318,7 @@ def _result_to_draft(result: ComparisonResult) -> ItemDraft:
 
 
 def _display_name(attributes: dict[str, Any], fallback: str) -> str:
-    for path in ("/name", "/asn", "/model", "/address", "/prefix", "/slug"):
+    for path in ("/name", "/cid", "/account", "/asn", "/model", "/address", "/prefix", "/slug"):
         if value := attributes.get(path):
             return str(value)
     return fallback

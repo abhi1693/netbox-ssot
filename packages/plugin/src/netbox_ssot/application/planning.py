@@ -4,14 +4,14 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..planning.comparison import MULTI_RELATIONSHIPS
-from ..planning.dcim import (
+from ..planning.resource_registry import (
     RELATIONSHIP_FIELDS,
     TAGGED_KINDS,
     is_multi_relationship,
     relationship_target,
 )
-from ..planning.dcim import (
-    REQUIRED_RELATIONSHIPS as DCIM_REQUIRED_RELATIONSHIPS,
+from ..planning.resource_registry import (
+    REQUIRED_RELATIONSHIPS as REGISTRY_REQUIRED_RELATIONSHIPS,
 )
 
 RELATIONSHIP_TARGETS: dict[str, dict[str, str]] = {}
@@ -22,14 +22,15 @@ for _kind in TAGGED_KINDS:
 RELATIONSHIP_TARGETS["site"]["asn"] = "asn"
 RELATIONSHIP_TARGETS["interface"]["vdc"] = "virtual_device_context"
 
-REQUIRED_RELATIONSHIPS = {
+BASE_REQUIRED_RELATIONSHIPS = {
     "asn": frozenset({"rir"}),
     "location": frozenset({"site"}),
     "device_type": frozenset({"manufacturer"}),
     "rack_type": frozenset({"manufacturer"}),
     "rack": frozenset({"site"}),
 }
-REQUIRED_RELATIONSHIPS.update(DCIM_REQUIRED_RELATIONSHIPS)
+BASE_REQUIRED_RELATIONSHIPS.update(REGISTRY_REQUIRED_RELATIONSHIPS)
+REQUIRED_RELATIONSHIPS = BASE_REQUIRED_RELATIONSHIPS
 
 
 class ApplicationPlanError(ValueError):
@@ -106,6 +107,14 @@ def relationship_dependencies(
     configured_targets = RELATIONSHIP_TARGETS.get(record.resource_kind)
     if configured_targets is None:
         raise ApplicationPlanError(f"Resource kind {record.resource_kind!r} cannot be applied.")
+    if record.resource_kind == "circuit_termination":
+        termination_targets = [name for name in record.relationships if name.startswith("termination_")]
+        if len(termination_targets) > 1:
+            raise ApplicationPlanError("A circuit termination can contain at most one termination target.")
+    if record.resource_kind == "circuit_group_assignment":
+        members = [name for name in record.relationships if name.startswith("member_")]
+        if len(members) != 1:
+            raise ApplicationPlanError("A circuit group assignment must contain exactly one supported member.")
     dependencies: list[tuple[str, str]] = []
     required = REQUIRED_RELATIONSHIPS.get(record.resource_kind, frozenset())
     for relationship_name in required:

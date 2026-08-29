@@ -7,28 +7,11 @@ from enum import StrEnum
 from typing import Any
 
 from .adapters import build_adapter_pair
-from .dcim import DCIM_RESOURCE_KINDS, is_multi_relationship
 from .diffsync_engine import ComparisonOnlyDiffSyncEngine
+from .resource_registry import ATTRIBUTE_FIELDS, is_multi_relationship
 
-ENGINE_VERSION = "6.0"
-SUPPORTED_RESOURCE_KINDS = (
-    frozenset(
-        {
-            "tag",
-            "owner_group",
-            "owner",
-            "tenant_group",
-            "tenant",
-            "site_group",
-            "rir",
-            "asn",
-            "region",
-            "site",
-            "location",
-        }
-    )
-    | DCIM_RESOURCE_KINDS
-)
+ENGINE_VERSION = "7.0"
+SUPPORTED_RESOURCE_KINDS = frozenset(ATTRIBUTE_FIELDS)
 MULTI_RELATIONSHIPS = {
     "tenant_group": frozenset({"tag"}),
     "tenant": frozenset({"tag"}),
@@ -272,6 +255,25 @@ def natural_identity(
         parts = [resource_kind, required_relationship("site"), required_attribute("name")]
     elif resource_kind == "power_feed":
         parts = [resource_kind, required_relationship("power_panel"), required_attribute("name")]
+    elif resource_kind in {"provider", "circuit_type", "virtual_circuit_type", "circuit_group"}:
+        parts = [resource_kind, "slug", required_attribute("slug")]
+    elif resource_kind == "provider_account":
+        parts = [resource_kind, required_relationship("provider"), required_attribute("account")]
+    elif resource_kind == "provider_network":
+        parts = [resource_kind, required_relationship("provider"), required_attribute("name")]
+    elif resource_kind == "circuit":
+        parts = [resource_kind, required_relationship("provider"), required_attribute("cid")]
+    elif resource_kind == "circuit_termination":
+        parts = [resource_kind, required_relationship("circuit"), required_attribute("term_side")]
+    elif resource_kind == "virtual_circuit":
+        parts = [resource_kind, required_relationship("provider_network"), required_attribute("cid")]
+    elif resource_kind == "virtual_circuit_termination":
+        parts = [resource_kind, required_relationship("interface")]
+    elif resource_kind == "circuit_group_assignment":
+        members = sorted((name, value) for name, value in relationships.items() if name.startswith("member_"))
+        if len(members) != 1:
+            raise ValueError("A circuit group assignment requires exactly one supported member.")
+        parts = [resource_kind, required_relationship("group"), members]
     elif resource_kind == "cable":
         unsupported_terminations = attributes.get("/unsupported_termination_types")
         if unsupported_terminations:

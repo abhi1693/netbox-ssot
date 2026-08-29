@@ -55,8 +55,9 @@ from netbox_ssot.application.service import (
     _write_object,
 )
 from netbox_ssot.planning.comparison import SUPPORTED_RESOURCE_KINDS
-from netbox_ssot.planning.dcim import ATTRIBUTE_FIELDS, DCIM_RESOURCE_KINDS, RELATIONSHIP_FIELDS
+from netbox_ssot.planning.dcim import DCIM_RESOURCE_KINDS
 from netbox_ssot.planning.netbox_target import MODEL_BY_KIND, load_netbox_target_records
+from netbox_ssot.planning.resource_registry import ATTRIBUTE_FIELDS, RELATIONSHIP_FIELDS
 
 
 class DCIMCompleteBundleTests(TestCase):
