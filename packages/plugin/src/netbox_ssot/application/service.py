@@ -12,6 +12,7 @@ from django.db.backends.postgresql.psycopg_any import NumericRange
 from netbox.plugins import get_plugin_config
 from netbox.registry import registry
 
+from ..comparison_presentation import format_relationship_value
 from ..models import (
     ApplyItem,
     ApplyRun,
@@ -22,11 +23,25 @@ from ..models import (
     SynchronizationDirection,
 )
 from ..planning.adapters import NO_DELETE_FLAGS, AdapterCapabilities, build_adapter_pair
-from ..planning.comparison import ENGINE_VERSION, SUPPORTED_RESOURCE_KINDS, CanonicalRecord, snapshot_digest
+from ..planning.comparison import (
+    ENGINE_VERSION,
+    SUPPORTED_RESOURCE_KINDS,
+    CanonicalRecord,
+    natural_identity,
+    snapshot_digest,
+)
 from ..planning.core import PORTABLE_DATA_SOURCE_PARAMETER_KEYS, portable_data_source_parameters
 from ..planning.extras import CONFIG_CONTEXT_MULTI_RELATIONSHIPS, CONTENT_TYPE_LIST_KINDS
 from ..planning.netbox_target import MODEL_BY_KIND, load_netbox_target_records
-from ..planning.resource_registry import ATTRIBUTE_FIELDS, RELATIONSHIP_FIELDS, TAGGED_KINDS, relationship_target
+from ..planning.resource_registry import (
+    ATTRIBUTE_FIELDS,
+    CUSTOM_FIELD_KINDS,
+    RELATIONSHIP_FIELDS,
+    TAGGED_KINDS,
+    custom_field_relationship_name,
+    parse_custom_field_relationship,
+    relationship_target,
+)
 from ..review import review_integrity_issue
 from .planning import (
     REQUIRED_RELATIONSHIPS,
@@ -65,7 +80,7 @@ class ApplicationOutcome:
 
 
 def inspect_application(comparison: ComparisonRun, applied_by: Any | None = None) -> ApplicationReadiness:
-    target_records = load_netbox_target_records()
+    target_records = load_netbox_target_records(datasets=comparison.collection_run.datasets)
     reasons = _readiness_reasons(comparison, target_records, applied_by=applied_by)
     return ApplicationReadiness(
         ready=not reasons,
@@ -88,7 +103,7 @@ def apply_comparison(comparison: ComparisonRun, applied_by: Any) -> ApplicationO
             if existing is not None:
                 return ApplicationOutcome(existing, False)
 
-            target_records = load_netbox_target_records()
+            target_records = load_netbox_target_records(datasets=locked.collection_run.datasets)
             reasons = _readiness_reasons(locked, target_records, applied_by=applied_by)
             if reasons:
                 raise ApplicationRejectedError(" ".join(reasons))
@@ -251,11 +266,18 @@ def _records_by_item(items: list[ComparisonItem]) -> dict[int, ApplicationRecord
         relationships = item.source_data.get("relationships")
         if not isinstance(attributes, dict) or not isinstance(relationships, dict):
             raise ApplicationPlanError(f"Comparison item {item.pk} has malformed source data.")
+        attributes = dict(attributes)
+        relationships = dict(relationships)
+        if item.resource_kind == "rack_reservation" and not relationships.get("user"):
+            legacy_user = attributes.pop("/user", None)
+            if isinstance(legacy_user, str) and legacy_user:
+                relationships["user"] = natural_identity("user", {"/username": legacy_user}, {})
         records[item.pk] = ApplicationRecord(
             resource_kind=item.resource_kind,
             identity_key=item.identity_key,
             attributes=attributes,
             relationships=relationships,
+            display_name=item.display_name,
         )
     return records
 
@@ -271,8 +293,9 @@ def _relationship_problems(
         missing.update(key for key in relationship_dependencies(record) if key not in available)
     if not missing:
         return []
-    examples = ", ".join(f"{kind}:{identity}" for kind, identity in sorted(missing)[:5])
-    return [f"The plan references {len(missing)} dependencies that are absent: {examples}."]
+    examples = ", ".join(format_relationship_value(identity) for _, identity in sorted(missing)[:5])
+    noun = "dependency" if len(missing) == 1 else "dependencies"
+    return [f"The plan references {len(missing)} {noun} absent from both the plan and local NetBox: {examples}."]
 
 
 def _resolve_external_references(
@@ -544,6 +567,7 @@ def _application_record(record: CanonicalRecord) -> ApplicationRecord:
         identity_key=record.identity_key,
         attributes=record.attributes,
         relationships=record.relationships,
+        display_name=record.display_name,
     )
 
 
@@ -579,10 +603,7 @@ def _write_object(
             declared_attributes = {path: value for path, value in attributes.items() if path != "/disk"}
         _write_declared_fields(obj, kind, declared_attributes)
         for relationship_name, (target_kind, field_name) in RELATIONSHIP_FIELDS[kind].items():
-            if (kind, relationship_name) in {
-                ("virtual_chassis", "master"),
-                ("interface", "primary_mac_address"),
-            }:
+            if _is_deferred_write_relationship(kind, relationship_name):
                 continue
             setattr(
                 obj,
@@ -609,8 +630,6 @@ def _write_object(
             )
         elif kind == "module_type":
             obj.attribute_data = attributes.get("/attributes")
-        elif kind == "rack_reservation":
-            obj.user = _scalar_reference(references, "users.user", "username", attributes.get("/user"))
         elif kind in {"inventory_item", "inventory_item_template"}:
             obj.component = _generic_relationship_object(
                 kind,
@@ -704,6 +723,8 @@ def _write_object(
             obj.b_terminations = _cable_termination_objects("b", relationships, target_by_key, object_cache)
         elif kind == "data_source":
             _write_data_source_parameters(obj, attributes)
+        if kind in CUSTOM_FIELD_KINDS and "/custom_fields" in attributes:
+            _write_custom_field_data(obj, record, target_by_key, object_cache)
     else:
         raise ApplicationPlanError(f"Resource kind {record.resource_kind!r} cannot be written.")
 
@@ -713,7 +734,7 @@ def _write_object(
         # The portable graph owns the materialized inline definition, not the
         # source instance's generated DataFile binding or synchronization state.
         obj.data_file = None
-    obj.full_clean()
+    _full_clean_source_object(obj, kind)
     if obj._state.adding and kind in {"device", "module"}:
         super(obj.__class__, obj).save()
     else:
@@ -728,6 +749,11 @@ def _write_object(
         obj.object_types.set(_content_types(attributes.get("/object_types", [])))
     if kind in CONTENT_TYPE_LIST_KINDS:
         obj.object_types.set(_content_types(attributes.get("/object_types", [])))
+    if kind == "owner":
+        obj.user_groups.set(
+            _relationship_objects("user_group", relationships.get("user_group"), target_by_key, object_cache)
+        )
+        obj.users.set(_relationship_objects("user", relationships.get("user"), target_by_key, object_cache))
     if kind == "user_group":
         obj.object_permissions.set(
             _relationship_objects(
@@ -804,6 +830,34 @@ def _write_object(
                 object_cache,
             )
         )
+        obj.tagged_vlans.set(
+            _relationship_objects("vlan", relationships.get("tagged_vlan"), target_by_key, object_cache)
+        )
+        if attributes.get("/manage_wireless_lans") is True:
+            obj.wireless_lans.set(
+                _relationship_objects("wireless_lan", relationships.get("wireless_lan"), target_by_key, object_cache)
+            )
+
+
+def _full_clean_source_object(obj: Any, resource_kind: str) -> None:
+    try:
+        obj.full_clean()
+    except ValidationError as exc:
+        if resource_kind != "user" or set(exc.message_dict) != {"username"}:
+            raise
+        username = obj.username
+        username_field = obj._meta.get_field("username")
+        if (
+            not isinstance(username, str)
+            or not username
+            or "\x00" in username
+            or (username_field.max_length is not None and len(username) > username_field.max_length)
+        ):
+            raise
+        # NetBox installations can contain usernames grandfathered from an older
+        # validator. Preserve the source identity exactly; all other field,
+        # model, uniqueness, and database constraints remain enforced.
+        obj.full_clean(exclude={"username"})
 
 
 def _relationship_object(
@@ -852,6 +906,85 @@ def _write_declared_fields(obj: Any, resource_kind: str, attributes: dict[str, A
             setattr(obj, field_name, None)
         elif field.get_internal_type() in {"CharField", "TextField"}:
             setattr(obj, field_name, "")
+
+
+def _is_deferred_write_relationship(resource_kind: str, relationship_name: str) -> bool:
+    return (
+        (resource_kind == "virtual_chassis" and relationship_name == "master")
+        or (resource_kind == "interface" and relationship_name == "primary_mac_address")
+        or (
+            resource_kind in {"device", "virtual_device_context", "virtual_machine"}
+            and relationship_name in {"primary_ip4", "primary_ip6", "oob_ip"}
+        )
+        or (resource_kind == "vm_interface" and relationship_name == "primary_mac_address")
+    )
+
+
+def _write_custom_field_data(
+    obj: Any,
+    record: ApplicationRecord,
+    target_by_key: dict[tuple[str, str], CanonicalRecord],
+    object_cache: dict[tuple[str, str], Any],
+) -> None:
+    desired = record.attributes.get("/custom_fields")
+    if not isinstance(desired, dict):
+        raise ApplicationPlanError(f"{record.resource_kind} attribute /custom_fields must be an object.")
+    custom_field_model = apps.get_model("extras.customfield")
+    definitions = {
+        custom_field.name: custom_field
+        for custom_field in custom_field_model.objects.get_for_model(obj).select_related("related_object_type")
+    }
+    unknown = sorted(set(desired) - set(definitions))
+    if unknown:
+        raise ApplicationPlanError(
+            f"{record.resource_kind} references unavailable custom fields: {', '.join(unknown[:10])}."
+        )
+
+    values: dict[str, Any] = {}
+    for field_name, value in desired.items():
+        custom_field = definitions[field_name]
+        matching = [
+            (name, parsed)
+            for name in record.relationships
+            if (parsed := parse_custom_field_relationship(name)) is not None and parsed[2] == field_name
+        ]
+        if custom_field.type not in {"object", "multiobject"}:
+            if matching:
+                raise ApplicationPlanError(f"Custom field {field_name!r} cannot contain object relationships.")
+            values[field_name] = value
+            continue
+
+        related_model = custom_field.related_object_type.model_class() if custom_field.related_object_type else None
+        target_kind = next(
+            (kind for kind, model in MODEL_BY_KIND.items() if related_model is not None and model is related_model),
+            None,
+        )
+        if target_kind is None:
+            if value in (None, [], "") and not matching:
+                values[field_name] = None
+                continue
+            raise ApplicationPlanError(f"Custom field {field_name!r} targets an unsupported object type.")
+        multi = custom_field.type == "multiobject"
+        expected_name = custom_field_relationship_name(field_name, target_kind, multi=multi)
+        if any(name != expected_name for name, _ in matching):
+            raise ApplicationPlanError(f"Custom field {field_name!r} contains an incompatible object relationship.")
+        if multi:
+            targets = _relationship_objects(
+                target_kind,
+                record.relationships.get(expected_name),
+                target_by_key,
+                object_cache,
+            )
+            values[field_name] = [target.pk for target in targets] or None
+        else:
+            target = _relationship_object(
+                target_kind,
+                record.relationships.get(expected_name),
+                target_by_key,
+                object_cache,
+            )
+            values[field_name] = target.pk if target is not None else None
+    obj.custom_field_data = values
 
 
 def _write_data_source_parameters(obj: Any, attributes: dict[str, Any]) -> None:
@@ -924,6 +1057,35 @@ def _write_deferred_relationships(
             obj.full_clean()
             obj.save()
         elif record.resource_kind == "interface":
+            obj.primary_mac_address = _relationship_object(
+                "mac_address",
+                record.relationships.get("primary_mac_address"),
+                target_by_key,
+                object_cache,
+            )
+            obj.full_clean()
+            obj.save()
+        elif (
+            record.resource_kind in {"device", "virtual_device_context", "virtual_machine"}
+            and record.attributes.get("/manage_primary_ip_selectors") is True
+        ):
+            selector_names = ["primary_ip4", "primary_ip6"]
+            if record.resource_kind == "device":
+                selector_names.append("oob_ip")
+            for selector_name in selector_names:
+                setattr(
+                    obj,
+                    selector_name,
+                    _relationship_object(
+                        "ip_address",
+                        record.relationships.get(selector_name),
+                        target_by_key,
+                        object_cache,
+                    ),
+                )
+            obj.full_clean()
+            obj.save()
+        elif record.resource_kind == "vm_interface" and record.attributes.get("/manage_primary_mac_selector") is True:
             obj.primary_mac_address = _relationship_object(
                 "mac_address",
                 record.relationships.get("primary_mac_address"),
@@ -1009,17 +1171,6 @@ def _content_type(value: Any, *, required: bool = False) -> Any | None:
 def _load_target_object(record: CanonicalRecord) -> Any:
     model = apps.get_model(record.target_object_type)
     return model.objects.select_for_update().get(pk=record.target_object_id)
-
-
-def _scalar_reference(
-    references: dict[ReferenceRequirement, Any],
-    model_label: str,
-    lookup_field: str,
-    value: Any,
-) -> Any | None:
-    if value in (None, ""):
-        return None
-    return references[ReferenceRequirement(model_label, lookup_field, value)]
 
 
 def _update_bindings(apply_run: ApplyRun, items: list[ComparisonItem], objects_by_item: dict[int, Any]) -> None:

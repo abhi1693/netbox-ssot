@@ -253,6 +253,7 @@ def review_decision_digest(
         "source_payload_digest": comparison.source_payload_digest,
         "target_snapshot_digest": comparison.target_snapshot_digest,
         "engine_version": comparison.engine_version,
+        "direction": comparison.direction,
         "counts": [
             comparison.create_count,
             comparison.update_count,
@@ -261,12 +262,6 @@ def review_decision_digest(
             comparison.skipped_count,
         ],
     }
-    try:
-        direction_is_durable = int(comparison.engine_version.partition(".")[0]) >= 6
-    except ValueError:
-        direction_is_durable = True
-    if direction_is_durable:
-        comparison_payload["direction"] = comparison.direction
     payload = {
         "comparison": comparison_payload,
         "items": [

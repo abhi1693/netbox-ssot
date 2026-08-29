@@ -1017,6 +1017,13 @@ class ComparisonItemDetailView(PermissionRequiredMixin, View):
         next_item = item.comparison.items.filter(sequence__gt=item.sequence).order_by("sequence").first()
         final_review = ComparisonReview.objects.filter(comparison=item.comparison).select_related("reviewed_by").first()
         current_decision = latest_review_decision(item)
+        relationship_identities = _comparison_relationship_identities(item.source_data, item.target_data)
+        relationship_labels = dict(
+            item.comparison.items.filter(identity_key__in=relationship_identities).values_list(
+                "identity_key",
+                "display_name",
+            )
+        )
         return render(
             request,
             self.template_name,
@@ -1031,6 +1038,7 @@ class ComparisonItemDetailView(PermissionRequiredMixin, View):
                     item.target_data,
                     target_exists=bool(item.target_object_id),
                     action=item.action,
+                    relationship_labels=relationship_labels,
                 ),
                 "provider_name": provider_name,
                 "source_name": source_name,
@@ -1042,6 +1050,20 @@ class ComparisonItemDetailView(PermissionRequiredMixin, View):
                 "current_decision": current_decision,
             },
         )
+
+
+def _comparison_relationship_identities(*payloads: Any) -> frozenset[str]:
+    identities: set[str] = set()
+    for payload in payloads:
+        if not isinstance(payload, dict):
+            continue
+        relationships = payload.get("relationships", {})
+        if not isinstance(relationships, dict):
+            continue
+        for value in relationships.values():
+            values = value if isinstance(value, list) else [value]
+            identities.update(item for item in values if isinstance(item, str) and item)
+    return frozenset(identities)
 
 
 class ComparisonReviewActionView(PermissionRequiredMixin, View):

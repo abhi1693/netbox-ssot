@@ -28,7 +28,27 @@ ATTRIBUTE_FIELDS: Final = {
     **vpn.VPN_ATTRIBUTE_FIELDS,
     **wireless.WIRELESS_ATTRIBUTE_FIELDS,
 }
-EXTRA_ATTRIBUTE_FIELDS: Final = {
+CUSTOM_FIELD_KINDS: Final = frozenset(
+    {
+        "aggregate", "asn", "asn_range", "cable", "cable_bundle", "circuit", "circuit_group",
+        "circuit_termination", "circuit_type", "cluster", "cluster_group", "cluster_type", "console_port",
+        "console_server_port", "contact", "contact_assignment", "contact_group", "contact_role", "data_source",
+        "device", "device_bay", "device_role", "device_type", "event_rule", "fhrp_group", "front_port",
+        "ike_policy", "ike_proposal", "interface", "inventory_item", "inventory_item_role", "ip_address",
+        "ip_range", "ipsec_policy", "ipsec_profile", "ipsec_proposal", "l2vpn", "l2vpn_termination",
+        "location", "mac_address", "manufacturer", "module", "module_bay", "module_type",
+        "module_type_profile", "platform", "power_feed", "power_outlet", "power_panel", "power_port", "prefix",
+        "provider", "provider_account", "provider_network", "rack", "rack_group", "rack_reservation",
+        "rack_role", "rack_type", "rear_port", "region", "rir", "role", "route_target", "service",
+        "service_template", "site", "site_group", "tenant", "tenant_group", "tunnel", "tunnel_group",
+        "tunnel_termination", "virtual_chassis", "virtual_circuit", "virtual_circuit_termination",
+        "virtual_circuit_type", "virtual_device_context", "virtual_disk", "virtual_machine",
+        "virtual_machine_type", "vlan", "vlan_group", "vm_interface", "vrf", "webhook", "wireless_lan",
+        "wireless_lan_group", "wireless_link",
+    }
+)
+
+_BASE_EXTRA_ATTRIBUTE_FIELDS: Final = {
     **dcim.EXTRA_ATTRIBUTE_FIELDS,
     **users.USERS_EXTRA_ATTRIBUTE_FIELDS,
     **core.CORE_EXTRA_ATTRIBUTE_FIELDS,
@@ -38,6 +58,25 @@ EXTRA_ATTRIBUTE_FIELDS: Final = {
     **virtualization.VIRTUALIZATION_EXTRA_ATTRIBUTE_FIELDS,
     **vpn.VPN_EXTRA_ATTRIBUTE_FIELDS,
     **wireless.WIRELESS_EXTRA_ATTRIBUTE_FIELDS,
+}
+_PROJECTION_ATTRIBUTE_FIELDS: Final[dict[str, tuple[str, ...]]] = {
+    "device": ("manage_primary_ip_selectors",),
+    "virtual_device_context": ("manage_primary_ip_selectors",),
+    "virtual_machine": ("manage_primary_ip_selectors",),
+    "vm_interface": ("manage_primary_mac_selector",),
+    "interface": ("manage_wireless_lans",),
+}
+EXTRA_ATTRIBUTE_FIELDS: Final = {
+    kind: tuple(
+        dict.fromkeys(
+            (
+                *_BASE_EXTRA_ATTRIBUTE_FIELDS.get(kind, ()),
+                *(_PROJECTION_ATTRIBUTE_FIELDS.get(kind, ())),
+                *(("custom_fields", "unsupported_custom_field_targets") if kind in CUSTOM_FIELD_KINDS else ()),
+            )
+        )
+    )
+    for kind in ATTRIBUTE_FIELDS
 }
 RELATIONSHIP_FIELDS: Final = {
     **dcim.RELATIONSHIP_FIELDS,
@@ -88,7 +127,7 @@ IDENTITY_RELATIONSHIPS: Final = {
 
 
 def relationship_target(resource_kind: str, name: str) -> str | None:
-    return (
+    configured = (
         dcim.relationship_target(resource_kind, name)
         or circuits.circuit_relationship_target(resource_kind, name)
         or users.user_relationship_target(resource_kind, name)
@@ -99,10 +138,16 @@ def relationship_target(resource_kind: str, name: str) -> str | None:
         or vpn.vpn_relationship_target(resource_kind, name)
         or wireless.wireless_relationship_target(resource_kind, name)
     )
+    if configured is not None:
+        return configured
+    parsed = parse_custom_field_relationship(name)
+    if resource_kind in CUSTOM_FIELD_KINDS and parsed is not None:
+        return parsed[1]
+    return None
 
 
 def is_multi_relationship(resource_kind: str, name: str) -> bool:
-    return (
+    configured = (
         dcim.is_multi_relationship(resource_kind, name)
         or (resource_kind == "provider" and name == "asn")
         or users.is_user_multi_relationship(resource_kind, name)
@@ -112,6 +157,10 @@ def is_multi_relationship(resource_kind: str, name: str) -> bool:
         or virtualization.is_virtualization_multi_relationship(resource_kind, name)
         or vpn.is_vpn_multi_relationship(resource_kind, name)
     )
+    if configured:
+        return True
+    parsed = parse_custom_field_relationship(name)
+    return resource_kind in CUSTOM_FIELD_KINDS and parsed is not None and parsed[0]
 
 
 def is_identity_relationship(resource_kind: str, name: str) -> bool:
@@ -124,3 +173,17 @@ def is_identity_relationship(resource_kind: str, name: str) -> bool:
         or vpn.is_vpn_identity_relationship(resource_kind, name)
         or wireless.is_wireless_identity_relationship(resource_kind, name)
     )
+
+
+def custom_field_relationship_name(field_name: str, target_kind: str, *, multi: bool) -> str:
+    cardinality = "multi" if multi else "object"
+    return f"custom_field_{cardinality}_{target_kind}_{field_name}"
+
+
+def parse_custom_field_relationship(name: str) -> tuple[bool, str, str] | None:
+    for multi, cardinality in ((False, "object"), (True, "multi")):
+        for target_kind in sorted(ATTRIBUTE_FIELDS, key=len, reverse=True):
+            prefix = f"custom_field_{cardinality}_{target_kind}_"
+            if name.startswith(prefix) and (field_name := name.removeprefix(prefix)):
+                return multi, target_kind, field_name
+    return None

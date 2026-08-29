@@ -188,6 +188,18 @@ def test_dependency_order_places_data_source_owner_first() -> None:
     assert positions[("owner", "network-team")] < positions[("data_source", "automation")]
 
 
+def test_dependency_order_places_rack_reservation_user_first() -> None:
+    records = [
+        record("rack_reservation", "reservation", relationships={"rack": "rack", "user": "alice"}),
+        record("user", "alice"),
+    ]
+
+    positions = {item.key: index for index, item in enumerate(dependency_order(records))}
+
+    assert external_reference_requirements(records) == ()
+    assert positions[("user", "alice")] < positions[("rack_reservation", "reservation")]
+
+
 def test_dependency_order_rejects_duplicate_identity_and_cycles() -> None:
     duplicate = [record("region", "one"), record("region", "one")]
     with pytest.raises(ApplicationPlanError, match="duplicate"):

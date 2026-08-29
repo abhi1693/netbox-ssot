@@ -1,4 +1,11 @@
-from netbox_ssot.comparison_presentation import comparison_field_rows, field_label, format_comparison_value
+import json
+
+from netbox_ssot.comparison_presentation import (
+    comparison_field_rows,
+    field_label,
+    format_comparison_value,
+    format_relationship_value,
+)
 
 
 def test_comparison_rows_present_exact_matches_without_raw_json() -> None:
@@ -51,3 +58,27 @@ def test_value_formatting_humanizes_common_types() -> None:
     assert format_comparison_value(True) == "Yes"
     assert format_comparison_value(["one", "two"]) == "one, two"
     assert format_comparison_value('["asn","asn",65001]', relationship=True) == "ASN · 65001"
+
+
+def test_relationship_values_use_record_labels_without_serialized_natural_keys() -> None:
+    site = json.dumps(["site", "slug", "dm-akron"], separators=(",", ":"))
+    device = json.dumps(["device", site, "router-01"], separators=(",", ":"))
+    interface = json.dumps(["interface", device, "GigabitEthernet0/0/1"], separators=(",", ":"))
+
+    assert format_comparison_value(
+        interface,
+        relationship=True,
+        relationship_labels={interface: "GigabitEthernet0/0/1"},
+    ) == "Interface · GigabitEthernet0/0/1"
+
+
+def test_nested_relationship_fallback_flattens_embedded_natural_keys() -> None:
+    provider = json.dumps(["provider", "slug", "centurylink"], separators=(",", ":"))
+    circuit = json.dumps(["circuit", provider, "1002840283"], separators=(",", ":"))
+    termination = json.dumps(["circuit_termination", circuit, "Z"], separators=(",", ":"))
+
+    formatted = format_comparison_value(termination, relationship=True)
+
+    assert formatted == "Circuit termination · centurylink / 1002840283 / Z"
+    assert "\\\"" not in formatted
+    assert format_relationship_value('["user","username","bob"]') == "User · bob"

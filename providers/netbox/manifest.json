@@ -82,11 +82,9 @@
     {
       "id": "references",
       "title": "Supporting references",
-      "description": "Automatically collected ownership, tenancy, tagging, grouping, and ASN dependencies.",
+      "description": "Automatically collected tenancy, tagging, grouping, and ASN dependencies.",
       "resource_kinds": [
         "tag",
-        "owner_group",
-        "owner",
         "tenant_group",
         "tenant",
         "site_group",
@@ -97,11 +95,9 @@
       "default_enabled": false,
       "selectable": false,
       "completeness": "declared_scope",
-      "depends_on": [],
+      "depends_on": ["users", "extras_customization"],
       "data_mappings": [
         {"source_name": "Tag", "source_model": "extras.Tag", "source_path": "extras/tags/", "destination_kind": "tag"},
-        {"source_name": "Owner group", "source_model": "users.OwnerGroup", "source_path": "users/owner-groups/", "destination_kind": "owner_group"},
-        {"source_name": "Owner", "source_model": "users.Owner", "source_path": "users/owners/", "destination_kind": "owner"},
         {"source_name": "Tenant group", "source_model": "tenancy.TenantGroup", "source_path": "tenancy/tenant-groups/", "destination_kind": "tenant_group"},
         {"source_name": "Tenant", "source_model": "tenancy.Tenant", "source_path": "tenancy/tenants/", "destination_kind": "tenant"},
         {"source_name": "Site group", "source_model": "dcim.SiteGroup", "source_path": "dcim/site-groups/", "destination_kind": "site_group"},
@@ -184,7 +180,7 @@
     {
       "id": "ipam_vlans",
       "title": "IPAM VLANs",
-      "description": "VLAN groups, VLANs, and translation policies, including cluster-backed scopes. VPN terminations remain outside this provider graph.",
+      "description": "VLAN groups, VLANs, and translation policies, including cluster-backed scopes and VPN dependencies.",
       "resource_kinds": ["vlan_group", "vlan", "vlan_translation_policy", "vlan_translation_rule"],
       "default_enabled": true,
       "completeness": "declared_scope",
@@ -226,7 +222,7 @@
     {
       "id": "ipam_services",
       "title": "IPAM services",
-      "description": "Service templates and services bound to supported devices or FHRP groups. Virtual-machine services remain outside this provider graph.",
+      "description": "Service templates and services bound to supported devices, virtual machines, or FHRP groups.",
       "resource_kinds": ["service_template", "service"],
       "default_enabled": true,
       "completeness": "declared_scope",
@@ -251,15 +247,17 @@
     {
       "id": "users",
       "title": "Users and access control",
-      "description": "Users, groups, and object permissions. Passwords, API tokens, superuser state, login activity, built-in Django permissions, and private user preferences are never copied.",
-      "resource_kinds": ["object_permission", "user_group", "user"],
+      "description": "Users, groups, object permissions, owner groups, owners, and owner memberships. Passwords, API tokens, superuser state, login activity, built-in Django permissions, and private user preferences are never copied.",
+      "resource_kinds": ["object_permission", "user_group", "user", "owner_group", "owner"],
       "default_enabled": true,
       "completeness": "declared_scope",
       "depends_on": [],
       "data_mappings": [
         {"source_name": "Object permission", "source_model": "users.ObjectPermission", "source_path": "users/permissions/", "destination_kind": "object_permission"},
         {"source_name": "Group", "source_model": "users.Group", "source_path": "users/groups/", "destination_kind": "user_group"},
-        {"source_name": "User", "source_model": "users.User", "source_path": "users/users/", "destination_kind": "user"}
+        {"source_name": "User", "source_model": "users.User", "source_path": "users/users/", "destination_kind": "user"},
+        {"source_name": "Owner group", "source_model": "users.OwnerGroup", "source_path": "users/owner-groups/", "destination_kind": "owner_group"},
+        {"source_name": "Owner", "source_model": "users.Owner", "source_path": "users/owners/", "destination_kind": "owner"}
       ]
     },
     {
@@ -269,7 +267,7 @@
       "resource_kinds": ["custom_field_choice_set", "custom_field", "custom_link", "export_template"],
       "default_enabled": true,
       "completeness": "declared_scope",
-      "depends_on": ["references"],
+      "depends_on": ["users"],
       "data_mappings": [
         {"source_name": "Custom field choice set", "source_model": "extras.CustomFieldChoiceSet", "source_path": "extras/custom-field-choice-sets/", "destination_kind": "custom_field_choice_set"},
         {"source_name": "Custom field", "source_model": "extras.CustomField", "source_path": "extras/custom-fields/", "destination_kind": "custom_field"},
@@ -296,7 +294,7 @@
       "resource_kinds": ["saved_filter", "table_config"],
       "default_enabled": true,
       "completeness": "declared_scope",
-      "depends_on": ["users"],
+      "depends_on": ["references"],
       "data_mappings": [
         {"source_name": "Saved filter", "source_model": "extras.SavedFilter", "source_path": "extras/saved-filters/", "destination_kind": "saved_filter"},
         {"source_name": "Table config", "source_model": "extras.TableConfig", "source_path": "extras/table-configs/", "destination_kind": "table_config"}
@@ -390,7 +388,7 @@
     {
       "id": "extras_contexts",
       "title": "Configuration contexts",
-      "description": "Configuration context profiles and contexts for supported DCIM, tenancy, and virtualization qualifiers. Data Source file bindings remain local.",
+      "description": "Configuration context profiles and contexts for supported DCIM, tenancy, virtualization, and Tag qualifiers. Data Source file bindings remain local.",
       "resource_kinds": ["config_context_profile", "config_context"],
       "default_enabled": true,
       "completeness": "declared_scope",
@@ -465,11 +463,11 @@
     {
       "id": "devices",
       "title": "Devices",
-      "description": "Virtual chassis and physical devices with complete DCIM-native placement and catalog references.",
+      "description": "Virtual chassis and physical devices with complete placement, catalog, cluster, and conditionally managed primary IP references.",
       "resource_kinds": ["virtual_chassis", "device"],
       "default_enabled": true,
       "completeness": "declared_scope",
-      "depends_on": ["racks", "component_templates"],
+      "depends_on": ["racks", "component_templates", "virtualization_clusters"],
       "data_mappings": [
         {"source_name": "Virtual chassis", "source_model": "dcim.VirtualChassis", "source_path": "dcim/virtual-chassis/", "destination_kind": "virtual_chassis"},
         {"source_name": "Device", "source_model": "dcim.Device", "source_path": "dcim/devices/", "destination_kind": "device"}
@@ -519,7 +517,7 @@
     {
       "id": "virtualization_machines",
       "title": "Virtual machines",
-      "description": "Virtual machine types and VMs with cluster, standalone device, site, platform, role, tenancy, and configuration relationships. Primary IPs remain IPAM-owned.",
+      "description": "Virtual machine types and VMs with cluster, standalone device, site, platform, role, tenancy, configuration, and conditionally managed primary IP relationships.",
       "resource_kinds": ["virtual_machine_type", "virtual_machine"],
       "default_enabled": true,
       "completeness": "declared_scope",
@@ -532,7 +530,7 @@
     {
       "id": "virtualization_components",
       "title": "Virtual machine components",
-      "description": "VM interfaces and virtual disks with VLAN, VRF, ownership, and tagging relationships. Primary MAC addresses remain assignment-owned.",
+      "description": "VM interfaces and virtual disks with VLAN, VRF, ownership, tagging, and conditionally managed primary MAC relationships.",
       "resource_kinds": ["vm_interface", "virtual_disk"],
       "default_enabled": true,
       "completeness": "declared_scope",
@@ -602,11 +600,11 @@
     {
       "id": "rack_reservations",
       "title": "Rack reservations",
-      "description": "Reserved rack units and their destination user references.",
+      "description": "Reserved rack units and their source users.",
       "resource_kinds": ["rack_reservation"],
       "default_enabled": true,
       "completeness": "declared_scope",
-      "depends_on": ["racks"],
+      "depends_on": ["racks", "users"],
       "data_mappings": [
         {"source_name": "Rack reservation", "source_model": "dcim.RackReservation", "source_path": "dcim/rack-reservations/", "destination_kind": "rack_reservation"}
       ]

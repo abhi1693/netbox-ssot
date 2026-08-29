@@ -10,7 +10,7 @@ from .adapters import build_adapter_pair
 from .diffsync_engine import ComparisonOnlyDiffSyncEngine
 from .resource_registry import ATTRIBUTE_FIELDS, is_multi_relationship
 
-ENGINE_VERSION = "15.0"
+ENGINE_VERSION = "1.0"
 SUPPORTED_RESOURCE_KINDS = frozenset(ATTRIBUTE_FIELDS)
 MULTI_RELATIONSHIPS = {
     "tenant_group": frozenset({"tag"}),
@@ -110,6 +110,13 @@ def natural_identity(
     attributes: dict[str, Any],
     relationships: dict[str, Any],
 ) -> str:
+    unsupported_custom_fields = attributes.get("/unsupported_custom_field_targets")
+    if unsupported_custom_fields:
+        raise ValueError(
+            "Custom fields reference objects outside the supported provider graph: "
+            + ", ".join(str(value) for value in unsupported_custom_fields)
+        )
+
     def required_attribute(name: str) -> Any:
         value = attributes.get(f"/{name}")
         if value is None or value == "":
@@ -459,7 +466,7 @@ def natural_identity(
         units = required_attribute("units")
         if not isinstance(units, list):
             raise ValueError("Rack reservation units must be a list.")
-        parts = [resource_kind, required_relationship("rack"), sorted(units), required_attribute("user")]
+        parts = [resource_kind, required_relationship("rack"), sorted(units), required_relationship("user")]
     elif resource_kind == "power_panel":
         parts = [resource_kind, required_relationship("site"), required_attribute("name")]
     elif resource_kind == "power_feed":

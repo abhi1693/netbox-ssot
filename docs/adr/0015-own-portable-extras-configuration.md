@@ -1,5 +1,7 @@
 # ADR 0015: Own portable Extras configuration without executable, personal, or secret state
 
+- Amended by: ADR 0022
+
 ## Context
 
 NetBox's Extras app mixes declarative configuration with executable Python, user-specific UI preferences, generated
@@ -20,9 +22,8 @@ is the actual resulting state.
 
 Webhook secret, additional-header, and CA-path fields stay destination-local. The collector hashes only the portable
 webhook projection, so those values cannot enter immutable evidence through a digest. Event Rules targeting Webhooks
-or Notification Groups are supported; Script actions fail closed. Virtualization Config Context qualifiers fail closed
-until that application becomes part of the graph. Config Context tag qualifiers remain local because this API surface
-publishes only tag slugs rather than stable source object identifiers.
+or Notification Groups are supported; Script actions fail closed. ADR 0022 subsequently adds supported Virtualization
+Config Context qualifiers and defines Tag slugs as stable identifiers for tag qualifiers.
 
 Script Modules and Scripts, Dashboards, Bookmarks, Notifications, Subscriptions, TaggedItem join rows, Image
 Attachments, and Journal Entries are excluded because they are executable, personal, generated, binary, or historical

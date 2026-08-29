@@ -25,6 +25,7 @@ def comparison_field_rows(
     *,
     target_exists: bool,
     action: str = "",
+    relationship_labels: dict[str, str] | None = None,
 ) -> tuple[ComparisonFieldRow, ...]:
     source = source_data if isinstance(source_data, dict) else {}
     target = target_data if isinstance(target_data, dict) else {}
@@ -54,8 +55,16 @@ def comparison_field_rows(
                     category=category,
                     field=field,
                     label=field_label(field),
-                    provider_value=format_comparison_value(provider_value, relationship=category == "relationships"),
-                    local_value=format_comparison_value(local_value, relationship=category == "relationships"),
+                    provider_value=format_comparison_value(
+                        provider_value,
+                        relationship=category == "relationships",
+                        relationship_labels=relationship_labels,
+                    ),
+                    local_value=format_comparison_value(
+                        local_value,
+                        relationship=category == "relationships",
+                        relationship_labels=relationship_labels,
+                    ),
                     provider_present=provider_present,
                     local_present=local_present,
                     changed=changed,
@@ -76,13 +85,18 @@ def field_label(field: str) -> str:
     return labels.get(normalized.casefold(), normalized.capitalize() or "Value")
 
 
-def format_comparison_value(value: Any, *, relationship: bool = False) -> str:
+def format_comparison_value(
+    value: Any,
+    *,
+    relationship: bool = False,
+    relationship_labels: dict[str, str] | None = None,
+) -> str:
     if value is None:
         return "None"
     if isinstance(value, bool):
         return "Yes" if value else "No"
     if relationship:
-        return _format_relationship_value(value)
+        return format_relationship_value(value, relationship_labels)
     if isinstance(value, (list, tuple, set)):
         return ", ".join(format_comparison_value(item) for item in value) or "None"
     if isinstance(value, dict):
@@ -109,17 +123,21 @@ def _field_status(
     return "Change", "warning"
 
 
-def _format_relationship_value(value: Any) -> str:
+def format_relationship_value(value: Any, relationship_labels: dict[str, str] | None = None) -> str:
+    labels = relationship_labels or {}
     if isinstance(value, str):
         try:
             decoded = json.loads(value)
         except (json.JSONDecodeError, TypeError):
             return value
         if isinstance(decoded, list):
+            label = labels.get(value)
+            if label and not label.startswith("netbox:"):
+                return f"{field_label(str(decoded[0]))} · {label}"
             return _format_identity(decoded)
         return str(decoded)
     if isinstance(value, (list, tuple, set)):
-        return ", ".join(_format_relationship_value(item) for item in value) or "None"
+        return ", ".join(format_relationship_value(item, labels) for item in value) or "None"
     return format_comparison_value(value)
 
 
@@ -127,7 +145,7 @@ def _format_identity(identity: list[Any]) -> str:
     if not identity:
         return "None"
     kind = field_label(str(identity[0]))
-    ignored = {"asn", "name", "root", "slug"}
+    ignored = {"account", "address", "asn", "model", "name", "prefix", "root", "slug", "username"}
     values = [value for value in _identity_values(identity[1:]) if value.casefold() not in ignored]
     return f"{kind} · {' / '.join(values)}" if values else kind
 
@@ -138,9 +156,22 @@ def _identity_values(value: Any) -> list[str]:
         for item in value:
             values.extend(_identity_values(item))
         return values
+    if isinstance(value, str):
+        try:
+            decoded = json.loads(value)
+        except json.JSONDecodeError:
+            return [value]
+        if isinstance(decoded, list):
+            return _identity_values(decoded[1:])
     if value is None:
         return []
     return [str(value)]
 
 
-__all__ = ["ComparisonFieldRow", "comparison_field_rows", "field_label", "format_comparison_value"]
+__all__ = [
+    "ComparisonFieldRow",
+    "comparison_field_rows",
+    "field_label",
+    "format_comparison_value",
+    "format_relationship_value",
+]

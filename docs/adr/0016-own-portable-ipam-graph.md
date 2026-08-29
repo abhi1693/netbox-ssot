@@ -1,5 +1,7 @@
 # ADR 0016: Own the portable IPAM graph
 
+- Amended by: ADR 0022
+
 ## Context
 
 The provider already collected RIRs and ASNs as supporting references, but the rest of NetBox IPAM was outside the
@@ -14,9 +16,8 @@ services. Model all 18 public writable NetBox 4.6 IPAM resources as typed canoni
 Role edge into the first-class support graph.
 
 Support generic relationships only when their target is already owned: DCIM location/rack scopes, physical Interfaces,
-Devices, and IPAM FHRP Groups. Records using Virtualization targets retain their source content-type marker and fail
-portable identity validation, so review reports them as skipped instead of silently dropping the edge. VPN-owned VLAN
-terminations and DCIM-owned primary-IP fields remain outside this bundle.
+Devices, and IPAM FHRP Groups. ADR 0018 subsequently adds Virtualization targets, and ADR 0022 defines dependency-safe
+DCIM/VM primary selectors. Unsupported generic targets still fail closed rather than silently dropping the edge.
 
 Treat `FHRPGroup.auth_key` as destination-local secret material. It is absent from canonical attributes and the raw
 evidence digest is calculated from the portable projection rather than the source API object.

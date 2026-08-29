@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import dataclass
 from typing import Any
 
 from circuits.models import (
@@ -127,7 +128,13 @@ from wireless.models import WirelessLAN, WirelessLANGroup, WirelessLink
 
 from .comparison import CanonicalRecord, natural_identity, normalize_value
 from .core import portable_data_source_parameters
-from .resource_registry import ATTRIBUTE_FIELDS, RELATIONSHIP_FIELDS, TAGGED_KINDS
+from .resource_registry import (
+    ATTRIBUTE_FIELDS,
+    CUSTOM_FIELD_KINDS,
+    RELATIONSHIP_FIELDS,
+    TAGGED_KINDS,
+    custom_field_relationship_name,
+)
 from .tenancy import TENANCY_CONTACT_TARGET_KINDS
 from .virtualization import VIRTUALIZATION_SCOPE_TARGET_KINDS
 from .wireless import WIRELESS_SCOPE_TARGET_KINDS
@@ -253,12 +260,51 @@ MODEL_BY_KIND = {
     "cable_bundle": CableBundle,
     "cable": Cable,
 }
+KIND_BY_MODEL_LABEL = {model._meta.label_lower: kind for kind, model in MODEL_BY_KIND.items()}
 
 
-def load_netbox_target_records() -> list[CanonicalRecord]:
+@dataclass(frozen=True, slots=True)
+class TargetProjection:
+    include_primary_ip_selectors: bool = True
+    include_vm_primary_mac_selector: bool = True
+    include_wireless_lans: bool = True
+
+    @classmethod
+    def for_datasets(cls, datasets: Iterable[str] | None) -> TargetProjection:
+        if datasets is None:
+            return cls()
+        selected = frozenset(datasets)
+        return cls(
+            include_primary_ip_selectors="ipam_addresses" in selected,
+            include_vm_primary_mac_selector="device_components" in selected,
+            include_wireless_lans="wireless_networks" in selected,
+        )
+
+    def includes_relationship(self, resource_kind: str, name: str) -> bool:
+        if resource_kind in {"device", "virtual_device_context", "virtual_machine"} and name in {
+            "primary_ip4",
+            "primary_ip6",
+            "oob_ip",
+        }:
+            return self.include_primary_ip_selectors
+        if resource_kind == "vm_interface" and name == "primary_mac_address":
+            return self.include_vm_primary_mac_selector
+        return True
+
+
+def load_netbox_target_records(*, datasets: Iterable[str] | None = None) -> list[CanonicalRecord]:
     records: list[CanonicalRecord] = []
+    projection = TargetProjection.for_datasets(datasets)
+    custom_fields_by_kind = _custom_field_definitions_by_kind()
     for resource_kind in MODEL_BY_KIND:
-        records.extend(_records(resource_kind, _queryset(resource_kind)))
+        records.extend(
+            _records(
+                resource_kind,
+                _queryset(resource_kind),
+                projection,
+                custom_fields=custom_fields_by_kind.get(resource_kind, ()),
+            )
+        )
     return records
 
 
@@ -337,7 +383,6 @@ def _queryset(resource_kind: str) -> Iterable[Any]:
         "custom_field": ("related_object_type",),
         "table_config": ("object_type",),
         "event_rule": ("action_object_type",),
-        "rack_reservation": ("user",),
         "inventory_item": ("component_type",),
         "inventory_item_template": ("component_type",),
         "mac_address": ("assigned_object_type",),
@@ -360,7 +405,7 @@ def _queryset(resource_kind: str) -> Iterable[Any]:
     if resource_kind in TAGGED_KINDS:
         prefetch.append("tags")
     if resource_kind == "interface":
-        prefetch.append("vdcs")
+        prefetch.extend(("vdcs", "tagged_vlans", "wireless_lans"))
     if resource_kind == "tag":
         prefetch.append("object_types")
     if resource_kind == "object_permission":
@@ -382,6 +427,7 @@ def _queryset(resource_kind: str) -> Iterable[Any]:
                 "cluster_types",
                 "cluster_groups",
                 "clusters",
+                "tags",
             )
         )
     if resource_kind == "notification_group":
@@ -390,6 +436,8 @@ def _queryset(resource_kind: str) -> Iterable[Any]:
         prefetch.append("object_permissions")
     if resource_kind == "user":
         prefetch.extend(("groups", "object_permissions"))
+    if resource_kind == "owner":
+        prefetch.extend(("user_groups", "users"))
     if resource_kind == "site":
         prefetch.append("asns")
     if resource_kind == "provider":
@@ -433,11 +481,21 @@ def _queryset(resource_kind: str) -> Iterable[Any]:
     return queryset.prefetch_related(*prefetch) if prefetch else queryset
 
 
-def _records(resource_kind: str, objects: Iterable[Any]) -> list[CanonicalRecord]:
+def _records(
+    resource_kind: str,
+    objects: Iterable[Any],
+    projection: TargetProjection | None = None,
+    *,
+    custom_fields: tuple[Any, ...] | None = None,
+) -> list[CanonicalRecord]:
+    projection = projection or TargetProjection()
+    object_list = list(objects)
+    custom_fields = _custom_field_definitions(resource_kind) if custom_fields is None else custom_fields
+    custom_field_targets = _custom_field_target_cache(object_list, custom_fields)
     records: list[CanonicalRecord] = []
-    for obj in objects:
-        attributes = _attributes(resource_kind, obj)
-        relationships = _relationships(resource_kind, obj)
+    for obj in object_list:
+        attributes = _attributes(resource_kind, obj, projection, custom_fields, custom_field_targets)
+        relationships = _relationships(resource_kind, obj, projection, custom_fields, custom_field_targets)
         identity_key = natural_identity(resource_kind, attributes, relationships)
         records.append(
             CanonicalRecord(
@@ -454,7 +512,117 @@ def _records(resource_kind: str, objects: Iterable[Any]) -> list[CanonicalRecord
     return records
 
 
-def _attributes(resource_kind: str, obj: Any) -> dict[str, Any]:
+def _custom_field_definitions(resource_kind: str) -> tuple[Any, ...]:
+    if resource_kind not in CUSTOM_FIELD_KINDS:
+        return ()
+    model = MODEL_BY_KIND[resource_kind]
+    return tuple(CustomField.objects.get_for_model(model).select_related("related_object_type"))
+
+
+def _custom_field_definitions_by_kind() -> dict[str, tuple[Any, ...]]:
+    grouped: dict[str, list[Any]] = {resource_kind: [] for resource_kind in CUSTOM_FIELD_KINDS}
+    queryset = CustomField.objects.select_related("related_object_type").prefetch_related("object_types")
+    for custom_field in queryset:
+        for object_type in custom_field.object_types.all():
+            resource_kind = KIND_BY_MODEL_LABEL.get(f"{object_type.app_label}.{object_type.model}")
+            if resource_kind in CUSTOM_FIELD_KINDS:
+                grouped[resource_kind].append(custom_field)
+    return {
+        resource_kind: tuple(sorted(custom_fields, key=lambda custom_field: custom_field.name))
+        for resource_kind, custom_fields in grouped.items()
+    }
+
+
+def _custom_field_target_cache(
+    objects: list[Any],
+    custom_fields: tuple[Any, ...],
+) -> dict[tuple[str, Any], Any]:
+    cache: dict[tuple[str, Any], Any] = {}
+    for custom_field in custom_fields:
+        if custom_field.type not in {"object", "multiobject"} or custom_field.related_object_type is None:
+            continue
+        related_model = custom_field.related_object_type.model_class()
+        if related_model is None or related_model._meta.label_lower not in KIND_BY_MODEL_LABEL:
+            continue
+        target_ids: set[Any] = set()
+        for obj in objects:
+            raw = obj.custom_field_data.get(custom_field.name)
+            if raw in (None, "", []):
+                continue
+            if custom_field.type == "multiobject" and isinstance(raw, list):
+                target_ids.update(raw)
+            else:
+                target_ids.add(raw)
+        for target_id, target in related_model.objects.in_bulk(target_ids).items():
+            cache[(custom_field.name, target_id)] = target
+    return cache
+
+
+def _custom_field_attributes(
+    obj: Any,
+    custom_fields: tuple[Any, ...],
+    target_cache: dict[tuple[str, Any], Any],
+) -> tuple[dict[str, Any], list[str]]:
+    values: dict[str, Any] = {}
+    unsupported: list[str] = []
+    for custom_field in custom_fields:
+        raw = obj.custom_field_data.get(custom_field.name)
+        if custom_field.type not in {"object", "multiobject"}:
+            values[custom_field.name] = raw
+            continue
+        values[custom_field.name] = [] if custom_field.type == "multiobject" and raw not in (None, "") else None
+        related_model = custom_field.related_object_type.model_class() if custom_field.related_object_type else None
+        if raw in (None, "", []):
+            continue
+        if related_model is None or related_model._meta.label_lower not in KIND_BY_MODEL_LABEL:
+            unsupported.append(f"{custom_field.name}:{custom_field.related_object_type}")
+            continue
+        target_ids = raw if custom_field.type == "multiobject" and isinstance(raw, list) else [raw]
+        if any((custom_field.name, target_id) not in target_cache for target_id in target_ids):
+            unsupported.append(f"{custom_field.name}:missing-target")
+    return values, sorted(unsupported)
+
+
+def _add_custom_field_relationships(
+    relationships: dict[str, Any],
+    obj: Any,
+    custom_fields: tuple[Any, ...],
+    target_cache: dict[tuple[str, Any], Any],
+) -> None:
+    for custom_field in custom_fields:
+        if custom_field.type not in {"object", "multiobject"} or custom_field.related_object_type is None:
+            continue
+        related_model = custom_field.related_object_type.model_class()
+        if related_model is None:
+            continue
+        target_kind = KIND_BY_MODEL_LABEL.get(related_model._meta.label_lower)
+        if target_kind is None:
+            continue
+        raw = obj.custom_field_data.get(custom_field.name)
+        if raw in (None, "", []):
+            continue
+        multi = custom_field.type == "multiobject"
+        target_ids = raw if multi and isinstance(raw, list) else [raw]
+        targets = [
+            target_cache[(custom_field.name, target_id)]
+            for target_id in target_ids
+            if (custom_field.name, target_id) in target_cache
+        ]
+        if not targets:
+            continue
+        name = custom_field_relationship_name(custom_field.name, target_kind, multi=multi)
+        identities = sorted(_target_identity(target_kind, target) for target in targets)
+        relationships[name] = identities if multi else identities[0]
+
+
+def _attributes(
+    resource_kind: str,
+    obj: Any,
+    projection: TargetProjection | None = None,
+    custom_fields: tuple[Any, ...] = (),
+    custom_field_targets: dict[tuple[str, Any], Any] | None = None,
+) -> dict[str, Any]:
+    projection = projection or TargetProjection()
     attributes: dict[str, Any] = {}
 
     def add(path: str, value: Any) -> None:
@@ -464,6 +632,19 @@ def _attributes(resource_kind: str, obj: Any) -> dict[str, Any]:
 
     for path in ATTRIBUTE_FIELDS[resource_kind]:
         add(f"/{path}", getattr(obj, path))
+
+    if resource_kind in CUSTOM_FIELD_KINDS:
+        values, _unsupported = _custom_field_attributes(obj, custom_fields, custom_field_targets or {})
+        add("/custom_fields", values)
+    if (
+        resource_kind in {"device", "virtual_device_context", "virtual_machine"}
+        and projection.include_primary_ip_selectors
+    ):
+        add("/manage_primary_ip_selectors", True)
+    if resource_kind == "vm_interface" and projection.include_vm_primary_mac_selector:
+        add("/manage_primary_mac_selector", True)
+    if resource_kind == "interface" and projection.include_wireless_lans:
+        add("/manage_wireless_lans", True)
 
     if resource_kind == "tag":
         object_types = sorted(f"{item.app_label}.{item.model}" for item in obj.object_types.all())
@@ -522,8 +703,6 @@ def _attributes(resource_kind: str, obj: Any) -> dict[str, Any]:
         add("/object_type", f"{obj.object_type.app_label}.{obj.object_type.model}")
     elif resource_kind == "module_type":
         add("/attributes", obj.attribute_data)
-    elif resource_kind == "rack_reservation":
-        add("/user", obj.user.username)
     elif resource_kind in {"inventory_item", "inventory_item_template"}:
         add(
             "/component_type",
@@ -539,7 +718,14 @@ def _attributes(resource_kind: str, obj: Any) -> dict[str, Any]:
     return attributes
 
 
-def _relationships(resource_kind: str, obj: Any) -> dict[str, Any]:
+def _relationships(
+    resource_kind: str,
+    obj: Any,
+    projection: TargetProjection | None = None,
+    custom_fields: tuple[Any, ...] = (),
+    custom_field_targets: dict[tuple[str, Any], Any] | None = None,
+) -> dict[str, Any]:
+    projection = projection or TargetProjection()
     relationships: dict[str, Any] = {}
 
     def add(name: str, target_kind: str, target: Any) -> None:
@@ -552,10 +738,15 @@ def _relationships(resource_kind: str, obj: Any) -> dict[str, Any]:
             relationships[name] = identities
 
     for name, (target_kind, field_name) in RELATIONSHIP_FIELDS[resource_kind].items():
+        if not projection.includes_relationship(resource_kind, name):
+            continue
         add(name, target_kind, getattr(obj, field_name))
     if resource_kind in TAGGED_KINDS:
         add_many("tag", "tag", obj.tags.all())
-    if resource_kind == "user_group":
+    if resource_kind == "owner":
+        add_many("user_group", "user_group", obj.user_groups.all())
+        add_many("user", "user", obj.users.all())
+    elif resource_kind == "user_group":
         add_many("permission", "object_permission", obj.object_permissions.all())
     elif resource_kind == "user":
         add_many("group", "user_group", obj.groups.all())
@@ -627,6 +818,9 @@ def _relationships(resource_kind: str, obj: Any) -> dict[str, Any]:
         add_many("asn", "asn", obj.asns.all())
     elif resource_kind == "interface":
         add_many("vdc", "virtual_device_context", obj.vdcs.all())
+        add_many("tagged_vlan", "vlan", obj.tagged_vlans.all())
+        if projection.include_wireless_lans:
+            add_many("wireless_lan", "wireless_lan", obj.wireless_lans.all())
     elif resource_kind in {"front_port", "front_port_template"}:
         target_kind = "rear_port_template" if resource_kind.endswith("_template") else "rear_port"
         for mapping in obj.mappings.all():
@@ -658,12 +852,17 @@ def _relationships(resource_kind: str, obj: Any) -> dict[str, Any]:
         for value in relationships.values():
             if isinstance(value, list):
                 value.sort()
+    _add_custom_field_relationships(
+        relationships,
+        obj,
+        custom_fields,
+        custom_field_targets or {},
+    )
     return relationships
 
 
 def _kind_for_model(obj: Any) -> str | None:
-    label = obj._meta.label_lower
-    return next((kind for kind, model in MODEL_BY_KIND.items() if model._meta.label_lower == label), None)
+    return KIND_BY_MODEL_LABEL.get(obj._meta.label_lower)
 
 
 def _target_identity(resource_kind: str, obj: Any) -> str:
@@ -958,8 +1157,8 @@ def _target_identity(resource_kind: str, obj: Any) -> str:
                 relationships[f"assigned_{target_kind}"] = _target_identity(target_kind, obj.assigned_object)
     elif resource_kind == "rack_reservation":
         attributes["/units"] = list(obj.units)
-        attributes["/user"] = obj.user.username
         relationships["rack"] = _target_identity("rack", obj.rack)
+        relationships["user"] = _target_identity("user", obj.user)
     elif resource_kind == "power_panel":
         attributes["/name"] = obj.name
         relationships["site"] = _target_identity("site", obj.site)

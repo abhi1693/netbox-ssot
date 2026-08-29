@@ -1,5 +1,7 @@
 # ADR 0018: Own the portable Virtualization graph
 
+- Amended by: ADR 0022
+
 ## Context
 
 NetBox's Virtualization app was absent from the provider graph. Clusters and virtual machines therefore appeared only
@@ -21,9 +23,8 @@ Extend existing generic relationships to recognize Virtualization targets: VM In
 assignments, and MAC addresses; Virtual Machines for services and contacts; and Clusters and Cluster Groups for VLAN
 and config-context scope. Unsupported content types continue to fail closed instead of being silently detached.
 
-Primary VM IPs and interface primary MACs remain derived from their assignment resources. Virtual disk rows own a
-VM's aggregate disk value once they exist. These ownership rules avoid circular plans and match NetBox's native data
-model and signals.
+ADR 0022 subsequently makes primary VM IP and interface primary MAC selectors explicit deferred relationships once
+their assignment resources exist. Virtual disk rows own a VM's aggregate disk value once they exist.
 
 Use slug identities for organizational types, placement-qualified identities for clusters and VMs, and parent-VM plus
 name identities for components. Keep the provider manifest at pre-release version `0.0.1` and advance the comparison

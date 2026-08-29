@@ -17,6 +17,8 @@ MANIFEST = provider_definition().manifest
 def test_dataset_selection_adds_dependencies_in_manifest_order() -> None:
     assert selected_dataset_ids(MANIFEST, ("locations",)) == (
         "references",
+        "users",
+        "extras_customization",
         "regions",
         "sites",
         "locations",
@@ -126,6 +128,12 @@ def test_wireless_closes_over_scope_vlan_and_interface_dependencies() -> None:
     } <= selected
 
 
+def test_rack_reservations_close_over_users() -> None:
+    selected = set(selected_dataset_ids(MANIFEST, ("rack_reservations",)))
+
+    assert {"users", "racks", "rack_reservations"} <= selected
+
+
 def test_netbox_provider_is_agent_read_only() -> None:
     assert MANIFEST.implementation_version == "0.0.1"
     assert MANIFEST.execution_modes == (ExecutionMode.AGENT,)
@@ -227,9 +235,11 @@ def test_installed_netbox_provider_is_discovered_by_entry_point() -> None:
         ("ipam.ServiceTemplate", "service_template"),
         ("ipam.Service", "service"),
         ("core.DataSource", "data_source"),
-        ("users.ObjectPermission", "object_permission"),
-        ("users.Group", "user_group"),
-        ("users.User", "user"),
+            ("users.ObjectPermission", "object_permission"),
+            ("users.Group", "user_group"),
+            ("users.User", "user"),
+            ("users.OwnerGroup", "owner_group"),
+            ("users.Owner", "owner"),
         ("extras.CustomFieldChoiceSet", "custom_field_choice_set"),
         ("extras.CustomField", "custom_field"),
         ("extras.CustomLink", "custom_link"),

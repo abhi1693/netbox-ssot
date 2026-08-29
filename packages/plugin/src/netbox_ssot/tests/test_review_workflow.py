@@ -14,7 +14,12 @@ from django.utils import timezone
 from users.models import ObjectPermission
 
 from netbox_ssot.application.planning import ReferenceRequirement
-from netbox_ssot.application.service import _reference_problem_message, apply_comparison, inspect_application
+from netbox_ssot.application.service import (
+    _records_by_item,
+    _reference_problem_message,
+    apply_comparison,
+    inspect_application,
+)
 from netbox_ssot.models import (
     CollectionRun,
     CollectorAgent,
@@ -396,6 +401,45 @@ class ReviewWorkflowTests(TestCase):
 
         assert response.status_code == 200
         self.assertContains(response, "Approve")
+
+    def test_item_detail_uses_related_record_labels(self) -> None:
+        self.reviewer.is_superuser = True
+        self.reviewer.save(update_fields=("is_superuser",))
+        self.client.force_login(self.reviewer)
+        self.items[0].source_data = {
+            **self.items[0].source_data,
+            "relationships": {"parent": self.items[1].identity_key},
+        }
+        ComparisonItem.objects.filter(pk=self.items[0].pk).update(source_data=self.items[0].source_data)
+
+        response = self.client.get(
+            reverse(
+                "plugins:netbox_ssot:comparison_item_detail",
+                kwargs={"comparison_pk": self.comparison.pk, "pk": self.items[0].pk},
+            )
+        )
+
+        assert response.status_code == 200
+        parent_row = next(row for row in response.context["field_rows"] if row.field == "parent")
+        assert parent_row.provider_value == "Region · Region 1"
+
+    def test_legacy_rack_reservation_user_is_normalized_to_a_relationship(self) -> None:
+        item = self.items[0]
+        item.resource_kind = "rack_reservation"
+        item.display_name = "Rack reservation 1"
+        item.source_data = {
+            "attributes": {"/units": [20, 21], "/user": "bob"},
+            "relationships": {"rack": '["rack","site","R101"]'},
+        }
+
+        record = _records_by_item([item])[item.pk]
+
+        assert record.attributes == {"/units": [20, 21]}
+        assert record.relationships == {
+            "rack": '["rack","site","R101"]',
+            "user": '["user","username","bob"]',
+        }
+        assert record.display_name == "Rack reservation 1"
 
     def test_review_page_explains_why_apply_is_unavailable(self) -> None:
         self.comparison.skipped_count = 1

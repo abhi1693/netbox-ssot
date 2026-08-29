@@ -1,5 +1,7 @@
 # ADR 0017: Own portable Tenancy contacts and assignments
 
+- Amended by: ADR 0022
+
 ## Context
 
 Tenant Groups and Tenants were already collected as supporting references, but NetBox's contact directory and generic
@@ -30,6 +32,6 @@ Assignment is identified by its target object, Contact, and Contact Role, matchi
 - Selecting contact assignments pulls the contact directory and all supported target datasets into one complete plan.
 - Contact details are intentionally treated as portable configuration and therefore appear in immutable evidence and
   review. Operators must scope access to that evidence appropriately.
-- Assignments to Virtualization, Wireless, or other not-yet-owned app models remain visible as skipped records.
+- Assignments to provider-owned contact-capable models are supported; other target models remain visible as skipped.
 - The provider implementation remains at pre-release version `0.0.1`; the comparison engine advances to 12.0. Agents
   must embed the current collector manifest before the new datasets can be assigned.

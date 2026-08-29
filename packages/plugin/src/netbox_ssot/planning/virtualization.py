@@ -26,7 +26,7 @@ VIRTUALIZATION_ATTRIBUTE_FIELDS: Final[dict[str, tuple[str, ...]]] = {
         "description",
         "comments",
     ),
-    # Primary IPs are assigned through IPAM after VM interfaces exist. NetBox
+    # Primary IP selectors are applied after IPAM assignments exist. NetBox
     # treats disk as an aggregate when VirtualDisk rows exist; the writer lets
     # those rows update the aggregate after their own mutations.
     "virtual_machine": (
@@ -41,7 +41,7 @@ VIRTUALIZATION_ATTRIBUTE_FIELDS: Final[dict[str, tuple[str, ...]]] = {
         "comments",
         "local_context_data",
     ),
-    # primary_mac_address is derived from the MACAddress assignment graph.
+    # The primary MAC selector is applied after MACAddress assignments exist.
     "vm_interface": ("name", "enabled", "mtu", "description", "mode"),
     "virtual_disk": ("name", "description", "size"),
 }
@@ -73,6 +73,8 @@ VIRTUALIZATION_RELATIONSHIP_FIELDS: Final[dict[str, dict[str, tuple[str, str]]]]
         "role": ("device_role", "role"),
         "config_template": ("config_template", "config_template"),
         "owner": ("owner", "owner"),
+        "primary_ip4": ("ip_address", "primary_ip4"),
+        "primary_ip6": ("ip_address", "primary_ip6"),
     },
     "vm_interface": {
         "virtual_machine": ("virtual_machine", "virtual_machine"),
@@ -82,6 +84,7 @@ VIRTUALIZATION_RELATIONSHIP_FIELDS: Final[dict[str, dict[str, tuple[str, str]]]]
         "qinq_svlan": ("vlan", "qinq_svlan"),
         "vlan_translation_policy": ("vlan_translation_policy", "vlan_translation_policy"),
         "vrf": ("vrf", "vrf"),
+        "primary_mac_address": ("mac_address", "primary_mac_address"),
         "owner": ("owner", "owner"),
     },
     "virtual_disk": {

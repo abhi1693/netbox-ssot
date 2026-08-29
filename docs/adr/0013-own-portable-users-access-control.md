@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-08-29
+- Amended by: ADR 0022
 
 ## Context
 
@@ -23,8 +24,10 @@ Permissions own their selected object types, actions, enabled state, constraints
 Object Permission memberships. Users own their Group and direct Object Permission memberships plus username, ordinary
 profile fields, and active state. Dependencies are ordered Object Permission, then Group, then User.
 
-Usernames are matched case-insensitively, consistent with NetBox validation. Group and Object Permission names are
-matched exactly; duplicate names fail closed as ambiguous identities. New users are created with unusable passwords.
+Usernames are matched case-insensitively. Group and Object Permission names are matched exactly; duplicate names fail
+closed as ambiguous identities. A source installation can contain a username grandfathered under an older character
+validator. Such a non-empty, database-length-safe username is preserved exactly rather than silently renamed; every
+other User validation and the destination database uniqueness constraint remain enforced. New users are created with unusable passwords.
 Existing passwords are never read or changed. Superuser state, API Tokens, login timestamps, built-in Django
 permissions, UserConfig data, and Owner-to-user/group memberships are not collected or applied.
 
@@ -39,5 +42,5 @@ advances because the supported resource graph changed; the provider implementati
 - A source cannot inject passwords, token material, or superuser status into observations or plans.
 - Creating a user never creates a usable login credential; a destination administrator must establish authentication
   through a separate approved process.
-- Selecting infrastructure datasets does not import Owner membership bridges or the Users dataset implicitly.
+- ADR 0022 subsequently moves Owner Groups, Owners, and their membership bridges into the Users dependency graph.
 - Existing comparisons must be regenerated under the new engine version before apply.

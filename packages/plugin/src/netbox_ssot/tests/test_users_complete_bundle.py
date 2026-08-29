@@ -8,7 +8,7 @@ from django.apps import apps
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
-from users.models import Group, ObjectPermission
+from users.models import Group, ObjectPermission, Owner, OwnerGroup
 
 from netbox_ssot.application.planning import ApplicationRecord, dependency_order
 from netbox_ssot.application.service import (
@@ -51,11 +51,21 @@ class UsersCompleteBundleTests(TestCase):
         )
         user.groups.add(group)
         user.object_permissions.add(permission)
+        owner_group = OwnerGroup.objects.create(name=f"Infrastructure {suffix}", description="Managed owners")
+        owner = Owner.objects.create(
+            name=f"Network automation {suffix}",
+            description="Portable owner",
+            group=owner_group,
+        )
+        owner.user_groups.add(group)
+        owner.users.add(user)
 
         selected = {
             ("object_permission", str(permission.pk)),
             ("user_group", str(group.pk)),
             ("user", str(user.pk)),
+            ("owner_group", str(owner_group.pk)),
+            ("owner", str(owner.pk)),
         }
         canonical = [
             record
@@ -76,6 +86,14 @@ class UsersCompleteBundleTests(TestCase):
             forbidden not in user_record.attributes
             for forbidden in {"/password", "/is_superuser", "/date_joined", "/last_login"}
         )
+        owner_record = next(record for record in canonical if record.resource_kind == "owner")
+        assert owner_record.relationships == {
+            "group": next(record.identity_key for record in canonical if record.resource_kind == "owner_group"),
+            "user_group": [
+                next(record.identity_key for record in canonical if record.resource_kind == "user_group")
+            ],
+            "user": [user_record.identity_key],
+        }
 
         expected = {(record.resource_kind, record.identity_key): record.payload for record in canonical}
         records = [
@@ -83,6 +101,8 @@ class UsersCompleteBundleTests(TestCase):
             for record in canonical
         ]
 
+        owner.delete()
+        owner_group.delete()
         user.delete()
         group.delete()
         permission.delete()
@@ -117,3 +137,29 @@ class UsersCompleteBundleTests(TestCase):
         recreated_user.refresh_from_db()
         assert recreated_user.check_password("destination-only-password")
         assert recreated_user.is_superuser
+
+    def test_grandfathered_username_is_preserved_without_sanitizing(self) -> None:
+        suffix = uuid4().hex[:8]
+        username = f"legacy-{suffix}#"
+        user_model = get_user_model()
+        legacy_user = user_model.objects.create(username=username, is_active=True)
+        source = next(
+            record
+            for record in load_netbox_target_records(datasets=("users",))
+            if record.resource_kind == "user" and record.target_object_id == str(legacy_user.pk)
+        )
+        legacy_user.delete()
+
+        record = ApplicationRecord(
+            source.resource_kind,
+            source.identity_key,
+            source.attributes,
+            source.relationships,
+            source.display_name,
+        )
+        recreated = MODEL_BY_KIND[record.resource_kind]()
+        _write_object(recreated, record, {}, {}, {})
+
+        recreated.refresh_from_db()
+        assert recreated.username == username
+        assert not recreated.has_usable_password()

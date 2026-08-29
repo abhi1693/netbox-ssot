@@ -50,8 +50,6 @@ DCIM_RESOURCE_KINDS: Final = frozenset(
 
 ATTRIBUTE_FIELDS: Final[dict[str, tuple[str, ...]]] = {
     "tag": ("name", "slug", "color", "description", "weight"),
-    "owner_group": ("name", "description"),
-    "owner": ("name", "description"),
     "tenant_group": ("name", "slug", "description", "comments"),
     "tenant": ("name", "slug", "description", "comments"),
     "site_group": ("name", "slug", "description", "comments"),
@@ -257,7 +255,6 @@ ATTRIBUTE_FIELDS: Final[dict[str, tuple[str, ...]]] = {
 EXTRA_ATTRIBUTE_FIELDS: Final[dict[str, tuple[str, ...]]] = {
     "tag": ("object_types",),
     "module_type": ("attributes",),
-    "rack_reservation": ("user",),
     "inventory_item": ("component_type",),
     "inventory_item_template": ("component_type",),
     "mac_address": ("assigned_object_type",),
@@ -265,9 +262,7 @@ EXTRA_ATTRIBUTE_FIELDS: Final[dict[str, tuple[str, ...]]] = {
 
 # relationship name -> (target resource kind, model attribute)
 RELATIONSHIP_FIELDS: Final[dict[str, dict[str, tuple[str, str]]]] = {
-    "tag": {"owner": ("owner", "owner")},
-    "owner_group": {},
-    "owner": {"group": ("owner_group", "group")},
+    "tag": {},
     "tenant_group": {"parent": ("tenant_group", "parent"), "owner": ("owner", "owner")},
     "tenant": {"group": ("tenant_group", "group"), "owner": ("owner", "owner")},
     "site_group": {"parent": ("site_group", "parent"), "owner": ("owner", "owner")},
@@ -377,13 +372,19 @@ RELATIONSHIP_FIELDS: Final[dict[str, dict[str, tuple[str, str]]]] = {
         "site": ("site", "site"),
         "location": ("location", "location"),
         "rack": ("rack", "rack"),
+        "cluster": ("cluster", "cluster"),
         "virtual_chassis": ("virtual_chassis", "virtual_chassis"),
+        "primary_ip4": ("ip_address", "primary_ip4"),
+        "primary_ip6": ("ip_address", "primary_ip6"),
+        "oob_ip": ("ip_address", "oob_ip"),
         "config_template": ("config_template", "config_template"),
         "owner": ("owner", "owner"),
     },
     "virtual_device_context": {
         "device": ("device", "device"),
         "tenant": ("tenant", "tenant"),
+        "primary_ip4": ("ip_address", "primary_ip4"),
+        "primary_ip6": ("ip_address", "primary_ip6"),
         "owner": ("owner", "owner"),
     },
     "module": {
@@ -395,10 +396,13 @@ RELATIONSHIP_FIELDS: Final[dict[str, dict[str, tuple[str, str]]]] = {
     "module_bay": {
         "device": ("device", "device"),
         "module": ("module", "module"),
-        "parent": ("module_bay", "parent"),
         "owner": ("owner", "owner"),
     },
-    "device_bay": {"device": ("device", "device"), "owner": ("owner", "owner")},
+    "device_bay": {
+        "device": ("device", "device"),
+        "installed_device": ("device", "installed_device"),
+        "owner": ("owner", "owner"),
+    },
     "console_port": {"device": ("device", "device"), "module": ("module", "module"), "owner": ("owner", "owner")},
     "console_server_port": {
         "device": ("device", "device"),
@@ -418,6 +422,10 @@ RELATIONSHIP_FIELDS: Final[dict[str, dict[str, tuple[str, str]]]] = {
         "parent": ("interface", "parent"),
         "bridge": ("interface", "bridge"),
         "lag": ("interface", "lag"),
+        "untagged_vlan": ("vlan", "untagged_vlan"),
+        "qinq_svlan": ("vlan", "qinq_svlan"),
+        "vlan_translation_policy": ("vlan_translation_policy", "vlan_translation_policy"),
+        "vrf": ("vrf", "vrf"),
         "primary_mac_address": ("mac_address", "primary_mac_address"),
         "owner": ("owner", "owner"),
     },
@@ -433,6 +441,7 @@ RELATIONSHIP_FIELDS: Final[dict[str, dict[str, tuple[str, str]]]] = {
     "mac_address": {"owner": ("owner", "owner")},
     "rack_reservation": {
         "rack": ("rack", "rack"),
+        "user": ("user", "user"),
         "tenant": ("tenant", "tenant"),
         "owner": ("owner", "owner"),
     },
@@ -506,7 +515,7 @@ REQUIRED_RELATIONSHIPS: Final[dict[str, frozenset[str]]] = {
     "front_port": frozenset({"device"}),
     "rear_port": frozenset({"device"}),
     "inventory_item": frozenset({"device"}),
-    "rack_reservation": frozenset({"rack"}),
+    "rack_reservation": frozenset({"rack", "user"}),
     "power_panel": frozenset({"site"}),
     "power_feed": frozenset({"power_panel"}),
 }
@@ -558,7 +567,7 @@ IDENTITY_RELATIONSHIPS: Final[dict[str, frozenset[str]]] = {
     "module_bay": frozenset({"device", "module"}),
     "inventory_item": frozenset({"device", "parent"}),
     "mac_address": frozenset(),
-    "rack_reservation": frozenset({"rack"}),
+    "rack_reservation": frozenset({"rack", "user"}),
     "power_panel": frozenset({"site"}),
     "power_feed": frozenset({"power_panel"}),
     "cable": frozenset(),
@@ -580,6 +589,10 @@ def relationship_target(resource_kind: str, name: str) -> str | None:
         return "tag"
     if resource_kind == "interface" and name == "vdc":
         return "virtual_device_context"
+    if resource_kind == "interface" and name == "tagged_vlan":
+        return "vlan"
+    if resource_kind == "interface" and name == "wireless_lan":
+        return "wireless_lan"
     if resource_kind in {"front_port", "front_port_template"} and name.startswith("mapping_"):
         return "rear_port_template" if resource_kind.endswith("_template") else "rear_port"
     if resource_kind in {"inventory_item", "inventory_item_template"} and name.startswith("component_"):
@@ -599,6 +612,7 @@ def is_multi_relationship(resource_kind: str, name: str) -> bool:
     return (
         name == "tag"
         or (resource_kind == "interface" and name == "vdc")
+        or (resource_kind == "interface" and name in {"tagged_vlan", "wireless_lan"})
         or (resource_kind == "cable" and name.startswith(("termination_a_", "termination_b_")))
     )
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from ..planning.comparison import MULTI_RELATIONSHIPS
+from ..planning.comparison import MULTI_RELATIONSHIPS, natural_identity
 from ..planning.resource_registry import (
     RELATIONSHIP_FIELDS,
     TAGGED_KINDS,
@@ -43,6 +43,7 @@ class ApplicationRecord:
     identity_key: str
     attributes: dict[str, Any]
     relationships: dict[str, Any]
+    display_name: str = ""
 
     @property
     def key(self) -> tuple[str, str]:
@@ -83,14 +84,10 @@ def dependency_order(records: list[ApplicationRecord]) -> list[ApplicationRecord
 
 
 def external_reference_requirements(records: list[ApplicationRecord]) -> tuple[ReferenceRequirement, ...]:
-    requirements: set[ReferenceRequirement] = set()
     for record in records:
-        attributes = record.attributes
         if record.resource_kind not in RELATIONSHIP_TARGETS:
             raise ApplicationPlanError(f"Resource kind {record.resource_kind!r} cannot be applied.")
-        if record.resource_kind == "rack_reservation":
-            _add_scalar(requirements, attributes, "/user", "users.user", "username")
-    return tuple(sorted(requirements))
+    return ()
 
 
 def relationship_dependencies(
@@ -148,8 +145,11 @@ def relationship_dependencies(
     required = REQUIRED_RELATIONSHIPS.get(record.resource_kind, frozenset())
     for relationship_name in required:
         if record.relationships.get(relationship_name) in (None, "", []):
+            resource_label = record.resource_kind.replace("_", " ").capitalize()
+            record_label = record.display_name or record.identity_key
+            relationship_label = relationship_name.replace("_", " ").title()
             raise ApplicationPlanError(
-                f"{record.resource_kind} {record.identity_key} requires relationship {relationship_name}."
+                f"{resource_label} {record_label!r} requires a {relationship_label} relationship."
             )
     for relationship_name, value in record.relationships.items():
         target_kind = configured_targets.get(relationship_name) or relationship_target(
@@ -180,6 +180,17 @@ def relationship_dependencies(
                 )
             if include_deferred or not _deferred_relationship(record.resource_kind, relationship_name):
                 dependencies.append((target_kind, identity))
+    custom_fields = record.attributes.get("/custom_fields")
+    if custom_fields is not None:
+        if not isinstance(custom_fields, dict):
+            raise ApplicationPlanError(f"{record.resource_kind} attribute /custom_fields must be an object.")
+        dependencies.extend(
+            (
+                "custom_field",
+                natural_identity("custom_field", {"/name": field_name}, {}),
+            )
+            for field_name in custom_fields
+        )
     return tuple(dependencies)
 
 
@@ -187,23 +198,10 @@ def _deferred_relationship(resource_kind: str, relationship_name: str) -> bool:
     return (
         (resource_kind == "virtual_chassis" and relationship_name == "master")
         or (resource_kind == "interface" and relationship_name == "primary_mac_address")
+        or (
+            resource_kind in {"device", "virtual_device_context", "virtual_machine"}
+            and relationship_name in {"primary_ip4", "primary_ip6", "oob_ip"}
+        )
+        or (resource_kind == "vm_interface" and relationship_name == "primary_mac_address")
         or relationship_name.startswith("mapping_")
     )
-
-
-def _add_scalar(
-    requirements: set[ReferenceRequirement],
-    attributes: dict[str, Any],
-    path: str,
-    model_label: str,
-    lookup_field: str,
-) -> None:
-    value = attributes.get(path)
-    if value not in (None, ""):
-        requirements.add(ReferenceRequirement(model_label, lookup_field, _reference_value(value)))
-
-
-def _reference_value(value: Any) -> str | int:
-    if isinstance(value, bool) or not isinstance(value, (str, int)):
-        raise ApplicationPlanError("External reference values must be strings or integers.")
-    return value

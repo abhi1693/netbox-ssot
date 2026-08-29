@@ -69,7 +69,7 @@ def create_comparison(
                 cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
 
         source_records, rejected = _load_source_records(collection_run)
-        target_records = load_netbox_target_records()
+        target_records = load_netbox_target_records(datasets=collection_run.datasets)
         target_digest = snapshot_digest(target_records)
         existing = ComparisonRun.objects.filter(
             collection_run=collection_run,

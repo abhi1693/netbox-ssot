@@ -72,7 +72,7 @@ class SourceDatasetUITests(TestCase):
 
         assert response.status_code == 200
         self.assertContains(response, "Supporting dataset")
-        self.assertContains(response, "Automatically collected ownership")
+        self.assertContains(response, "Automatically collected tenancy")
         self.assertContains(response, "extras.Tag")
         self.assertContains(response, "ipam.ASN")
 

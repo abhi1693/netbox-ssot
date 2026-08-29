@@ -66,6 +66,117 @@ func TestEveryManifestMappingHasTheSameCompiledEndpoint(t *testing.T) {
 	}
 }
 
+func TestUsersDatasetOwnsOwnerMemberships(t *testing.T) {
+	manifest, err := New().Manifest()
+	if err != nil {
+		t.Fatalf("Manifest() error = %v", err)
+	}
+	var userKinds []string
+	for _, dataset := range manifest.Datasets {
+		if dataset.ID == "users" {
+			for _, kind := range dataset.ResourceKinds {
+				userKinds = append(userKinds, string(kind))
+			}
+		}
+	}
+	if !slices.Contains(userKinds, "owner_group") || !slices.Contains(userKinds, "owner") {
+		t.Fatalf("users resource kinds = %v", userKinds)
+	}
+
+	relationships := relationshipsFor("owner", map[string]any{
+		"group":       map[string]any{"id": json.Number("1")},
+		"user_groups": []any{map[string]any{"id": json.Number("2")}},
+		"users":       []any{map[string]any{"id": json.Number("3")}},
+	})
+	got := map[string]string{}
+	for _, relationship := range relationships {
+		got[relationship.Kind] = relationship.TargetKind
+	}
+	want := map[string]string{"group": "owner_group", "user_group": "user_group", "user": "user"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("owner relationships = %#v, want %#v", got, want)
+	}
+}
+
+func TestCustomFieldValuesUseTypedPortableRelationships(t *testing.T) {
+	record := map[string]any{
+		"id": json.Number("1"), "name": "Region", "slug": "region",
+		"custom_fields": map[string]any{
+			"support_tier": "gold",
+			"failover_site": map[string]any{
+				"id": json.Number("12"), "url": "https://netbox.example.test/api/dcim/sites/12/",
+			},
+			"peer_sites": []any{
+				map[string]any{"id": json.Number("12"), "url": "https://netbox.example.test/api/dcim/sites/12/"},
+				map[string]any{"id": json.Number("13"), "url": "https://netbox.example.test/api/dcim/sites/13/"},
+			},
+			"plugin_object": map[string]any{
+				"id": json.Number("7"), "url": "https://netbox.example.test/api/plugins/example/widgets/7/",
+			},
+		},
+	}
+
+	observation, err := mapObservation(collectionRequest("https://netbox.example.test"), "region", record)
+	if err != nil {
+		t.Fatalf("mapObservation() error = %v", err)
+	}
+	values := make(map[string]any, len(observation.Attributes))
+	for _, attribute := range observation.Attributes {
+		values[attribute.Path] = attribute.Value
+	}
+	customFields, ok := values["/custom_fields"].(map[string]any)
+	if !ok || customFields["support_tier"] != "gold" || customFields["failover_site"] != nil {
+		t.Fatalf("custom fields = %#v", values["/custom_fields"])
+	}
+	if peers, ok := customFields["peer_sites"].([]any); !ok || len(peers) != 0 {
+		t.Fatalf("peer site placeholder = %#v", customFields["peer_sites"])
+	}
+	unsupported, ok := values["/unsupported_custom_field_targets"].([]string)
+	if !ok || len(unsupported) != 1 || !strings.HasPrefix(unsupported[0], "plugin_object:") {
+		t.Fatalf("unsupported custom field targets = %#v", values["/unsupported_custom_field_targets"])
+	}
+	relations := map[string][]string{}
+	for _, relationship := range observation.Relationships {
+		relations[relationship.Kind] = append(relations[relationship.Kind], relationship.TargetExternalID)
+	}
+	if !reflect.DeepEqual(relations["custom_field_object_site_failover_site"], []string{"netbox:site:12"}) {
+		t.Fatalf("object custom field relationship = %#v", relations)
+	}
+	if !reflect.DeepEqual(
+		relations["custom_field_multi_site_peer_sites"],
+		[]string{"netbox:site:12", "netbox:site:13"},
+	) {
+		t.Fatalf("multi-object custom field relationship = %#v", relations)
+	}
+}
+
+func TestProjectionProtectsCrossDatasetSelectorsAndTagIdentityUsesSlug(t *testing.T) {
+	device := map[string]any{
+		"primary_ip4": map[string]any{"id": json.Number("4")},
+		"oob_ip":      map[string]any{"id": json.Number("6")},
+	}
+	if relationships := relationshipsForProjection("device", device, collectionProjection{}); len(relationships) != 0 {
+		t.Fatalf("partial device projection emitted selectors: %+v", relationships)
+	}
+	if relationships := relationshipsFor("device", device); len(relationships) != 2 {
+		t.Fatalf("full device projection relationships = %+v", relationships)
+	}
+
+	tag, err := mapObservation(collectionRequest("https://netbox.example.test"), "tag", map[string]any{
+		"id": json.Number("9"), "name": "Managed", "slug": "managed",
+	})
+	if err != nil {
+		t.Fatalf("mapObservation() error = %v", err)
+	}
+	if tag.ExternalID != "netbox:tag:slug:managed" {
+		t.Fatalf("tag external ID = %q", tag.ExternalID)
+	}
+	contextRelationships := relationshipsFor("config_context", map[string]any{"tags": []any{"managed"}})
+	if len(contextRelationships) != 1 || contextRelationships[0].TargetExternalID != tag.ExternalID {
+		t.Fatalf("config context tag relationships = %+v", contextRelationships)
+	}
+}
+
 func TestDynamicDCIMRelationshipsUseTheCorrectTargetKinds(t *testing.T) {
 	templateRelationships := relationshipsFor("front_port_template", map[string]any{
 		"rear_ports": []any{map[string]any{
@@ -366,6 +477,26 @@ func TestUserRecordsExcludeCredentialsAndPreserveAccessRelationships(t *testing.
 	if len(userRelationships) != 2 || userRelationships[0].TargetKind != "user_group" ||
 		userRelationships[1].TargetKind != "object_permission" {
 		t.Fatalf("user relationships = %+v", userRelationships)
+	}
+
+	reservation := map[string]any{
+		"units": []any{json.Number("10")},
+		"user":  map[string]any{"id": json.Number("21"), "username": "alice"},
+	}
+	for _, attribute := range attributesFor("rack_reservation", reservation) {
+		if attribute.Path == "/user" {
+			t.Fatalf("rack reservation user was collected as a scalar attribute: %+v", attribute)
+		}
+	}
+	reservationRelationships := relationshipsFor("rack_reservation", reservation)
+	foundReservationUser := false
+	for _, relationship := range reservationRelationships {
+		if relationship.Kind == "user" && relationship.TargetKind == "user" && relationship.TargetExternalID == "netbox:user:21" {
+			foundReservationUser = true
+		}
+	}
+	if !foundReservationUser {
+		t.Fatalf("rack reservation user relationship missing: %+v", reservationRelationships)
 	}
 
 	manifest, err := New().Manifest()
@@ -841,7 +972,7 @@ func TestCollectRejectsCredentialBearingDataSourceURL(t *testing.T) {
 		t.Fatalf("batch = %+v", batch)
 	}
 	encoded := string(mustJSON(t, batch))
-	if strings.Contains(encoded, "secret") || strings.Contains(encoded, "user") {
+	if strings.Contains(encoded, "user:secret") || strings.Contains(encoded, "git.example.com") {
 		t.Fatalf("failure leaked source URL credentials: %s", encoded)
 	}
 }
@@ -1047,6 +1178,10 @@ func TestCollectRegionsSitesAndLocationsWithFullCoreFieldCoverage(t *testing.T) 
 		response.Header().Set("Content-Type", "application/json")
 		var results []any
 		switch request.URL.Path {
+		case "/api/users/permissions/", "/api/users/groups/", "/api/users/users/",
+			"/api/extras/custom-field-choice-sets/", "/api/extras/custom-fields/",
+			"/api/extras/custom-links/", "/api/extras/export-templates/":
+			results = []any{}
 		case "/api/extras/tags/":
 			results = []any{
 				map[string]any{
@@ -1141,7 +1276,7 @@ func TestCollectRegionsSitesAndLocationsWithFullCoreFieldCoverage(t *testing.T) 
 	if batch.State != "complete" || len(batch.Observations) != 14 {
 		t.Fatalf("batch state = %q, observations = %d, messages = %+v", batch.State, len(batch.Observations), batch.Messages)
 	}
-	if strings.Join(batch.Datasets, ",") != "references,regions,sites,locations" {
+	if strings.Join(batch.Datasets, ",") != "references,users,extras_customization,regions,sites,locations" {
 		t.Fatalf("datasets = %v", batch.Datasets)
 	}
 	site := findObservation(t, batch, "site", "netbox:site:2")
@@ -1251,7 +1386,7 @@ func TestCollectDeviceCatalogAndRacksWithFullCoreFieldCoverage(t *testing.T) {
 	if batch.State != "complete" || len(batch.Observations) != 8 {
 		t.Fatalf("batch state = %q, observations = %d, messages = %+v", batch.State, len(batch.Observations), batch.Messages)
 	}
-	if strings.Join(batch.Datasets, ",") != "references,extras_templates,regions,sites,locations,device_catalog,racks" {
+	if strings.Join(batch.Datasets, ",") != "references,users,extras_customization,extras_templates,regions,sites,locations,device_catalog,racks" {
 		t.Fatalf("datasets = %v", batch.Datasets)
 	}
 	deviceType := findObservation(t, batch, "device_type", "netbox:device_type:103")
@@ -1378,8 +1513,15 @@ func findObservation(
 func isReferenceEndpoint(path string) bool {
 	for _, candidate := range []string{
 		"/api/extras/tags/",
+		"/api/users/permissions/",
+		"/api/users/groups/",
+		"/api/users/users/",
 		"/api/users/owner-groups/",
 		"/api/users/owners/",
+		"/api/extras/custom-field-choice-sets/",
+		"/api/extras/custom-fields/",
+		"/api/extras/custom-links/",
+		"/api/extras/export-templates/",
 		"/api/tenancy/tenant-groups/",
 		"/api/tenancy/tenants/",
 		"/api/dcim/site-groups/",

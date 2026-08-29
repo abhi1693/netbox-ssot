@@ -70,6 +70,49 @@ class DCIMCompleteBundleTests(TestCase):
         assert set(ATTRIBUTE_FIELDS) == expected
         assert set(RELATIONSHIP_FIELDS) == expected
 
+    def test_rack_reservation_creates_its_missing_user_dependency(self) -> None:
+        suffix = uuid4().hex[:8]
+        user_model = get_user_model()
+        user = user_model.objects.create_user(username=f"reservation-{suffix}")
+        site = Site.objects.create(name=f"Reservation {suffix}", slug=f"reservation-{suffix}")
+        rack = Rack.objects.create(name=f"Reservation {suffix}", site=site, width=19, u_height=42)
+        reservation = RackReservation.objects.create(
+            rack=rack,
+            units=[10],
+            status="active",
+            user=user,
+            description="Reserved for source user",
+        )
+
+        source_records = [
+            record
+            for record in load_netbox_target_records()
+            if (record.resource_kind, record.target_object_id)
+            in {("user", str(user.pk)), ("rack_reservation", str(reservation.pk))}
+        ]
+        reservation.delete()
+        user.delete()
+
+        target_records = load_netbox_target_records()
+        target_by_key = {(record.resource_kind, record.identity_key): record for record in target_records}
+        records = [
+            ApplicationRecord(record.resource_kind, record.identity_key, record.attributes, record.relationships)
+            for record in source_records
+        ]
+        ordered = dependency_order(records)
+        assert [record.resource_kind for record in ordered] == ["user", "rack_reservation"]
+
+        object_cache: dict[tuple[str, str], object] = {}
+        for record in ordered:
+            obj = MODEL_BY_KIND[record.resource_kind]()
+            _write_object(obj, record, target_by_key, object_cache, {})
+            object_cache[record.key] = obj
+
+        recreated_user = user_model.objects.get(username=f"reservation-{suffix}")
+        recreated_reservation = RackReservation.objects.get(rack=rack, units=[10])
+        assert not recreated_user.has_usable_password()
+        assert recreated_reservation.user == recreated_user
+
     def test_every_public_dcim_resource_round_trips_through_snapshot_and_writer(self) -> None:
         suffix = uuid4().hex[:8]
         user = get_user_model().objects.create_user(username=f"dcim-{suffix}")
@@ -231,6 +274,13 @@ class DCIMCompleteBundleTests(TestCase):
             "rack",
         }
         expected = {(record.resource_kind, record.identity_key): record.payload for record in canonical}
+        reservation_record = next(record for record in canonical if record.resource_kind == "rack_reservation")
+        assert "/user" not in reservation_record.attributes
+        assert reservation_record.relationships["user"] == next(
+            record.identity_key
+            for record in load_netbox_target_records(datasets=("users",))
+            if record.resource_kind == "user" and record.target_object_id == str(user.pk)
+        )
         records = [
             ApplicationRecord(record.resource_kind, record.identity_key, record.attributes, record.relationships)
             for record in canonical

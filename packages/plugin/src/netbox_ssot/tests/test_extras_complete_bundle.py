@@ -109,6 +109,7 @@ class ExtrasCompleteBundleTests(TestCase):
             owner=owner,
         )
         context.sites.set([site])
+        context.tags.set([tag])
         template = ConfigTemplate.objects.create(
             name=f"Network OS {suffix}",
             description="Device configuration",

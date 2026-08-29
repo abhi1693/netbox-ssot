@@ -156,6 +156,7 @@ EXTRAS_IDENTITY_RELATIONSHIPS: Final[dict[str, frozenset[str]]] = {kind: frozens
 EXTRAS_IDENTITY_RELATIONSHIPS["table_config"] = frozenset({"user"})
 
 CONFIG_CONTEXT_MULTI_RELATIONSHIPS: Final[dict[str, str]] = {
+    "tag": "tag",
     "region": "region",
     "site_group": "site_group",
     "site": "site",

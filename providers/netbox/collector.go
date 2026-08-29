@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -50,11 +51,35 @@ type endpoint struct {
 	Kind string
 }
 
+type collectionProjection struct {
+	includePrimaryIPSelectors   bool
+	includeVMPrimaryMACSelector bool
+	includeWirelessLANs         bool
+}
+
+func fullCollectionProjection() collectionProjection {
+	return collectionProjection{
+		includePrimaryIPSelectors:   true,
+		includeVMPrimaryMACSelector: true,
+		includeWirelessLANs:         true,
+	}
+}
+
+func projectionForDatasets(datasets []string) collectionProjection {
+	selected := make(map[string]bool, len(datasets))
+	for _, dataset := range datasets {
+		selected[dataset] = true
+	}
+	return collectionProjection{
+		includePrimaryIPSelectors:   selected["ipam_addresses"],
+		includeVMPrimaryMACSelector: selected["device_components"],
+		includeWirelessLANs:         selected["wireless_networks"],
+	}
+}
+
 var datasetEndpoints = map[string][]endpoint{
 	"references": {
 		{Path: "extras/tags/", Kind: "tag"},
-		{Path: "users/owner-groups/", Kind: "owner_group"},
-		{Path: "users/owners/", Kind: "owner"},
 		{Path: "tenancy/tenant-groups/", Kind: "tenant_group"},
 		{Path: "tenancy/tenants/", Kind: "tenant"},
 		{Path: "dcim/site-groups/", Kind: "site_group"},
@@ -135,6 +160,8 @@ var datasetEndpoints = map[string][]endpoint{
 		{Path: "users/permissions/", Kind: "object_permission"},
 		{Path: "users/groups/", Kind: "user_group"},
 		{Path: "users/users/", Kind: "user"},
+		{Path: "users/owner-groups/", Kind: "owner_group"},
+		{Path: "users/owners/", Kind: "owner"},
 	},
 	"data_sources": {{Path: "core/data-sources/", Kind: "data_source"}},
 	"extras_customization": {
@@ -360,9 +387,10 @@ func (c *Collector) Collect(
 
 	counts := make(map[string]int)
 	client := c.httpClient(config)
+	projection := projectionForDatasets(resolvedDatasets)
 	for _, datasetID := range resolvedDatasets {
 		for _, endpoint := range datasetEndpoints[datasetID] {
-			observations, collectErr := c.collectEndpoint(ctx, request, config, client, apiURL, token, endpoint)
+			observations, collectErr := c.collectEndpoint(ctx, request, config, client, apiURL, token, endpoint, projection)
 			batch.Observations = append(batch.Observations, observations...)
 			counts[endpoint.Kind] += len(observations)
 			if collectErr != nil {
@@ -400,6 +428,7 @@ func (c *Collector) collectEndpoint(
 	apiURL *url.URL,
 	token string,
 	endpoint endpoint,
+	projection collectionProjection,
 ) ([]contracts.Observation, *collectError) {
 	endpointURL := apiURL.ResolveReference(&url.URL{Path: endpoint.Path})
 	query := endpointURL.Query()
@@ -430,7 +459,7 @@ func (c *Collector) collectEndpoint(
 			return observations, &collectError{code: "invalid_response", retryable: false}
 		}
 		for _, record := range payload.Results {
-			observation, err := mapObservation(request, endpoint.Kind, record)
+			observation, err := mapObservationWithProjection(request, endpoint.Kind, record, projection)
 			if err != nil {
 				if errors.Is(err, errUnsafeDataSourceConfiguration) {
 					return observations, &collectError{code: "unsafe_source_configuration", retryable: false}
@@ -589,6 +618,15 @@ func completenessToken(apiURL *url.URL, datasets []string, scope []contracts.Sco
 }
 
 func mapObservation(request contracts.CollectionRequest, kind string, record map[string]any) (contracts.Observation, error) {
+	return mapObservationWithProjection(request, kind, record, fullCollectionProjection())
+}
+
+func mapObservationWithProjection(
+	request contracts.CollectionRequest,
+	kind string,
+	record map[string]any,
+	projection collectionProjection,
+) (contracts.Observation, error) {
 	id, ok := objectID(record["id"])
 	if !ok {
 		return contracts.Observation{}, errors.New("record has no stable ID")
@@ -599,9 +637,9 @@ func mapObservation(request contracts.CollectionRequest, kind string, record map
 		}
 	}
 	collectedAt := time.Now().UTC()
-	attributes := attributesFor(kind, record)
+	attributes := attributesForProjection(kind, record, projection)
 	sort.Slice(attributes, func(i, j int) bool { return attributes[i].Path < attributes[j].Path })
-	relationships := relationshipsFor(kind, record)
+	relationships := relationshipsForProjection(kind, record, projection)
 	sort.Slice(relationships, func(i, j int) bool {
 		if relationships[i].Kind == relationships[j].Kind {
 			return relationships[i].TargetExternalID < relationships[j].TargetExternalID
@@ -630,7 +668,7 @@ func mapObservation(request contracts.CollectionRequest, kind string, record map
 	digest := sha256.Sum256(raw)
 	return contracts.Observation{
 		ResourceKind:  kind,
-		ExternalID:    externalID(kind, id),
+		ExternalID:    observationExternalID(kind, id, record),
 		SourceID:      request.SourceID,
 		ProviderID:    request.ProviderID,
 		Scope:         request.Scope,
@@ -649,6 +687,14 @@ func mapObservation(request contracts.CollectionRequest, kind string, record map
 }
 
 func attributesFor(kind string, record map[string]any) []contracts.ObservationAttribute {
+	return attributesForProjection(kind, record, fullCollectionProjection())
+}
+
+func attributesForProjection(
+	kind string,
+	record map[string]any,
+	projection collectionProjection,
+) []contracts.ObservationAttribute {
 	attributes := make([]contracts.ObservationAttribute, 0, 24)
 	add := func(path string, value any) {
 		if value != nil && value != "" {
@@ -1062,7 +1108,6 @@ func attributesFor(kind string, record map[string]any) []contracts.ObservationAt
 	case "rack_reservation":
 		addFields("units", "description", "comments")
 		addChoices("status")
-		add("/user", nestedValue(record["user"], "username"))
 	case "power_panel":
 		addFields("name", "description", "comments")
 	case "power_feed":
@@ -1102,17 +1147,42 @@ func attributesFor(kind string, record map[string]any) []contracts.ObservationAt
 	case "circuit_group_assignment":
 		addChoices("priority")
 	}
+	if customFields, ok := record["custom_fields"].(map[string]any); ok {
+		portable, unsupported := portableCustomFields(customFields)
+		add("/custom_fields", portable)
+		if len(unsupported) > 0 {
+			add("/unsupported_custom_field_targets", unsupported)
+		}
+	}
+	if projection.includePrimaryIPSelectors &&
+		(kind == "device" || kind == "virtual_device_context" || kind == "virtual_machine") {
+		add("/manage_primary_ip_selectors", true)
+	}
+	if projection.includeVMPrimaryMACSelector && kind == "vm_interface" {
+		add("/manage_primary_mac_selector", true)
+	}
+	if projection.includeWirelessLANs && kind == "interface" {
+		add("/manage_wireless_lans", true)
+	}
 	return attributes
 }
 
 func relationshipsFor(kind string, record map[string]any) []contracts.Relationship {
+	return relationshipsForProjection(kind, record, fullCollectionProjection())
+}
+
+func relationshipsForProjection(
+	kind string,
+	record map[string]any,
+	projection collectionProjection,
+) []contracts.Relationship {
 	relationships := make([]contracts.Relationship, 0, 6)
 	add := func(relationshipKind string, targetKind string, value any) {
-		if id, ok := nestedID(value); ok {
+		if targetExternalID, ok := nestedExternalID(targetKind, value); ok {
 			relationships = append(relationships, contracts.Relationship{
 				Kind:             relationshipKind,
 				TargetKind:       targetKind,
-				TargetExternalID: externalID(targetKind, id),
+				TargetExternalID: targetExternalID,
 			})
 		}
 	}
@@ -1132,6 +1202,23 @@ func relationshipsFor(kind string, record map[string]any) []contracts.Relationsh
 				TargetKind:       targetKind,
 				TargetExternalID: externalID(targetKind, id),
 			})
+		}
+	}
+	addTags := func(value any) {
+		items, ok := value.([]any)
+		if !ok {
+			return
+		}
+		for _, item := range items {
+			if slug, ok := item.(string); ok && slug != "" {
+				relationships = append(relationships, contracts.Relationship{
+					Kind:             "tag",
+					TargetKind:       "tag",
+					TargetExternalID: tagExternalID(slug),
+				})
+				continue
+			}
+			add("tag", "tag", item)
 		}
 	}
 	addGeneric := func(prefix string, objectType any, objectIDValue any) {
@@ -1179,9 +1266,10 @@ func relationshipsFor(kind string, record map[string]any) []contracts.Relationsh
 
 	switch kind {
 	case "tag":
-		add("owner", "owner", record["owner"])
 	case "owner":
 		add("group", "owner_group", record["group"])
+		addMany("user_group", "user_group", record["user_groups"])
+		addMany("user", "user", record["users"])
 	case "user_group":
 		addMany("permission", "object_permission", record["permissions"])
 	case "user":
@@ -1217,6 +1305,7 @@ func relationshipsFor(kind string, record map[string]any) []contracts.Relationsh
 		addMany("cluster_type", "cluster_type", record["cluster_types"])
 		addMany("cluster_group", "cluster_group", record["cluster_groups"])
 		addMany("cluster", "cluster", record["clusters"])
+		addTags(record["tags"])
 	case "notification_group":
 		addMany("group", "user_group", record["groups"])
 		addMany("user", "user", record["users"])
@@ -1273,6 +1362,10 @@ func relationshipsFor(kind string, record map[string]any) []contracts.Relationsh
 		add("config_template", "config_template", record["config_template"])
 		add("owner", "owner", record["owner"])
 		addMany("tag", "tag", record["tags"])
+		if projection.includePrimaryIPSelectors {
+			add("primary_ip4", "ip_address", record["primary_ip4"])
+			add("primary_ip6", "ip_address", record["primary_ip6"])
+		}
 	case "vm_interface":
 		add("virtual_machine", "virtual_machine", record["virtual_machine"])
 		add("parent", "vm_interface", record["parent"])
@@ -1284,6 +1377,9 @@ func relationshipsFor(kind string, record map[string]any) []contracts.Relationsh
 		add("vrf", "vrf", record["vrf"])
 		add("owner", "owner", record["owner"])
 		addMany("tag", "tag", record["tags"])
+		if projection.includeVMPrimaryMACSelector {
+			add("primary_mac_address", "mac_address", record["primary_mac_address"])
+		}
 	case "virtual_disk":
 		add("virtual_machine", "virtual_machine", record["virtual_machine"])
 		add("owner", "owner", record["owner"])
@@ -1524,15 +1620,25 @@ func relationshipsFor(kind string, record map[string]any) []contracts.Relationsh
 		add("site", "site", record["site"])
 		add("location", "location", record["location"])
 		add("rack", "rack", record["rack"])
+		add("cluster", "cluster", record["cluster"])
 		add("virtual_chassis", "virtual_chassis", record["virtual_chassis"])
 		add("config_template", "config_template", record["config_template"])
 		add("owner", "owner", record["owner"])
 		addMany("tag", "tag", record["tags"])
+		if projection.includePrimaryIPSelectors {
+			add("primary_ip4", "ip_address", record["primary_ip4"])
+			add("primary_ip6", "ip_address", record["primary_ip6"])
+			add("oob_ip", "ip_address", record["oob_ip"])
+		}
 	case "virtual_device_context":
 		add("device", "device", record["device"])
 		add("tenant", "tenant", record["tenant"])
 		add("owner", "owner", record["owner"])
 		addMany("tag", "tag", record["tags"])
+		if projection.includePrimaryIPSelectors {
+			add("primary_ip4", "ip_address", record["primary_ip4"])
+			add("primary_ip6", "ip_address", record["primary_ip6"])
+		}
 	case "module":
 		add("device", "device", record["device"])
 		add("module_bay", "module_bay", record["module_bay"])
@@ -1542,11 +1648,11 @@ func relationshipsFor(kind string, record map[string]any) []contracts.Relationsh
 	case "module_bay":
 		add("device", "device", record["device"])
 		add("module", "module", record["module"])
-		add("parent", "module_bay", record["parent"])
 		add("owner", "owner", record["owner"])
 		addMany("tag", "tag", record["tags"])
 	case "device_bay":
 		add("device", "device", record["device"])
+		add("installed_device", "device", record["installed_device"])
 		add("owner", "owner", record["owner"])
 		addMany("tag", "tag", record["tags"])
 	case "console_port", "console_server_port", "power_port", "power_outlet", "interface", "rear_port", "front_port":
@@ -1561,8 +1667,16 @@ func relationshipsFor(kind string, record map[string]any) []contracts.Relationsh
 			add("parent", "interface", record["parent"])
 			add("bridge", "interface", record["bridge"])
 			add("lag", "interface", record["lag"])
+			add("untagged_vlan", "vlan", record["untagged_vlan"])
+			addMany("tagged_vlan", "vlan", record["tagged_vlans"])
+			add("qinq_svlan", "vlan", record["qinq_svlan"])
+			add("vlan_translation_policy", "vlan_translation_policy", record["vlan_translation_policy"])
+			add("vrf", "vrf", record["vrf"])
 			add("primary_mac_address", "mac_address", record["primary_mac_address"])
 			addMany("vdc", "virtual_device_context", record["vdcs"])
+			if projection.includeWirelessLANs {
+				addMany("wireless_lan", "wireless_lan", record["wireless_lans"])
+			}
 		}
 		if kind == "front_port" {
 			addMappings(record["rear_ports"], "rear_port", "rear_port")
@@ -1581,6 +1695,7 @@ func relationshipsFor(kind string, record map[string]any) []contracts.Relationsh
 		addMany("tag", "tag", record["tags"])
 	case "rack_reservation":
 		add("rack", "rack", record["rack"])
+		add("user", "user", record["user"])
 		add("tenant", "tenant", record["tenant"])
 		add("owner", "owner", record["owner"])
 		addMany("tag", "tag", record["tags"])
@@ -1644,6 +1759,7 @@ func relationshipsFor(kind string, record map[string]any) []contracts.Relationsh
 		addGeneric("member", record["member_type"], record["member_id"])
 		addMany("tag", "tag", record["tags"])
 	}
+	addCustomFieldRelationships(record["custom_fields"], &relationships)
 	return relationships
 }
 
@@ -1817,6 +1933,164 @@ func stringValues(value any) []string {
 
 func nestedID(value any) (string, bool) {
 	return objectID(nestedValue(value, "id"))
+}
+
+func observationExternalID(kind string, id string, record map[string]any) string {
+	if kind == "tag" {
+		if slug, ok := record["slug"].(string); ok && slug != "" {
+			return tagExternalID(slug)
+		}
+	}
+	return externalID(kind, id)
+}
+
+func tagExternalID(slug string) string {
+	return "netbox:tag:slug:" + slug
+}
+
+func nestedExternalID(kind string, value any) (string, bool) {
+	if kind == "tag" {
+		if slug, ok := nestedValue(value, "slug").(string); ok && slug != "" {
+			return tagExternalID(slug), true
+		}
+	}
+	id, ok := nestedID(value)
+	if !ok {
+		return "", false
+	}
+	return externalID(kind, id), true
+}
+
+func nestedResourceKind(value any) (string, bool) {
+	object, ok := value.(map[string]any)
+	if !ok {
+		return "", false
+	}
+	if _, ok := objectID(object["id"]); !ok {
+		return "", false
+	}
+	rawURL, ok := object["url"].(string)
+	if !ok || rawURL == "" {
+		return "", false
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return "", false
+	}
+	parentPath := strings.Trim(path.Dir(strings.Trim(parsed.Path, "/")), "/")
+	for _, endpoints := range datasetEndpoints {
+		for _, endpoint := range endpoints {
+			endpointPath := strings.Trim(endpoint.Path, "/")
+			if parentPath == endpointPath || strings.HasSuffix(parentPath, "/"+endpointPath) {
+				return endpoint.Kind, true
+			}
+		}
+	}
+	return "", false
+}
+
+func looksLikeNestedObject(value any) (map[string]any, bool) {
+	object, ok := value.(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	_, hasID := objectID(object["id"])
+	_, hasURL := object["url"].(string)
+	return object, hasID && hasURL
+}
+
+func unsupportedCustomFieldTarget(fieldName string, value any) string {
+	object, _ := looksLikeNestedObject(value)
+	rawURL, _ := object["url"].(string)
+	parsed, err := url.Parse(rawURL)
+	if err == nil && parsed.Path != "" {
+		return fieldName + ":" + parsed.Path
+	}
+	return fieldName + ":unsupported-target"
+}
+
+func customFieldRelationshipName(fieldName string, targetKind string, multi bool) string {
+	cardinality := "object"
+	if multi {
+		cardinality = "multi"
+	}
+	return "custom_field_" + cardinality + "_" + targetKind + "_" + fieldName
+}
+
+func portableCustomFields(customFields map[string]any) (map[string]any, []string) {
+	portable := make(map[string]any, len(customFields))
+	unsupported := make([]string, 0)
+	for fieldName, value := range customFields {
+		if _, ok := looksLikeNestedObject(value); ok {
+			portable[fieldName] = nil
+			if _, supported := nestedResourceKind(value); !supported {
+				unsupported = append(unsupported, unsupportedCustomFieldTarget(fieldName, value))
+			}
+			continue
+		}
+		items, isList := value.([]any)
+		if !isList || len(items) == 0 {
+			portable[fieldName] = value
+			continue
+		}
+		allObjects := true
+		for _, item := range items {
+			if _, ok := looksLikeNestedObject(item); !ok {
+				allObjects = false
+				break
+			}
+		}
+		if allObjects {
+			portable[fieldName] = []any{}
+			for _, item := range items {
+				if _, supported := nestedResourceKind(item); !supported {
+					unsupported = append(unsupported, unsupportedCustomFieldTarget(fieldName, item))
+				}
+			}
+			continue
+		}
+		portable[fieldName] = value
+	}
+	sort.Strings(unsupported)
+	return portable, unsupported
+}
+
+func addCustomFieldRelationships(value any, relationships *[]contracts.Relationship) {
+	customFields, ok := value.(map[string]any)
+	if !ok {
+		return
+	}
+	for fieldName, fieldValue := range customFields {
+		if targetKind, ok := nestedResourceKind(fieldValue); ok {
+			if targetExternalID, ok := nestedExternalID(targetKind, fieldValue); ok {
+				*relationships = append(*relationships, contracts.Relationship{
+					Kind:             customFieldRelationshipName(fieldName, targetKind, false),
+					TargetKind:       targetKind,
+					TargetExternalID: targetExternalID,
+				})
+			}
+			continue
+		}
+		items, ok := fieldValue.([]any)
+		if !ok || len(items) == 0 {
+			continue
+		}
+		for _, item := range items {
+			targetKind, ok := nestedResourceKind(item)
+			if !ok {
+				continue
+			}
+			targetExternalID, ok := nestedExternalID(targetKind, item)
+			if !ok {
+				continue
+			}
+			*relationships = append(*relationships, contracts.Relationship{
+				Kind:             customFieldRelationshipName(fieldName, targetKind, true),
+				TargetKind:       targetKind,
+				TargetExternalID: targetExternalID,
+			})
+		}
+	}
 }
 
 func objectID(value any) (string, bool) {

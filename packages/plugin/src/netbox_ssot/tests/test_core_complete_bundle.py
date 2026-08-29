@@ -55,6 +55,7 @@ class CoreCompleteBundleTests(TestCase):
             "/description": "Network automation",
             "/comments": "Managed from the source",
             "/parameters": {"branch": "production"},
+            "/custom_fields": {},
         }
         assert canonical.relationships
         assert set(canonical.relationships) == {"owner"}
