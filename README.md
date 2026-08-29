@@ -176,8 +176,9 @@ PLUGINS_CONFIG = {
 ```
 
 With this enabled, agent `0.6.8` keeps the assignment and administrator command channel active but pauses its local
-schedule. A no-change review or successful application resumes collection. **Run now** remains an explicit way to
-refresh and supersede the pending snapshot; the new complete snapshot then becomes the one awaiting resolution.
+schedule. A no-change comparison, finalized rejection, or successful application resumes collection. A finalized
+approval remains paused while it waits for apply. **Run now** remains an explicit way to refresh and supersede the
+pending snapshot; the new complete snapshot then becomes the one awaiting resolution.
 
 For a Linux service, install the binary at `/usr/local/bin/netbox-ssot-agent`, copy
 `agent/deploy/systemd/netbox-ssot-agent.service` to `/etc/systemd/system/`, and create
@@ -218,12 +219,29 @@ Matching uses exact, kind-specific natural identities. Missing identities and am
 shown as skips or conflicts rather than guessed. Repeating a comparison against the same target snapshot and engine
 version returns the existing preview.
 
-An operator with both the plugin apply permission and the necessary NetBox model permissions can explicitly apply a
-reviewed comparison. Apply rechecks the complete collection evidence, source digest, item counts, comparison engine,
-and current target snapshot. It orders the complete geography dependency graph and commits supporting references,
-Regions, Sites, and Locations in one database transaction. Every successful operation creates immutable apply/item
-receipts and updates durable source-object bindings. Repeating the same apply is idempotent. Destination-only objects
-are never changed, and there is no deletion path.
+Operators with the `netbox_ssot.add_comparisonreview` permission can approve or reject each proposed create or update.
+Changing a decision appends another audit event; it never edits the prior decision. Final approval requires every
+actionable record to be approved and no conflicts or skips. A rejection requires a reason and finalizes the whole
+comparison. V1 deliberately does not turn rejected records into a partial apply.
+
+Finalization stores an immutable review with the reviewer, outcome, counts, reason, and a digest over the comparison,
+all comparison items, and the latest decision for every item. An operator with the separate plugin apply permission and
+the necessary NetBox model permissions can explicitly apply only a finalized approval. Apply rechecks the review
+digest, complete collection evidence, source digest, item counts, comparison engine, and current target snapshot. It
+orders the complete geography dependency graph and commits supporting references, Regions, Sites, and Locations in one
+database transaction. Every successful operation creates immutable apply/item receipts and updates durable
+source-object bindings. Repeating the same apply is idempotent. Destination-only objects are never changed, and there
+is no deletion path.
+
+Deployments that require four-eyes approval can prevent the final reviewer from also applying the comparison:
+
+```python
+PLUGINS_CONFIG = {
+    "netbox_ssot": {
+        "require_separate_reviewer_and_applier": True,
+    },
+}
+```
 
 ### Current NetBox compatibility scope
 
@@ -261,4 +279,5 @@ explicit field ownership and secret-handling policies rather than automatic copy
 - Signed ingest rejects stale timestamps, tampered bodies, disabled agents, and sources outside an agent's assignment.
 - A plan must be revalidated against the current target immediately before apply.
 - Apply requires explicit confirmation plus plugin and model permissions, uses one transaction, and records receipts.
+- Apply requires an immutable finalized approval; optional four-eyes policy separates the reviewer and applier.
 - Unmodeled references such as ASN Roles are resolve-only; missing or ambiguous dependencies block the operation.

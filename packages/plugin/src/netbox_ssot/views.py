@@ -47,6 +47,7 @@ from .models import (
     CollectionRun,
     CollectorAgent,
     ComparisonItem,
+    ComparisonReview,
     ComparisonRun,
     DiscoverySource,
     StoredObservation,
@@ -55,6 +56,15 @@ from .planning.service import ComparisonRejectedError, create_comparison
 from .providers import ProviderNotFoundError, ProviderRegistry, build_provider_card, build_provider_wizard
 from .record_links import RecordLinkResolver, RecordLinks, source_object_id
 from .retention import retention_plan
+from .review import (
+    ReviewRejectedError,
+    approve_all_review_items,
+    finalize_review,
+    latest_review_decision,
+    latest_review_decisions,
+    record_review_decision,
+    review_progress,
+)
 
 ACTIVE_COMMAND_STATES = (
     AgentCommand.State.PENDING,
@@ -73,7 +83,7 @@ class OverviewView(LoginRequiredMixin, View):
         can_view_comparisons = request.user.has_perm("netbox_ssot.view_comparisonrun")
         sources = _source_queryset() if can_view_sources else DiscoverySource.objects.none()
         pending_reviews = (
-            ComparisonRun.objects.filter(apply_run__isnull=True)
+            ComparisonRun.objects.filter(apply_run__isnull=True, final_review__isnull=True)
             .exclude(create_count=0, update_count=0, conflict_count=0, skipped_count=0)
             .count()
             if can_view_comparisons
@@ -857,7 +867,12 @@ class ComparisonListView(PermissionRequiredMixin, View):
     template_name = "netbox_ssot/comparison_list.html"
 
     def get(self, request: HttpRequest) -> HttpResponse:
-        comparisons = ComparisonRun.objects.select_related("collection_run", "collection_run__source")[:200]
+        comparisons = ComparisonRun.objects.select_related(
+            "collection_run",
+            "collection_run__source",
+            "final_review",
+            "apply_run",
+        )[:200]
         return render(request, self.template_name, {"comparisons": comparisons})
 
 
@@ -880,7 +895,27 @@ class ComparisonDetailView(PermissionRequiredMixin, View):
         kinds = comparison.items.order_by("resource_kind").values_list("resource_kind", flat=True).distinct()
         page = Paginator(items, 100).get_page(request.GET.get("page"))
         application = ApplyRun.objects.filter(comparison=comparison).select_related("applied_by").first()
-        readiness = None if application else inspect_application(comparison)
+        final_review = ComparisonReview.objects.filter(comparison=comparison).select_related("reviewed_by").first()
+        latest_decisions = latest_review_decisions(
+            comparison,
+            item_ids=tuple(item.pk for item in page.object_list),
+        )
+        for item in page.object_list:
+            item.current_review_decision = latest_decisions.get(item.pk)
+        progress = review_progress(comparison)
+        readiness = None if application else inspect_application(comparison, request.user)
+        if application:
+            review_state = "applied"
+        elif final_review is not None and final_review.decision == ComparisonReview.Decision.REJECTED:
+            review_state = "rejected"
+        elif readiness is not None and readiness.current_target_digest != comparison.target_snapshot_digest:
+            review_state = "stale"
+        elif final_review is not None:
+            review_state = final_review.decision
+        elif progress.actionable_count or comparison.conflict_count or comparison.skipped_count:
+            review_state = "in_review"
+        else:
+            review_state = "no_changes"
         return render(
             request,
             self.template_name,
@@ -892,6 +927,9 @@ class ComparisonDetailView(PermissionRequiredMixin, View):
                 "selected_action": action,
                 "selected_kind": resource_kind,
                 "application": application,
+                "final_review": final_review,
+                "review_progress": progress,
+                "review_state": review_state,
                 "readiness": readiness,
                 "has_changes": bool(comparison.create_count or comparison.update_count),
             },
@@ -924,6 +962,8 @@ class ComparisonItemDetailView(PermissionRequiredMixin, View):
         )
         previous_item = item.comparison.items.filter(sequence__lt=item.sequence).order_by("-sequence").first()
         next_item = item.comparison.items.filter(sequence__gt=item.sequence).order_by("sequence").first()
+        final_review = ComparisonReview.objects.filter(comparison=item.comparison).select_related("reviewed_by").first()
+        current_decision = latest_review_decision(item)
         return render(
             request,
             self.template_name,
@@ -945,7 +985,67 @@ class ComparisonItemDetailView(PermissionRequiredMixin, View):
                 "destination_name": item.resource_kind.replace("_", " ").title(),
                 "previous_item": previous_item,
                 "next_item": next_item,
+                "final_review": final_review,
+                "current_decision": current_decision,
             },
+        )
+
+
+class ComparisonReviewActionView(PermissionRequiredMixin, View):
+    permission_required = "netbox_ssot.add_comparisonreview"
+
+    def post(self, request: HttpRequest, pk: object) -> HttpResponse:
+        comparison = get_object_or_404(ComparisonRun, pk=pk)
+        action = request.POST.get("action", "")
+        reason = request.POST.get("reason", "")
+        try:
+            if action == "approve_all":
+                progress = approve_all_review_items(comparison, request.user)
+                messages.success(request, f"Approved {progress.approved_count} proposed changes for final review.")
+            elif action == "approve_all_and_finalize":
+                approve_all_review_items(comparison, request.user)
+                finalize_review(comparison, ComparisonReview.Decision.APPROVED, request.user)
+                messages.success(request, "The comparison review was approved and finalized.")
+            elif action == "finalize_approval":
+                finalize_review(comparison, ComparisonReview.Decision.APPROVED, request.user)
+                messages.success(request, "The comparison review was approved and finalized.")
+            elif action == "reject":
+                finalize_review(
+                    comparison,
+                    ComparisonReview.Decision.REJECTED,
+                    request.user,
+                    reason=reason,
+                )
+                messages.success(request, "The comparison review was rejected and finalized.")
+            else:
+                raise ReviewRejectedError("Choose a supported review action.")
+        except ReviewRejectedError as exc:
+            messages.error(request, str(exc))
+        return redirect("plugins:netbox_ssot:comparison_detail", pk=comparison.pk)
+
+
+class ComparisonItemDecisionView(PermissionRequiredMixin, View):
+    permission_required = "netbox_ssot.add_comparisonreview"
+
+    def post(self, request: HttpRequest, comparison_pk: object, pk: object) -> HttpResponse:
+        comparison = get_object_or_404(ComparisonRun, pk=comparison_pk)
+        item = get_object_or_404(ComparisonItem, comparison=comparison, pk=pk)
+        try:
+            decision = record_review_decision(
+                comparison,
+                item,
+                request.POST.get("decision", ""),
+                request.user,
+                reason=request.POST.get("reason", ""),
+            )
+        except ReviewRejectedError as exc:
+            messages.error(request, str(exc))
+        else:
+            messages.success(request, f"Recorded {decision.get_decision_display().lower()} for {item.display_name}.")
+        return redirect(
+            "plugins:netbox_ssot:comparison_item_detail",
+            comparison_pk=comparison.pk,
+            pk=item.pk,
         )
 
 
@@ -1253,6 +1353,24 @@ def _activity_events(request: HttpRequest, *, limit: int) -> tuple[dict[str, Any
         events.extend(
             _comparison_event(comparison)
             for comparison in ComparisonRun.objects.select_related("collection_run__source")[:limit]
+        )
+    if request.user.has_perm("netbox_ssot.view_comparisonreview"):
+        events.extend(
+            {
+                "occurred_at": review.reviewed_at,
+                "kind": "Review decision",
+                "state": "complete" if review.decision == ComparisonReview.Decision.APPROVED else "attention",
+                "title": (
+                    f"{review.comparison.collection_run.source.name} review "
+                    f"{review.get_decision_display().lower()}"
+                ),
+                "detail": f"Reviewed by {review.reviewed_by}",
+                "url": reverse("plugins:netbox_ssot:comparison_detail", kwargs={"pk": review.comparison_id}),
+            }
+            for review in ComparisonReview.objects.select_related(
+                "comparison__collection_run__source",
+                "reviewed_by",
+            )[:limit]
         )
     if request.user.has_perm("netbox_ssot.view_applyrun"):
         events.extend(

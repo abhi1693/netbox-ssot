@@ -1,0 +1,328 @@
+from __future__ import annotations
+
+from unittest.mock import patch
+from uuid import uuid4
+
+import pytest
+from core.models import ObjectType
+from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
+from django.test import TestCase, override_settings
+from django.urls import reverse
+from django.utils import timezone
+from users.models import ObjectPermission
+
+from netbox_ssot.application.service import inspect_application
+from netbox_ssot.models import (
+    CollectionRun,
+    CollectorAgent,
+    ComparisonItem,
+    ComparisonReview,
+    ComparisonRun,
+    DiscoverySource,
+    ReviewDecision,
+)
+from netbox_ssot.planning.comparison import ENGINE_VERSION, snapshot_digest
+from netbox_ssot.review import (
+    ReviewRejectedError,
+    approve_all_review_items,
+    finalize_review,
+    latest_review_decision,
+    latest_review_decisions,
+    record_review_decision,
+    review_decision_digest,
+    review_integrity_issue,
+    review_progress,
+)
+
+FOUR_EYES_CONFIG = {"netbox_ssot": {"require_separate_reviewer_and_applier": True}}
+
+
+class ReviewWorkflowTests(TestCase):
+    @classmethod
+    def setUpTestData(cls) -> None:
+        suffix = uuid4().hex
+        cls.reviewer = get_user_model().objects.create_user(username=f"reviewer-{suffix}")
+        cls.applier = get_user_model().objects.create_user(username=f"applier-{suffix}")
+        cls.agent = CollectorAgent.objects.create(name=f"review-agent-{suffix}", public_key="A" * 43)
+        cls.source = DiscoverySource.objects.create(
+            name=f"review-source-{suffix}",
+            provider_id="netbox",
+            configuration={},
+            datasets=["regions"],
+            assigned_agent=cls.agent,
+        )
+
+    def setUp(self) -> None:
+        run = CollectionRun.objects.create(
+            run_id=uuid4(),
+            source=self.source,
+            agent=self.agent,
+            provider_id="netbox",
+            provider_version="0.0.4",
+            contract_version="1.0",
+            state="complete",
+            started_at=timezone.now(),
+            completed_at=timezone.now(),
+            datasets=["regions"],
+            scope=[],
+            messages=[],
+            completeness_token="complete",
+            payload_digest="a" * 64,
+            observation_count=2,
+        )
+        self.comparison = ComparisonRun.objects.create(
+            collection_run=run,
+            source_payload_digest=run.payload_digest,
+            target_snapshot_digest=snapshot_digest([]),
+            engine_version=ENGINE_VERSION,
+            create_count=2,
+        )
+        self.items = tuple(
+            ComparisonItem.objects.create(
+                comparison=self.comparison,
+                sequence=sequence,
+                action=ComparisonItem.Action.CREATE,
+                resource_kind="region",
+                identity_key=f'["region","region-{sequence}"]',
+                display_name=f"Region {sequence}",
+                source_external_id=f"netbox:region:{sequence}",
+                source_data={
+                    "attributes": {
+                        "/name": f"Region {sequence}",
+                        "/slug": f"region-{sequence}",
+                        "/description": "",
+                    },
+                    "relationships": {},
+                },
+                target_data={},
+                changes=[],
+            )
+            for sequence in range(2)
+        )
+
+    def test_record_decisions_are_append_only_and_latest_wins(self) -> None:
+        with self.assertRaisesMessage(ReviewRejectedError, "Explain why"):
+            record_review_decision(
+                self.comparison,
+                self.items[0],
+                ReviewDecision.Decision.REJECT,
+                self.reviewer,
+            )
+
+        rejected = record_review_decision(
+            self.comparison,
+            self.items[0],
+            ReviewDecision.Decision.REJECT,
+            self.reviewer,
+            reason="Wrong source value.",
+        )
+        approved = record_review_decision(
+            self.comparison,
+            self.items[0],
+            ReviewDecision.Decision.APPROVE,
+            self.reviewer,
+        )
+
+        assert ReviewDecision.objects.filter(comparison=self.comparison).count() == 2
+        assert latest_review_decisions(self.comparison)[self.items[0].pk] == approved
+        assert latest_review_decisions(self.comparison, item_ids=(self.items[0].pk,)) == {
+            self.items[0].pk: approved
+        }
+        assert latest_review_decision(self.items[0]) == approved
+        with pytest.raises(ValidationError):
+            rejected.save()
+
+    def test_approval_requires_every_actionable_item_and_then_locks_review(self) -> None:
+        record_review_decision(
+            self.comparison,
+            self.items[0],
+            ReviewDecision.Decision.APPROVE,
+            self.reviewer,
+        )
+        with self.assertRaisesMessage(ReviewRejectedError, "1 undecided"):
+            finalize_review(
+                self.comparison,
+                ComparisonReview.Decision.APPROVED,
+                self.reviewer,
+            )
+
+        progress = approve_all_review_items(self.comparison, self.reviewer)
+        assert progress.approved_count == 2
+        assert progress.undecided_count == 0
+        review = finalize_review(
+            self.comparison,
+            ComparisonReview.Decision.APPROVED,
+            self.reviewer,
+        )
+
+        assert review.approved_count == 2
+        assert review.rejected_count == 0
+        assert review_integrity_issue(review) == ""
+        with pytest.raises(ValidationError):
+            review.save()
+        with self.assertRaisesMessage(ReviewRejectedError, "finalized"):
+            record_review_decision(
+                self.comparison,
+                self.items[0],
+                ReviewDecision.Decision.REJECT,
+                self.reviewer,
+                reason="Too late.",
+            )
+
+    def test_rejection_is_final_and_requires_a_reason(self) -> None:
+        with self.assertRaisesMessage(ReviewRejectedError, "Explain why"):
+            finalize_review(
+                self.comparison,
+                ComparisonReview.Decision.REJECTED,
+                self.reviewer,
+            )
+
+        review = finalize_review(
+            self.comparison,
+            ComparisonReview.Decision.REJECTED,
+            self.reviewer,
+            reason="The source needs correction.",
+        )
+
+        assert review.decision == ComparisonReview.Decision.REJECTED
+        assert "rejected" in " ".join(inspect_application(self.comparison).reasons).lower()
+
+    def test_final_review_digest_detects_decision_tampering(self) -> None:
+        approve_all_review_items(self.comparison, self.reviewer)
+        review = finalize_review(
+            self.comparison,
+            ComparisonReview.Decision.APPROVED,
+            self.reviewer,
+        )
+        latest = latest_review_decisions(self.comparison)[self.items[0].pk]
+
+        ReviewDecision.objects.filter(pk=latest.pk).update(reason="tampered")
+        review.refresh_from_db()
+
+        assert "no longer matches" in review_integrity_issue(review)
+        assert "no longer matches" in " ".join(inspect_application(self.comparison).reasons)
+
+    def test_apply_readiness_requires_a_finalized_approval(self) -> None:
+        pending = inspect_application(self.comparison, self.applier)
+        assert "finalized review" in " ".join(pending.reasons)
+
+        approve_all_review_items(self.comparison, self.reviewer)
+        finalize_review(
+            self.comparison,
+            ComparisonReview.Decision.APPROVED,
+            self.reviewer,
+        )
+
+        assert inspect_application(self.comparison, self.applier).ready
+
+    def test_forged_approval_without_item_decisions_fails_closed(self) -> None:
+        ComparisonReview.objects.create(
+            comparison=self.comparison,
+            decision=ComparisonReview.Decision.APPROVED,
+            reviewed_by=self.reviewer,
+            decision_digest=review_decision_digest(
+                self.comparison,
+                final_decision=ComparisonReview.Decision.APPROVED,
+                reviewed_by_id=str(self.reviewer.pk),
+                reason="",
+            ),
+        )
+
+        readiness = inspect_application(self.comparison, self.applier)
+
+        assert not readiness.ready
+        assert "does not approve every actionable" in " ".join(readiness.reasons)
+
+    @override_settings(PLUGINS_CONFIG=FOUR_EYES_CONFIG)
+    def test_optional_four_eyes_policy_blocks_reviewer_from_applying(self) -> None:
+        approve_all_review_items(self.comparison, self.reviewer)
+        finalize_review(
+            self.comparison,
+            ComparisonReview.Decision.APPROVED,
+            self.reviewer,
+        )
+
+        same_operator = inspect_application(self.comparison, self.reviewer)
+        different_operator = inspect_application(self.comparison, self.applier)
+
+        assert "different operator" in " ".join(same_operator.reasons)
+        assert different_operator.ready
+
+    def test_review_permission_controls_decision_endpoint(self) -> None:
+        url = reverse(
+            "plugins:netbox_ssot:comparison_item_decide",
+            kwargs={"comparison_pk": self.comparison.pk, "pk": self.items[0].pk},
+        )
+        self.client.force_login(self.reviewer)
+
+        denied = self.client.post(url, {"decision": ReviewDecision.Decision.APPROVE})
+        assert denied.status_code == 403
+
+        permission = ObjectPermission.objects.create(name="Review comparisons", actions=["add"])
+        permission.users.add(self.reviewer)
+        permission.object_types.add(ObjectType.objects.get_for_model(ComparisonReview))
+        self.reviewer = get_user_model().objects.get(pk=self.reviewer.pk)
+        self.client.force_login(self.reviewer)
+        allowed = self.client.post(url, {"decision": ReviewDecision.Decision.APPROVE})
+
+        assert allowed.status_code == 302
+        assert review_progress(self.comparison).approved_count == 1
+
+    def test_review_page_renders_lifecycle_and_actions(self) -> None:
+        self.reviewer.is_superuser = True
+        self.reviewer.save(update_fields=("is_superuser",))
+        self.client.force_login(self.reviewer)
+
+        with patch("netbox_ssot.views.latest_review_decisions", wraps=latest_review_decisions) as latest:
+            response = self.client.get(
+                reverse("plugins:netbox_ssot:comparison_detail", kwargs={"pk": self.comparison.pk})
+            )
+
+        assert response.status_code == 200
+        assert latest.call_args.kwargs["item_ids"] == tuple(item.pk for item in self.items)
+        self.assertContains(response, "Review decisions")
+        self.assertContains(response, "Approve all and finalize")
+
+    def test_item_detail_fetches_only_its_latest_decision(self) -> None:
+        self.reviewer.is_superuser = True
+        self.reviewer.save(update_fields=("is_superuser",))
+        self.client.force_login(self.reviewer)
+        record_review_decision(
+            self.comparison,
+            self.items[0],
+            ReviewDecision.Decision.APPROVE,
+            self.reviewer,
+        )
+
+        with patch(
+            "netbox_ssot.views.latest_review_decisions",
+            side_effect=AssertionError("item detail must not build the comparison-wide decision map"),
+        ):
+            response = self.client.get(
+                reverse(
+                    "plugins:netbox_ssot:comparison_item_detail",
+                    kwargs={"comparison_pk": self.comparison.pk, "pk": self.items[0].pk},
+                )
+            )
+
+        assert response.status_code == 200
+        self.assertContains(response, "Approve")
+
+    def test_comparison_list_marks_no_change_comparison_as_resolved(self) -> None:
+        ComparisonRun.objects.create(
+            collection_run=self.comparison.collection_run,
+            source_payload_digest=self.comparison.source_payload_digest,
+            target_snapshot_digest="f" * 64,
+            engine_version=self.comparison.engine_version,
+            no_change_count=1,
+        )
+        self.reviewer.is_superuser = True
+        self.reviewer.save(update_fields=("is_superuser",))
+        self.client.force_login(self.reviewer)
+
+        response = self.client.get(reverse("plugins:netbox_ssot:comparison_list"))
+
+        assert response.status_code == 200
+        self.assertContains(response, "No changes", count=1)
+        self.assertContains(response, "In review", count=1)

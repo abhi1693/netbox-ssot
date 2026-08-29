@@ -14,7 +14,9 @@ names do not contain enough data to recreate those models faithfully.
 The plugin exposes a separate, permission-gated apply command for a complete geography bundle. Regions, Sites, and
 Locations remain the selectable datasets; a hidden dependency dataset automatically collects Tags, Owner Groups,
 Owners, Tenant Groups, Tenants, Site Groups, RIRs, and ASNs. The command requires explicit human confirmation and
-revalidates the complete collection, source digest, comparison summary, engine version, and full target snapshot.
+an immutable finalized approval. It revalidates the review decision digest, complete collection, source digest,
+comparison summary, engine version, and full target snapshot. Deployments may require different users to finalize the
+review and execute the apply.
 
 Apply fails closed when a comparison contains conflicts, skips, missing relationships, dependency cycles, or missing or
 ambiguous resolve-only references. Supported creates and updates are ordered across the full dependency graph and
@@ -31,6 +33,7 @@ receipt makes retries idempotent.
 ## Consequences
 
 - A target change after review forces a fresh comparison.
+- Rejected or incomplete reviews cannot reach the mutation boundary, and v1 review rejection never creates a partial apply.
 - An apply cannot be nested inside another PostgreSQL transaction because its isolation level must be established before
   any target read.
 - One invalid object or unresolved reference prevents partial target mutation.

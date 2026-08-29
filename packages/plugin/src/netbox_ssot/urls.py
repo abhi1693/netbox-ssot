@@ -44,11 +44,17 @@ urlpatterns = (
     path("runs/<uuid:pk>/compare/", views.ComparisonCreateView.as_view(), name="comparison_add"),
     path("comparisons/", views.ComparisonListView.as_view(), name="comparison_list"),
     path("comparisons/<uuid:pk>/", views.ComparisonDetailView.as_view(), name="comparison_detail"),
+    path("comparisons/<uuid:pk>/review/", views.ComparisonReviewActionView.as_view(), name="comparison_review"),
     path("comparisons/<uuid:pk>/apply/", views.ApplyCreateView.as_view(), name="apply_add"),
     path(
         "comparisons/<uuid:comparison_pk>/items/<int:pk>/",
         views.ComparisonItemDetailView.as_view(),
         name="comparison_item_detail",
+    ),
+    path(
+        "comparisons/<uuid:comparison_pk>/items/<int:pk>/decide/",
+        views.ComparisonItemDecisionView.as_view(),
+        name="comparison_item_decide",
     ),
     path("applications/", views.ApplyListView.as_view(), name="apply_list"),
     path("applications/<uuid:pk>/", views.ApplyDetailView.as_view(), name="apply_detail"),

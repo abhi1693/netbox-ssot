@@ -24,6 +24,7 @@ from netbox_ssot.models import (
 )
 from netbox_ssot.planning.comparison import ENGINE_VERSION, snapshot_digest
 from netbox_ssot.planning.netbox_target import load_netbox_target_records
+from netbox_ssot.review import approve_all_review_items, finalize_review
 
 
 class ApplicationConcurrencyTests(TransactionTestCase):
@@ -97,6 +98,8 @@ class ApplicationConcurrencyTests(TransactionTestCase):
             target_data={"attributes": target_record.attributes, "relationships": target_record.relationships},
             changes=[{"path": "/description", "before": "reviewed baseline", "after": "reviewed SSoT value"}],
         )
+        approve_all_review_items(self.comparison, self.user)
+        finalize_review(self.comparison, "approved", self.user)
 
     def test_concurrent_netbox_edit_is_not_overwritten_by_stale_review(self) -> None:
         snapshot_checked = Event()

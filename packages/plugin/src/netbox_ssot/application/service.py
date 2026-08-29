@@ -7,10 +7,12 @@ from typing import Any
 from django.apps import apps
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, OperationalError, connection, transaction
+from netbox.plugins import get_plugin_config
 
-from ..models import ApplyItem, ApplyRun, ComparisonItem, ComparisonRun, ObjectBinding
+from ..models import ApplyItem, ApplyRun, ComparisonItem, ComparisonReview, ComparisonRun, ObjectBinding
 from ..planning.comparison import ENGINE_VERSION, SUPPORTED_RESOURCE_KINDS, CanonicalRecord, snapshot_digest
 from ..planning.netbox_target import MODEL_BY_KIND, load_netbox_target_records
+from ..review import review_integrity_issue
 from .planning import (
     ApplicationPlanError,
     ApplicationRecord,
@@ -46,9 +48,9 @@ class ApplicationOutcome:
     created: bool
 
 
-def inspect_application(comparison: ComparisonRun) -> ApplicationReadiness:
+def inspect_application(comparison: ComparisonRun, applied_by: Any | None = None) -> ApplicationReadiness:
     target_records = load_netbox_target_records()
-    reasons = _readiness_reasons(comparison, target_records)
+    reasons = _readiness_reasons(comparison, target_records, applied_by=applied_by)
     return ApplicationReadiness(
         ready=not reasons,
         reasons=tuple(reasons),
@@ -71,7 +73,7 @@ def apply_comparison(comparison: ComparisonRun, applied_by: Any) -> ApplicationO
                 return ApplicationOutcome(existing, False)
 
             target_records = load_netbox_target_records()
-            reasons = _readiness_reasons(locked, target_records)
+            reasons = _readiness_reasons(locked, target_records, applied_by=applied_by)
             if reasons:
                 raise ApplicationRejectedError(" ".join(reasons))
 
@@ -143,7 +145,12 @@ def _is_serialization_failure(exc: OperationalError) -> bool:
     return getattr(cause, "sqlstate", None) == "40001"
 
 
-def _readiness_reasons(comparison: ComparisonRun, target_records: list[CanonicalRecord]) -> list[str]:
+def _readiness_reasons(
+    comparison: ComparisonRun,
+    target_records: list[CanonicalRecord],
+    *,
+    applied_by: Any | None = None,
+) -> list[str]:
     reasons: list[str] = []
     if ApplyRun.objects.filter(comparison=comparison).exists():
         reasons.append("This comparison has already been applied.")
@@ -157,6 +164,25 @@ def _readiness_reasons(comparison: ComparisonRun, target_records: list[Canonical
         reasons.append(f"Resolve all {comparison.conflict_count} conflict items before applying.")
     if comparison.skipped_count:
         reasons.append(f"A comparison containing {comparison.skipped_count} skipped items cannot be applied.")
+
+    review = ComparisonReview.objects.filter(comparison=comparison).select_related("reviewed_by").first()
+    if comparison.create_count or comparison.update_count:
+        if review is None:
+            reasons.append("This comparison must be approved in a finalized review before it can be applied.")
+        elif review.decision == ComparisonReview.Decision.REJECTED:
+            reasons.append("This comparison was rejected and cannot be applied.")
+        elif review.decision == ComparisonReview.Decision.APPROVED:
+            integrity_issue = review_integrity_issue(review)
+            if integrity_issue:
+                reasons.append(integrity_issue)
+            if (
+                applied_by is not None
+                and _separate_reviewer_required()
+                and review.reviewed_by_id == applied_by.pk
+            ):
+                reasons.append("A different operator must apply this approved comparison.")
+        else:
+            reasons.append("This comparison has an unsupported final review state and cannot be applied.")
 
     items = list(comparison.items.all())
     counts = Counter(item.action for item in items)
@@ -195,6 +221,10 @@ def _readiness_reasons(comparison: ComparisonRun, target_records: list[Canonical
     except ApplicationPlanError as exc:
         reasons.append(str(exc))
     return reasons
+
+
+def _separate_reviewer_required() -> bool:
+    return bool(get_plugin_config("netbox_ssot", "require_separate_reviewer_and_applier"))
 
 
 def _records_by_item(items: list[ComparisonItem]) -> dict[int, ApplicationRecord]:

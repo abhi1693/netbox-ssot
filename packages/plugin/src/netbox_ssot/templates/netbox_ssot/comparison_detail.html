@@ -8,6 +8,12 @@
 
   {% if application %}
     <div class="alert alert-success"><strong>Changes applied.</strong> <a class="alert-link" href="{% url 'plugins:netbox_ssot:apply_detail' pk=application.pk %}">View result</a></div>
+  {% elif review_state == 'stale' %}
+    <div class="alert alert-danger"><strong>Review stale.</strong> Local NetBox data changed after this comparison. Create a fresh comparison before applying.</div>
+  {% elif review_state == 'rejected' %}
+    <div class="alert alert-warning"><strong>Review rejected.</strong> This comparison is finalized and cannot be applied.</div>
+  {% elif review_state == 'approved' %}
+    <div class="alert alert-success"><strong>Review approved.</strong> The immutable approval is ready for a separately permissioned apply.</div>
   {% elif comparison.conflict_count or comparison.skipped_count %}
     <div class="alert alert-warning"><strong>Review required.</strong> Some records could not be safely matched or applied.</div>
   {% elif has_changes %}
@@ -16,7 +22,8 @@
     <div class="alert alert-success"><strong>Everything already matches.</strong> No changes are needed.</div>
   {% endif %}
 
-  <div class="row row-cols-2 row-cols-lg-5 g-3 mb-3">
+  <div class="row row-cols-2 row-cols-lg-6 g-3 mb-3">
+    <div class="col"><div class="card h-100"><div class="card-body"><div class="text-secondary">Review</div><div class="fs-5">{{ review_state|title }}</div></div></div></div>
     <div class="col"><div class="card h-100"><div class="card-body"><div class="text-secondary">Creates</div><div class="fs-3">{{ comparison.create_count }}</div></div></div></div>
     <div class="col"><div class="card h-100"><div class="card-body"><div class="text-secondary">Updates</div><div class="fs-3">{{ comparison.update_count }}</div></div></div></div>
     <div class="col"><div class="card h-100"><div class="card-body"><div class="text-secondary">Matches</div><div class="fs-3">{{ comparison.no_change_count }}</div></div></div></div>
@@ -24,7 +31,47 @@
     <div class="col"><div class="card h-100"><div class="card-body"><div class="text-secondary">Skipped</div><div class="fs-3">{{ comparison.skipped_count }}</div></div></div></div>
   </div>
 
-  {% if not application and readiness.ready and has_changes %}
+  {% if not application and final_review %}
+    <div class="card mb-3"><div class="card-body">
+      <h2 class="h5">Final review</h2>
+      <p class="mb-1"><span class="badge {% if final_review.decision == 'approved' %}text-bg-success{% else %}text-bg-warning{% endif %}">{{ final_review.get_decision_display }}</span> by {{ final_review.reviewed_by }} at {{ final_review.reviewed_at }}.</p>
+      <p class="text-secondary mb-0">{{ final_review.approved_count }} approved · {{ final_review.rejected_count }} rejected{% if final_review.reason %} · {{ final_review.reason }}{% endif %}</p>
+    </div></div>
+  {% elif not application and review_state == 'in_review' %}
+    <div class="card border-primary mb-3"><div class="card-body">
+      <h2 class="h5">Review decisions</h2>
+      <p>{{ review_progress.approved_count }} approved · {{ review_progress.rejected_count }} rejected · {{ review_progress.undecided_count }} undecided. Decisions are append-only audit events until this review is finalized.</p>
+      {% if perms.netbox_ssot.add_comparisonreview %}
+        {% if has_changes %}<div class="d-flex flex-wrap gap-2 mb-3">
+          <form method="post" action="{% url 'plugins:netbox_ssot:comparison_review' pk=comparison.pk %}">
+            {% csrf_token %}<input name="action" type="hidden" value="approve_all">
+            <button class="btn btn-outline-primary" type="submit">Approve all proposed changes</button>
+          </form>
+          {% if not comparison.conflict_count and not comparison.skipped_count %}
+            <form method="post" action="{% url 'plugins:netbox_ssot:comparison_review' pk=comparison.pk %}">
+              {% csrf_token %}<input name="action" type="hidden" value="approve_all_and_finalize">
+              <button class="btn btn-primary" type="submit">Approve all and finalize</button>
+            </form>
+          {% endif %}
+          {% if not review_progress.undecided_count and not review_progress.rejected_count and not comparison.conflict_count and not comparison.skipped_count %}
+            <form method="post" action="{% url 'plugins:netbox_ssot:comparison_review' pk=comparison.pk %}">
+              {% csrf_token %}<input name="action" type="hidden" value="finalize_approval">
+              <button class="btn btn-success" type="submit">Finalize current approval</button>
+            </form>
+          {% endif %}
+        </div>{% endif %}
+        <form class="row g-2 align-items-end" method="post" action="{% url 'plugins:netbox_ssot:comparison_review' pk=comparison.pk %}">
+          {% csrf_token %}<input name="action" type="hidden" value="reject">
+          <div class="col-md-9"><label class="form-label" for="review-reason">Rejection reason</label><input class="form-control" id="review-reason" maxlength="1000" name="reason" required></div>
+          <div class="col-md-3"><button class="btn btn-outline-danger w-100" type="submit">Reject review</button></div>
+        </form>
+      {% else %}
+        <p class="text-secondary mb-0">You do not have permission to record or finalize review decisions.</p>
+      {% endif %}
+    </div></div>
+  {% endif %}
+
+  {% if not application and final_review.decision == 'approved' and readiness.ready and has_changes %}
     <div class="card border-warning mb-3"><div class="card-body">
       <h2 class="h5">Apply changes</h2>
       <p>This will create {{ comparison.create_count }} and update {{ comparison.update_count }} local records. Existing destination-only records are left alone.</p>
@@ -41,7 +88,7 @@
         <p class="text-secondary mb-0">You do not have permission to apply changes.</p>
       {% endif %}
     </div></div>
-  {% elif not application and not readiness.ready %}
+  {% elif not application and final_review and not readiness.ready %}
     <div class="alert alert-danger"><h2 class="h5">Apply blocked</h2><ul class="mb-0">{% for reason in readiness.reasons %}<li>{{ reason }}</li>{% endfor %}</ul></div>
   {% endif %}
 
@@ -53,11 +100,12 @@
       <div class="col-md-4"><button class="btn btn-primary" type="submit">Filter</button> <a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_ssot:comparison_detail' pk=comparison.pk %}">Reset</a></div>
     </div></form></div>
     <div class="table-responsive"><table class="table table-hover mb-0">
-      <thead><tr><th>Result</th><th>Data type</th><th>Record</th><th>Changes</th><th>Note</th></tr></thead>
+      <thead><tr><th>Result</th><th>Review</th><th>Data type</th><th>Record</th><th>Changes</th><th>Note</th></tr></thead>
       <tbody>{% for item in page %}<tr>
         <td><span class="badge {% if item.action == 'create' %}text-bg-success{% elif item.action == 'update' %}text-bg-warning{% elif item.action == 'conflict' %}text-bg-danger{% elif item.action == 'skipped' %}text-bg-secondary{% else %}text-bg-info{% endif %}">{{ item.get_action_display }}</span></td>
+        <td>{% if item.current_review_decision %}<span class="badge {% if item.current_review_decision.decision == 'approve' %}text-bg-success{% else %}text-bg-danger{% endif %}">{{ item.current_review_decision.get_decision_display }}</span>{% elif item.action == 'create' or item.action == 'update' %}<span class="badge text-bg-secondary">Undecided</span>{% else %}<span class="text-secondary">—</span>{% endif %}</td>
         <td>{{ item.resource_kind }}</td><td><a href="{% url 'plugins:netbox_ssot:comparison_item_detail' comparison_pk=comparison.pk pk=item.pk %}">{{ item.display_name }}</a></td><td>{{ item.changes|length }}</td><td>{{ item.reason }}</td>
-      </tr>{% empty %}<tr><td colspan="5" class="text-secondary">No records match the selected filters.</td></tr>{% endfor %}</tbody>
+      </tr>{% empty %}<tr><td colspan="6" class="text-secondary">No records match the selected filters.</td></tr>{% endfor %}</tbody>
     </table></div>
   </div>
 

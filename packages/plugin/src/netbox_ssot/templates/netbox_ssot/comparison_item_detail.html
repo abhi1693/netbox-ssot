@@ -27,6 +27,34 @@
     <span class="ms-1">{{ item.reason }}</span>
   </div>
 
+  {% if item.action == 'create' or item.action == 'update' %}
+    <div class="card mb-3"><div class="card-body">
+      <h2 class="h5">Record review</h2>
+      {% if current_decision %}
+        <p><span class="badge {% if current_decision.decision == 'approve' %}text-bg-success{% else %}text-bg-danger{% endif %}">{{ current_decision.get_decision_display }}</span> by {{ current_decision.decided_by }} at {{ current_decision.decided_at }}{% if current_decision.reason %}: {{ current_decision.reason }}{% endif %}</p>
+      {% else %}
+        <p class="text-secondary">No decision has been recorded for this proposed change.</p>
+      {% endif %}
+      {% if final_review %}
+        <p class="mb-0">The review is finalized as <strong>{{ final_review.get_decision_display|lower }}</strong>; record decisions are now locked.</p>
+      {% elif perms.netbox_ssot.add_comparisonreview %}
+        <div class="d-flex flex-wrap gap-2 mb-3">
+          <form method="post" action="{% url 'plugins:netbox_ssot:comparison_item_decide' comparison_pk=item.comparison_id pk=item.pk %}">
+            {% csrf_token %}<input name="decision" type="hidden" value="approve">
+            <button class="btn btn-success" type="submit">Approve record</button>
+          </form>
+        </div>
+        <form class="row g-2 align-items-end" method="post" action="{% url 'plugins:netbox_ssot:comparison_item_decide' comparison_pk=item.comparison_id pk=item.pk %}">
+          {% csrf_token %}<input name="decision" type="hidden" value="reject">
+          <div class="col-md-9"><label class="form-label" for="decision-reason">Rejection reason</label><input class="form-control" id="decision-reason" maxlength="1000" name="reason" required></div>
+          <div class="col-md-3"><button class="btn btn-outline-danger w-100" type="submit">Reject record</button></div>
+        </form>
+      {% else %}
+        <p class="text-secondary mb-0">You do not have permission to record review decisions.</p>
+      {% endif %}
+    </div></div>
+  {% endif %}
+
   <div class="row g-3 mb-3">
     <div class="col-lg-6">
       <div class="card h-100">

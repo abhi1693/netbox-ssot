@@ -12,7 +12,14 @@ from netbox_ssot.collection_policy import (
     agent_collection_policy_issue,
     source_collection_schedule_policy,
 )
-from netbox_ssot.models import ApplyRun, CollectionRun, CollectorAgent, ComparisonRun, DiscoverySource
+from netbox_ssot.models import (
+    ApplyRun,
+    CollectionRun,
+    CollectorAgent,
+    ComparisonReview,
+    ComparisonRun,
+    DiscoverySource,
+)
 
 PAUSE_CONFIG = {"netbox_ssot": {"pause_scheduled_collections_until_resolved": True}}
 
@@ -85,6 +92,35 @@ class CollectionPolicyTests(TestCase):
         comparison.create_count = 1
         ComparisonRun.objects.filter(pk=comparison.pk).update(no_change_count=0, create_count=1)
         assert not source_collection_schedule_policy(self.source).enabled
+
+        ComparisonReview.objects.create(
+            comparison=comparison,
+            decision=ComparisonReview.Decision.REJECTED,
+            reviewed_by=self.user,
+            reason="Source data needs correction.",
+            decision_digest="b" * 64,
+            rejected_count=1,
+        )
+        assert source_collection_schedule_policy(self.source).enabled
+
+        run = self._run()
+        comparison = ComparisonRun.objects.create(
+            collection_run=run,
+            source_payload_digest=run.payload_digest,
+            target_snapshot_digest="c" * 64,
+            engine_version="test",
+            create_count=1,
+        )
+        ComparisonReview.objects.create(
+            comparison=comparison,
+            decision=ComparisonReview.Decision.APPROVED,
+            reviewed_by=self.user,
+            decision_digest="d" * 64,
+            approved_count=1,
+        )
+        approved = source_collection_schedule_policy(self.source)
+        assert not approved.enabled
+        assert "approved and waiting for apply" in approved.reason
 
         ApplyRun.objects.create(
             comparison=comparison,

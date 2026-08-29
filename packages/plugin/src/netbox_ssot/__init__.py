@@ -26,6 +26,7 @@ else:
             "maximum_observations_per_batch": 100_000,
             "provider_entry_point_group": "netbox_ssot.providers",
             "pause_scheduled_collections_until_resolved": False,
+            "require_separate_reviewer_and_applier": False,
         }
 
     config = NetBoxSSOTConfig

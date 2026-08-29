@@ -37,7 +37,7 @@ The initial bounded contexts are:
 2. **Collection** executes a compiled collector through an outbound-only Go agent.
 3. **Observation store** records immutable, canonical facts with scope, evidence, and provenance.
 4. **Reconciliation** compares a selected observation set with a fresh target snapshot and materializes a durable plan.
-5. **Review** records field-level decisions without changing the target.
+5. **Review** records immutable decisions for proposed record changes without changing the target.
 6. **Apply** revalidates an approved plan, orders dependencies, performs supported NetBox writes, and records receipts.
 
 ## Trust boundaries
@@ -111,10 +111,17 @@ changes, match basis, and snapshot digests. DiffSync synchronization remains dis
 
 ### Review and apply
 
-Review decisions operate on durable proposals, not on live provider responses. Apply is a separate command path. It
-requires explicit confirmation, re-reads the complete target snapshot, verifies digests and permissions, rejects stale
-or ambiguous proposals, resolves the full geography dependency graph, and executes supported changes in dependency
-order within one transaction. Successful operations store an immutable run/item receipt and durable source bindings.
+Review decisions operate on durable proposals, not on live provider responses. Each record decision is an append-only
+event, so changing a decision preserves the previous reviewer, timestamp, outcome, and reason. Finalizing a review
+stores one immutable approval or rejection plus a digest of the comparison, its item set, and the latest decision for
+every item. Approval requires all proposed creates and updates to be approved and all conflicts and skips to be absent.
+Rejection resolves the snapshot but cannot produce a partial apply.
+
+Apply is a separate command path and accepts only a finalized approval whose decision digest still matches. It requires
+explicit confirmation, re-reads the complete target snapshot, verifies digests and permissions, rejects stale or
+ambiguous proposals, resolves the full geography dependency graph, and executes supported changes in dependency order
+within one transaction. A deployment may additionally require the reviewer and applier to be different users.
+Successful operations store an immutable run/item receipt and durable source bindings.
 
 ## Provider contract
 

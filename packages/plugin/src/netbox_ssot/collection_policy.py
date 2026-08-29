@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from netbox.plugins import get_plugin_config
 
-from .models import ApplyRun, CollectorAgent, DiscoverySource
+from .models import ApplyRun, CollectorAgent, ComparisonReview, DiscoverySource
 
 MINIMUM_PAUSE_AGENT_VERSION = (0, 6, 8)
 
@@ -44,6 +44,14 @@ def source_collection_schedule_policy(source: DiscoverySource) -> CollectionSche
         )
     if ApplyRun.objects.filter(comparison=latest_comparison).exists():
         return CollectionSchedulePolicy(enabled=True)
+    final_review = ComparisonReview.objects.filter(comparison=latest_comparison).first()
+    if final_review is not None:
+        if final_review.decision == ComparisonReview.Decision.REJECTED:
+            return CollectionSchedulePolicy(enabled=True)
+        return CollectionSchedulePolicy(
+            enabled=False,
+            reason=f"Review {latest_comparison.id} is approved and waiting for apply.",
+        )
     unresolved_count = (
         latest_comparison.create_count
         + latest_comparison.update_count

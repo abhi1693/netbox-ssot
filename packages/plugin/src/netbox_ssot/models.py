@@ -399,6 +399,67 @@ class ComparisonItem(AppendOnlyModel):
         return f"{self.resource_kind}: {self.display_name} ({self.action})"
 
 
+class ReviewDecision(AppendOnlyModel):
+    class Decision(models.TextChoices):
+        APPROVE = "approve", "Approve"
+        REJECT = "reject", "Reject"
+
+    id = models.BigAutoField(primary_key=True)
+    comparison = models.ForeignKey(ComparisonRun, on_delete=models.PROTECT, related_name="review_decisions")
+    comparison_item = models.ForeignKey(ComparisonItem, on_delete=models.PROTECT, related_name="review_decisions")
+    decision = models.CharField(max_length=16, choices=Decision.choices)
+    decided_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    decided_at = models.DateTimeField(auto_now_add=True)
+    reason = models.TextField(blank=True, max_length=1000)
+
+    class Meta:
+        ordering = ("comparison_id", "comparison_item_id", "decided_at", "id")
+        indexes = (
+            models.Index(
+                fields=("comparison", "comparison_item", "-decided_at", "-id"),
+                name="ssot_review_latest_idx",
+            ),
+        )
+
+    def clean(self) -> None:
+        super().clean()
+        if self.comparison_item_id and self.comparison_id != self.comparison_item.comparison_id:
+            raise ValidationError({"comparison_item": "The review item must belong to the selected comparison."})
+        if self.decision == self.Decision.REJECT and not self.reason.strip():
+            raise ValidationError({"reason": "A rejected record requires a reason."})
+
+    def __str__(self) -> str:
+        return f"{self.comparison_item}: {self.get_decision_display()}"
+
+
+class ComparisonReview(AppendOnlyModel):
+    class Decision(models.TextChoices):
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    comparison = models.OneToOneField(ComparisonRun, on_delete=models.PROTECT, related_name="final_review")
+    decision = models.CharField(max_length=16, choices=Decision.choices)
+    reviewed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    reviewed_at = models.DateTimeField(auto_now_add=True)
+    reason = models.TextField(blank=True, max_length=1000)
+    decision_digest = models.CharField(max_length=64, editable=False)
+    approved_count = models.PositiveIntegerField(default=0)
+    rejected_count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ("-reviewed_at",)
+        indexes = (models.Index(fields=("decision", "-reviewed_at"), name="ssot_review_state_idx"),)
+
+    def clean(self) -> None:
+        super().clean()
+        if self.decision == self.Decision.REJECTED and not self.reason.strip():
+            raise ValidationError({"reason": "A rejected review requires a reason."})
+
+    def __str__(self) -> str:
+        return f"{self.comparison}: {self.get_decision_display()}"
+
+
 class ApplyRun(AppendOnlyModel):
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     comparison = models.OneToOneField(ComparisonRun, on_delete=models.PROTECT, related_name="apply_run")

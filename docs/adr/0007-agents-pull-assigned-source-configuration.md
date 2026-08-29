@@ -47,9 +47,10 @@ assignment, marks the source unhealthy, and records the capability change for op
 The optional `pause_scheduled_collections_until_resolved` control-plane setting adds review backpressure and defaults
 to false. When enabled, NetBox keeps the source assignment and command channel present but marks scheduled collection
 as paused after a complete run. The newest complete run is resolved when its newest comparison has no actionable or
-conflicting items, or when that comparison has an application receipt. Test connection and Run now remain available;
-a successful Run now snapshot supersedes the previously pending snapshot. Agents older than 0.6.8 cannot be assigned
-while this policy is enabled because they do not understand schedule state.
+conflicting items, its review is finalized as rejected, or it has an application receipt. An approved review remains
+paused while waiting for apply. Test connection and Run now remain available; a successful Run now snapshot supersedes
+the previously pending snapshot. Agents older than 0.6.8 cannot be assigned while this policy is enabled because they
+do not understand schedule state.
 
 Consecutive control fetch failures back off exponentially from the configured control interval to a five-minute cap.
 At the cap, the agent retries every five minutes. The first successful fetch resets the failure count and restores the
