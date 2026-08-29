@@ -73,7 +73,7 @@
                 <div class="fw-semibold">{% if mapping.destination_url %}<a href="{{ mapping.destination_url }}">{{ mapping.destination_name }}</a>{% else %}{{ mapping.destination_name }}{% endif %}</div>
                 <code class="small">{{ mapping.destination_model }}</code>
               </td>
-              <td><span class="badge text-bg-secondary">{{ mapping.dataset_title }}</span></td>
+              <td><a class="badge text-bg-secondary text-decoration-none" href="{% url 'plugins:netbox_ssot:source_dataset_detail' pk=source.pk dataset_id=mapping.dataset_id %}">{{ mapping.dataset_title }}</a></td>
             </tr>
           {% empty %}<tr><td class="text-secondary" colspan="4">No data is selected.</td></tr>{% endfor %}
         </tbody>

@@ -1,0 +1,84 @@
+{% extends 'base/layout.html' %}
+
+{% block title %}{{ dataset.title }}{% endblock %}
+
+{% block content %}
+  <div class="d-flex justify-content-between align-items-start mb-4">
+    <div>
+      <div class="text-secondary mb-1"><a href="{% url 'plugins:netbox_ssot:source_detail' pk=source.pk %}">{{ source.name }}</a> · {{ provider_name }}</div>
+      <h1 class="mb-1">{{ dataset.title }}</h1>
+      <p class="text-secondary mb-0">{{ dataset.description }}</p>
+    </div>
+    <div class="d-flex flex-wrap justify-content-end gap-2">
+      {% if included %}<span class="badge text-bg-success">Included in source</span>{% else %}<span class="badge text-bg-secondary">Not included</span>{% endif %}
+      {% if dataset.selectable %}<span class="badge text-bg-primary">Selectable</span>{% else %}<span class="badge text-bg-info">Supporting dataset</span>{% endif %}
+      {% if dataset.default_enabled %}<span class="badge text-bg-secondary">Enabled by default</span>{% endif %}
+    </div>
+  </div>
+
+  <div class="row g-3 mb-3">
+    <div class="col-lg-5">
+      <div class="card h-100">
+        <div class="card-header"><strong>Definition</strong></div>
+        <div class="card-body">
+          <dl class="row mb-0">
+            <dt class="col-sm-5">Dataset ID</dt><dd class="col-sm-7"><code>{{ dataset.id }}</code></dd>
+            <dt class="col-sm-5">Completeness</dt><dd class="col-sm-7">{{ completeness_label }}</dd>
+            <dt class="col-sm-5">Resource kinds</dt><dd class="col-sm-7">{{ dataset.resource_kinds|length }}</dd>
+            <dt class="col-sm-5">Model mappings</dt><dd class="col-sm-7">{{ data_mappings|length }}</dd>
+          </dl>
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-7">
+      <div class="card h-100">
+        <div class="card-header"><strong>Dependency graph</strong></div>
+        <div class="card-body">
+          <div class="mb-3"><div class="text-secondary mb-1">Direct dependencies</div>
+            {% for item in dependencies %}<a class="badge text-bg-secondary text-decoration-none me-1" href="{% url 'plugins:netbox_ssot:source_dataset_detail' pk=source.pk dataset_id=item.id %}">{{ item.title }}</a>{% empty %}<span>None</span>{% endfor %}
+          </div>
+          <div class="mb-3"><div class="text-secondary mb-1">Complete dependency closure</div>
+            {% for item in dependency_closure %}<a class="badge text-bg-secondary text-decoration-none me-1" href="{% url 'plugins:netbox_ssot:source_dataset_detail' pk=source.pk dataset_id=item.id %}">{{ item.title }}</a>{% empty %}<span>None</span>{% endfor %}
+          </div>
+          <div><div class="text-secondary mb-1">Directly required by</div>
+            {% for item in required_by %}<a class="badge text-bg-secondary text-decoration-none me-1" href="{% url 'plugins:netbox_ssot:source_dataset_detail' pk=source.pk dataset_id=item.id %}">{{ item.title }}</a>{% empty %}<span>None</span>{% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header"><strong>Resource kinds</strong></div>
+    <div class="card-body">
+      {% for resource_kind in dataset.resource_kinds %}<span class="badge text-bg-light border text-dark me-1"><code>{{ resource_kind }}</code></span>{% endfor %}
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header"><strong>Data mappings</strong></div>
+    <div class="table-responsive">
+      <table class="table table-vcenter card-table mb-0">
+        <thead><tr>
+          <th><span class="d-inline-flex align-items-center gap-2"><i class="{{ provider_icon_class }} fs-2 text-primary" aria-hidden="true"></i><span>{{ provider_name }} <span class="text-secondary fw-normal">source</span></span></span></th>
+          <th class="text-center" aria-label="Maps to"></th>
+          <th><span class="d-inline-flex align-items-center gap-2"><i class="{{ destination_icon_class }} fs-2 text-primary" aria-hidden="true"></i><span>{{ destination_name }} <span class="text-secondary fw-normal">destination</span></span></span></th>
+        </tr></thead>
+        <tbody>
+          {% for mapping in data_mappings %}
+            <tr>
+              <td><div class="fw-semibold">{% if mapping.source_url %}<a href="{{ mapping.source_url }}">{{ mapping.source_name }}</a>{% else %}{{ mapping.source_name }}{% endif %}</div><code class="small">{{ mapping.source_model }}</code></td>
+              <td class="text-center text-secondary"><i class="mdi mdi-arrow-right" aria-hidden="true"></i><span class="visually-hidden">maps to</span></td>
+              <td><div class="fw-semibold">{% if mapping.destination_url %}<a href="{{ mapping.destination_url }}">{{ mapping.destination_name }}</a>{% else %}{{ mapping.destination_name }}{% endif %}</div><code class="small">{{ mapping.destination_model }}</code></td>
+            </tr>
+          {% empty %}<tr><td class="text-secondary" colspan="3">This dataset has no model mappings.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <details class="card">
+    <summary class="card-header"><strong>Manifest definition</strong></summary>
+    <div class="card-body"><pre class="mb-0">{{ dataset_json }}</pre></div>
+  </details>
+{% endblock %}

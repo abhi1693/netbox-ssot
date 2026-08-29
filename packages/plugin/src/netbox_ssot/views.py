@@ -38,7 +38,7 @@ from .agent_security import (
 from .application.service import ApplicationRejectedError, apply_comparison, inspect_application
 from .collection_policy import agent_collection_policy_issue
 from .comparison_presentation import comparison_field_rows
-from .destination import selected_data_model_mappings
+from .destination import dataset_data_model_mappings, selected_data_model_mappings
 from .health import agent_health, source_health
 from .models import (
     AgentCommand,
@@ -198,6 +198,44 @@ class SourceDetailView(PermissionRequiredMixin, View):
                 "recent_commands": recent_commands,
                 "health": source_health(source),
                 "retention": retention_plan(source),
+            },
+        )
+
+
+class SourceDatasetDetailView(PermissionRequiredMixin, View):
+    permission_required = "netbox_ssot.view_discoverysource"
+    template_name = "netbox_ssot/source_dataset_detail.html"
+
+    def get(self, request: HttpRequest, pk: object, dataset_id: str) -> HttpResponse:
+        source = get_object_or_404(_source_queryset(), pk=pk)
+        try:
+            manifest = ProviderRegistry().get(source.provider_id).manifest
+        except ProviderNotFoundError as exc:
+            raise Http404("The source provider is unavailable.") from exc
+        datasets_by_id = {dataset.id: dataset for dataset in manifest.datasets}
+        dataset = datasets_by_id.get(dataset_id)
+        if dataset is None:
+            raise Http404("The provider does not define this dataset.")
+        dependencies = tuple(datasets_by_id[item] for item in dataset.depends_on)
+        dependency_closure = _dataset_dependency_closure(manifest.datasets, dataset.id)
+        required_by = tuple(item for item in manifest.datasets if dataset.id in item.depends_on)
+        return render(
+            request,
+            self.template_name,
+            {
+                "source": source,
+                "provider_name": manifest.display_name,
+                "provider_icon_class": manifest.icon_class,
+                "dataset": dataset,
+                "included": dataset.id in source.datasets,
+                "completeness_label": str(dataset.completeness).replace("_", " ").title(),
+                "dependencies": dependencies,
+                "dependency_closure": dependency_closure,
+                "required_by": required_by,
+                "data_mappings": dataset_data_model_mappings(manifest, dataset.id, source.configuration),
+                "destination_name": "NetBox",
+                "destination_icon_class": "mdi mdi-cube-outline",
+                "dataset_json": json.dumps(dataset.model_dump(mode="json"), indent=2, sort_keys=True),
             },
         )
 
@@ -1129,6 +1167,19 @@ class ApplyDetailView(PermissionRequiredMixin, View):
             self.template_name,
             {"apply_run": apply_run, "page": page, "record_rows": record_rows},
         )
+
+
+def _dataset_dependency_closure(datasets: tuple[Any, ...], dataset_id: str) -> tuple[Any, ...]:
+    datasets_by_id = {dataset.id: dataset for dataset in datasets}
+    dependency_ids: set[str] = set()
+    pending = list(datasets_by_id[dataset_id].depends_on)
+    while pending:
+        dependency_id = pending.pop()
+        if dependency_id in dependency_ids:
+            continue
+        dependency_ids.add(dependency_id)
+        pending.extend(datasets_by_id[dependency_id].depends_on)
+    return tuple(dataset for dataset in datasets if dataset.id in dependency_ids)
 
 
 def _provider_model_metadata(provider_id: str) -> tuple[str, dict[str, tuple[str, str, str]]]:

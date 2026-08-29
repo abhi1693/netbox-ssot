@@ -17,6 +17,11 @@ urlpatterns = (
     path("sources/", views.SourceListView.as_view(), name="source_list"),
     path("sources/add/<str:provider_id>/", views.SourceWizardView.as_view(), name="source_wizard"),
     path("sources/<uuid:pk>/", views.SourceDetailView.as_view(), name="source_detail"),
+    path(
+        "sources/<uuid:pk>/datasets/<slug:dataset_id>/",
+        views.SourceDatasetDetailView.as_view(),
+        name="source_dataset_detail",
+    ),
     path("sources/<uuid:pk>/edit/", views.SourceEditView.as_view(), name="source_edit"),
     path(
         "sources/<uuid:pk>/test-connection/",

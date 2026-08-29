@@ -13,6 +13,7 @@ from .providers import build_source_model_url
 
 @dataclass(frozen=True, slots=True)
 class DataModelMappingRow:
+    dataset_id: str
     dataset_title: str
     source_name: str
     source_model: str
@@ -28,11 +29,27 @@ def selected_data_model_mappings(
     configuration: dict[str, Any],
 ) -> tuple[DataModelMappingRow, ...]:
     selected = set(selected_dataset_ids)
+    datasets = tuple(dataset for dataset in manifest.datasets if dataset.selectable and dataset.id in selected)
+    return _data_model_mapping_rows(manifest, datasets, configuration)
+
+
+def dataset_data_model_mappings(
+    manifest: ProviderManifest,
+    dataset_id: str,
+    configuration: dict[str, Any],
+) -> tuple[DataModelMappingRow, ...]:
+    datasets = tuple(dataset for dataset in manifest.datasets if dataset.id == dataset_id)
+    return _data_model_mapping_rows(manifest, datasets, configuration)
+
+
+def _data_model_mapping_rows(
+    manifest: ProviderManifest,
+    datasets: tuple[Any, ...],
+    configuration: dict[str, Any],
+) -> tuple[DataModelMappingRow, ...]:
     instance_url = configuration.get(manifest.instance_url_field, "") if manifest.instance_url_field else ""
     rows: list[DataModelMappingRow] = []
-    for dataset in manifest.datasets:
-        if not dataset.selectable or dataset.id not in selected:
-            continue
+    for dataset in datasets:
         for mapping in dataset.data_mappings:
             model = MODEL_BY_KIND.get(mapping.destination_kind.value)
             if model is None:
@@ -50,6 +67,7 @@ def selected_data_model_mappings(
                     destination_url = ""
             rows.append(
                 DataModelMappingRow(
+                    dataset_id=dataset.id,
                     dataset_title=dataset.title,
                     source_name=mapping.source_name,
                     source_model=mapping.source_model,
