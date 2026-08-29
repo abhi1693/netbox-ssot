@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -310,6 +312,130 @@ func TestDataSourceRecordsPreservePortableConfigurationWithoutCredentialsOrRunti
 				t.Fatalf("runtime Core model was advertised: %+v", mapping)
 			}
 		}
+	}
+}
+
+func TestExtrasRecordsPreservePortableConfigurationAndRelationships(t *testing.T) {
+	request := collectionRequest("https://netbox.example.com")
+	tests := []struct {
+		kind          string
+		record        map[string]any
+		attributePath string
+		attributeWant any
+		relationship  string
+	}{
+		{
+			kind: "custom_field_choice_set",
+			record: map[string]any{
+				"id": json.Number("1"), "name": "Environment", "base_choices": map[string]any{"value": "IATA"},
+				"extra_choices": []any{[]any{"prod", "Production"}}, "choice_colors": map[string]any{"prod": "red"},
+				"order_alphabetically": true, "owner": map[string]any{"id": json.Number("20")},
+			},
+			attributePath: "/base_choices", attributeWant: "IATA", relationship: "owner",
+		},
+		{
+			kind: "custom_field",
+			record: map[string]any{
+				"id": json.Number("2"), "name": "environment", "type": map[string]any{"value": "select"},
+				"object_types": []any{"dcim.device"}, "related_object_type": "dcim.site",
+				"choice_set": map[string]any{"id": json.Number("1")}, "owner": map[string]any{"id": json.Number("20")},
+			},
+			attributePath: "/related_object_type", attributeWant: "dcim.site", relationship: "choice_set",
+		},
+		{
+			kind: "config_template",
+			record: map[string]any{
+				"id": json.Number("3"), "name": "Network OS", "template_code": "hostname {{ device.name }}", "debug": false,
+				"tags": []any{map[string]any{"id": json.Number("30")}},
+			},
+			attributePath: "/template_code", attributeWant: "hostname {{ device.name }}", relationship: "tag",
+		},
+		{
+			kind: "config_context",
+			record: map[string]any{
+				"id": json.Number("4"), "name": "Sites", "data": map[string]any{"ntp": "192.0.2.1"},
+				"profile": map[string]any{"id": json.Number("40")}, "sites": []any{map[string]any{"id": json.Number("50")}},
+			},
+			attributePath: "/data", attributeWant: map[string]any{"ntp": "192.0.2.1"}, relationship: "site",
+		},
+		{
+			kind: "notification_group",
+			record: map[string]any{
+				"id": json.Number("5"), "name": "Operators", "groups": []any{map[string]any{"id": json.Number("60")}},
+				"users": []any{map[string]any{"id": json.Number("61")}},
+			},
+			attributePath: "/name", attributeWant: "Operators", relationship: "group",
+		},
+		{
+			kind: "event_rule",
+			record: map[string]any{
+				"id": json.Number("6"), "name": "Device changes", "action_type": map[string]any{"value": "webhook"},
+				"event_types": []any{"object_updated"}, "object_types": []any{"dcim.device"},
+				"action_object_type": "extras.webhook", "action_object_id": json.Number("70"),
+			},
+			attributePath: "/action_type", attributeWant: "webhook", relationship: "action_webhook",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.kind, func(t *testing.T) {
+			observation, err := mapObservation(request, test.kind, test.record)
+			if err != nil {
+				t.Fatalf("mapObservation() error = %v", err)
+			}
+			if got := attributeValue(observation, test.attributePath); !reflect.DeepEqual(got, test.attributeWant) {
+				t.Fatalf("attribute %s = %#v, want %#v", test.attributePath, got, test.attributeWant)
+			}
+			if !slices.ContainsFunc(observation.Relationships, func(value contracts.Relationship) bool {
+				return value.Kind == test.relationship
+			}) {
+				t.Fatalf("relationships = %+v, want %q", observation.Relationships, test.relationship)
+			}
+		})
+	}
+}
+
+func TestWebhookEvidenceNeverHashesDestinationLocalCredentials(t *testing.T) {
+	request := collectionRequest("https://netbox.example.com")
+	record := map[string]any{
+		"id": json.Number("80"), "name": "Automation", "payload_url": "https://automation.example.com/hooks/netbox",
+		"http_method": map[string]any{"value": "POST"}, "http_content_type": "application/json",
+		"body_template": "{{ data | json }}", "ssl_verification": true,
+		"secret": "source-secret", "additional_headers": "Authorization: source-token", "ca_file_path": "/source/ca.pem",
+	}
+	first, err := mapObservation(request, "webhook", record)
+	if err != nil {
+		t.Fatalf("mapObservation() error = %v", err)
+	}
+	for _, path := range []string{"/secret", "/additional_headers", "/ca_file_path"} {
+		if got := attributeValue(first, path); got != nil {
+			t.Fatalf("destination-local attribute %s leaked as %#v", path, got)
+		}
+	}
+	record["secret"] = "changed-secret"
+	record["additional_headers"] = "Authorization: changed-token"
+	second, err := mapObservation(request, "webhook", record)
+	if err != nil {
+		t.Fatalf("mapObservation() error = %v", err)
+	}
+	if first.Evidence[0].RawDigest != second.Evidence[0].RawDigest {
+		t.Fatal("webhook evidence digest depends on destination-local credentials")
+	}
+}
+
+func TestConfigContextMarksUnsupportedVirtualizationQualifiers(t *testing.T) {
+	observation, err := mapObservation(collectionRequest("https://netbox.example.com"), "config_context", map[string]any{
+		"id": json.Number("90"), "name": "Virtualization", "data": map[string]any{},
+		"cluster_types": []any{map[string]any{"id": json.Number("1")}}, "clusters": []any{map[string]any{"id": json.Number("2")}},
+	})
+	if err != nil {
+		t.Fatalf("mapObservation() error = %v", err)
+	}
+	if got := attributeValue(observation, "/unsupported_assignment_types"); !reflect.DeepEqual(
+		got,
+		[]string{"cluster_types", "clusters"},
+	) {
+		t.Fatalf("unsupported assignments = %#v", got)
 	}
 }
 
@@ -749,7 +875,7 @@ func TestCollectDeviceCatalogAndRacksWithFullCoreFieldCoverage(t *testing.T) {
 	if batch.State != "complete" || len(batch.Observations) != 8 {
 		t.Fatalf("batch state = %q, observations = %d, messages = %+v", batch.State, len(batch.Observations), batch.Messages)
 	}
-	if strings.Join(batch.Datasets, ",") != "references,regions,sites,locations,device_catalog,racks" {
+	if strings.Join(batch.Datasets, ",") != "references,extras_templates,regions,sites,locations,device_catalog,racks" {
 		t.Fatalf("datasets = %v", batch.Datasets)
 	}
 	deviceType := findObservation(t, batch, "device_type", "netbox:device_type:103")

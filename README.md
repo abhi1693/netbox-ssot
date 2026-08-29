@@ -9,8 +9,8 @@ The project is being rebuilt from first principles. The current alpha foundation
 - a NetBox plugin with schema-driven sources, one-time agent enrollment, signing-key rotation, immutable observation storage, durable
   comparison previews, guarded local application, receipts, source-object bindings, and agent health visibility;
 - a real NetBox provider descriptor and Go-based read-only collector;
-- end-to-end comparison and guarded apply support for the portable Core Data Source model, every public writable
-  NetBox 4.6 DCIM and Circuits resource, and the portable Users access-control graph;
+- end-to-end comparison and guarded apply support for portable Core, Extras, and Users configuration plus every public
+  writable NetBox 4.6 DCIM and Circuits resource;
 - timestamped Ed25519 batch signing with idempotent plugin ingestion; and
 - architecture decisions that make review, provenance, field ownership, and safe apply mandatory.
 
@@ -240,13 +240,12 @@ Comparison and apply records store their synchronization direction. The local Ne
 atomic write capability, so source-to-target execution is enabled. Target-to-source uses the same adapter contract but
 fails closed until the selected provider supplies an authenticated remote mutation backend.
 
-The NetBox provider exposes dependency-closed datasets for portable Core Data Sources, the complete public writable
-DCIM and Circuits model surfaces, and the portable Users access-control graph: data sources, users, groups, object
-permissions, geography, device and module catalogs, component templates, racks and reservations, devices and installed
-components, inventory, MAC addresses, power, circuit catalogs, physical and virtual circuits, circuit groups, and
-cabling. Internal aggregate/helper rows such as cable terminations and port mappings travel with their owning DCIM
-object rather than as independent resources. References outside these owned graphs remain resolve-only or fail closed;
-Config Templates and ASN Roles must match exactly, and Rack Reservation users must match a unique local username.
+The NetBox provider exposes dependency-closed datasets for portable Core, Extras, and Users configuration plus the
+complete public writable DCIM and Circuits model surfaces. Extras adds custom fields and choice sets, links, export and
+configuration templates, shared views, configuration contexts, webhooks, notification groups, and event rules.
+Internal aggregate/helper rows such as cable terminations and port mappings travel with their owning DCIM object rather
+than as independent resources. Config Templates are first-class dependencies used by DCIM objects. References outside
+these owned graphs remain resolve-only or fail closed; ASN Roles and Rack Reservation users must match uniquely.
 
 Deployments that require four-eyes approval can prevent the final reviewer from also applying the comparison:
 
@@ -260,10 +259,10 @@ PLUGINS_CONFIG = {
 
 ### Current NetBox compatibility scope
 
-The NetBox provider presents dependency-closed datasets spanning Core Data Sources, users and access control,
-geography, catalogs, component templates, racks, devices, installed components, inventory, power, physical and virtual
-circuits, circuit groups, and cabling. Supporting resources are included automatically so the Go collector emits
-complete, stable references rather than lossy embedded names.
+The NetBox provider presents dependency-closed datasets spanning Core Data Sources, portable Extras configuration,
+users and access control, geography, catalogs, component templates, racks, devices, installed components, inventory,
+power, physical and virtual circuits, circuit groups, and cabling. Supporting resources are included automatically so
+the Go collector emits complete, stable references rather than lossy embedded names.
 
 Each dataset also declares its provider-native source model and canonical destination kind. The source detail UI joins
 that declaration with the installed destination model registry and presents an explicit source-to-destination mapping;
@@ -280,13 +279,22 @@ the shared UI never assumes that both systems use the same model names.
   containing user information, query strings, or fragments fail collection before their contents can enter evidence.
   Generated Data Files, synchronization status/timestamps, Jobs, Object Changes, Object Types, Config Revisions,
   Auto-Sync records, and background queue/worker/task state are runtime or local metadata and are never copied.
+- Extras includes Custom Field Choice Sets, Custom Fields, Custom Links, Export Templates, Saved Filters, Table
+  Configurations, Config Context Profiles, Config Contexts, Config Templates, Webhooks, Notification Groups, and Event
+  Rules. Object types, supported DCIM/tenancy context qualifiers, ownership, tags where the API exposes stable Tag
+  references, users/groups, and supported webhook/notification actions are explicit graph edges. Synced templates and
+  contexts are materialized inline at the destination; source Data File bindings and sync state are not copied.
+- Webhook secrets, additional headers, and CA file paths remain destination-local and are excluded even from evidence
+  digests. Script actions fail closed. Event Rule action data/comments are not exposed by NetBox's API and remain local.
+  Config Context virtualization qualifiers fail closed until the Virtualization app joins the provider graph; Config
+  Context tag qualifiers also remain local because that API exposes only slugs rather than stable Tag references.
 - Tenant Groups, Tenants, and Site Groups include full hierarchy, native fields, Owner, and Tags.
 - RIRs and ASNs include native fields, ownership, tenancy, Tags, and required RIR placement. ASN Role is resolve-only.
 - Regions, Sites, and Locations include native scalar fields, complete hierarchy, ownership, tenancy, groups, ASNs,
   and Tags.
 - Device catalog includes Manufacturers, hierarchical Device Roles and Platforms, and Device Types with native core
-  fields, ownership, Tags, manufacturer placement, and default-platform relationships. Config Templates are
-  resolve-only and must already have one exact matching name in the target.
+  fields, ownership, Tags, manufacturer placement, default-platform relationships, and first-class Config Template
+  relationships.
 - Racks includes Rack Groups, Rack Roles, Rack Types, Racks, and reservations with native physical fields, ownership,
   tenancy, type, role, Site/Location placement, and Tags.
 - DCIM includes module profiles and types, every public component-template model, Devices and installed components,
@@ -298,9 +306,10 @@ the shared UI never assumes that both systems use the same model names.
 - Cables support Circuit Terminations as first-class endpoints. Cabling depends on the physical Circuits dataset so a
   reviewed apply cannot create a partial cross-app path.
 
-Custom fields, contacts, images, cross-app IPAM/wireless assignments, wireless cable endpoints, authentication secrets,
-unknown Data Source backend parameters, and per-user UI preferences remain outside this compatibility boundary. They
-require an explicit ownership contract rather than shallow support.
+Contacts, image attachments, journal/history rows, generated notifications, subscriptions, bookmarks, dashboard and
+other private UI state, scripts and script modules, cross-app IPAM/wireless assignments, wireless cable endpoints,
+authentication secrets, and unknown Data Source backend parameters remain outside this compatibility boundary. They
+are personal, generated, binary, executable, credential-bearing, or owned by a future app graph.
 
 ## Safety defaults
 

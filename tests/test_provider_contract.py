@@ -24,7 +24,7 @@ def test_dataset_selection_adds_dependencies_in_manifest_order() -> None:
 
 
 def test_netbox_provider_is_agent_read_only() -> None:
-    assert MANIFEST.implementation_version == "0.0.10"
+    assert MANIFEST.implementation_version == "0.0.11"
     assert MANIFEST.execution_modes == (ExecutionMode.AGENT,)
     assert MANIFEST.capabilities == (ProviderCapability.SOURCE_READ,)
     assert MANIFEST.agent_compatibility.collector_id == "netbox"
@@ -59,10 +59,15 @@ def test_installed_netbox_provider_is_discovered_by_entry_point() -> None:
     assert wizard.default_datasets == (
         "data_sources",
         "users",
+        "extras_customization",
+        "extras_templates",
+        "extras_views",
+        "extras_automation",
         "regions",
         "sites",
         "locations",
         "device_catalog",
+        "extras_contexts",
         "racks",
         "module_catalog",
         "component_templates",
@@ -88,6 +93,16 @@ def test_installed_netbox_provider_is_discovered_by_entry_point() -> None:
         ("users.ObjectPermission", "object_permission"),
         ("users.Group", "user_group"),
         ("users.User", "user"),
+        ("extras.CustomFieldChoiceSet", "custom_field_choice_set"),
+        ("extras.CustomField", "custom_field"),
+        ("extras.CustomLink", "custom_link"),
+        ("extras.ExportTemplate", "export_template"),
+        ("extras.ConfigTemplate", "config_template"),
+        ("extras.SavedFilter", "saved_filter"),
+        ("extras.TableConfig", "table_config"),
+        ("extras.Webhook", "webhook"),
+        ("extras.NotificationGroup", "notification_group"),
+        ("extras.EventRule", "event_rule"),
         ("dcim.Region", "region"),
         ("dcim.Site", "site"),
         ("dcim.Location", "location"),
@@ -95,6 +110,8 @@ def test_installed_netbox_provider_is_discovered_by_entry_point() -> None:
         ("dcim.DeviceRole", "device_role"),
         ("dcim.Platform", "platform"),
         ("dcim.DeviceType", "device_type"),
+        ("extras.ConfigContextProfile", "config_context_profile"),
+        ("extras.ConfigContext", "config_context"),
         ("dcim.RackGroup", "rack_group"),
         ("dcim.RackRole", "rack_role"),
         ("dcim.RackType", "rack_type"),

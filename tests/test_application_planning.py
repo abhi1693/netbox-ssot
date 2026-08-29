@@ -213,15 +213,35 @@ def test_only_unmodeled_role_references_remain_external() -> None:
     }
 
 
-def test_config_templates_are_resolve_only_external_references() -> None:
+def test_config_templates_are_first_class_dependencies() -> None:
     records = [
-        record("device_role", "leaf", attributes={"/config_template": "Network OS"}),
-        record("platform", "junos", attributes={"/config_template": "Network OS"}),
+        record("device_role", "leaf", relationships={"config_template": "Network OS"}),
+        record("platform", "junos", relationships={"config_template": "Network OS"}),
+        record("config_template", "Network OS"),
     ]
 
-    assert external_reference_requirements(records) == (
-        ReferenceRequirement("extras.configtemplate", "name", "Network OS"),
-    )
+    assert external_reference_requirements(records) == ()
+    positions = {item.key: index for index, item in enumerate(dependency_order(records))}
+    assert positions[("config_template", "Network OS")] < positions[("device_role", "leaf")]
+    assert positions[("config_template", "Network OS")] < positions[("platform", "junos")]
+
+
+def test_extras_dependencies_order_choice_sets_contexts_and_event_actions() -> None:
+    records = [
+        record("custom_field", "environment", relationships={"choice_set": "environments"}),
+        record("custom_field_choice_set", "environments"),
+        record("config_context", "site defaults", relationships={"profile": "site schema", "site": ["dc1"]}),
+        record("config_context_profile", "site schema"),
+        record("site", "dc1"),
+        record("event_rule", "site changes", relationships={"action_webhook": "automation"}),
+        record("webhook", "automation"),
+    ]
+
+    positions = {item.key: index for index, item in enumerate(dependency_order(records))}
+    assert positions[("custom_field_choice_set", "environments")] < positions[("custom_field", "environment")]
+    assert positions[("config_context_profile", "site schema")] < positions[("config_context", "site defaults")]
+    assert positions[("site", "dc1")] < positions[("config_context", "site defaults")]
+    assert positions[("webhook", "automation")] < positions[("event_rule", "site changes")]
 
 
 def test_multi_value_relationships_fail_closed_on_wrong_shape() -> None:

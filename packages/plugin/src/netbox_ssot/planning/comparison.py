@@ -10,7 +10,7 @@ from .adapters import build_adapter_pair
 from .diffsync_engine import ComparisonOnlyDiffSyncEngine
 from .resource_registry import ATTRIBUTE_FIELDS, is_multi_relationship
 
-ENGINE_VERSION = "9.0"
+ENGINE_VERSION = "10.0"
 SUPPORTED_RESOURCE_KINDS = frozenset(ATTRIBUTE_FIELDS)
 MULTI_RELATIONSHIPS = {
     "tenant_group": frozenset({"tag"}),
@@ -129,7 +129,48 @@ def natural_identity(
         parts = [resource_kind, relationships.get("group", "root"), required_attribute("slug")]
     elif resource_kind in {"tag", "rir", "site", "manufacturer", "rack_group", "rack_role"}:
         parts = [resource_kind, "slug", required_attribute("slug")]
-    elif resource_kind in {"owner_group", "owner", "object_permission", "user_group", "data_source"}:
+    elif resource_kind in {
+        "owner_group",
+        "owner",
+        "object_permission",
+        "user_group",
+        "data_source",
+        "custom_field_choice_set",
+        "custom_field",
+        "custom_link",
+        "export_template",
+        "config_context_profile",
+        "config_template",
+        "webhook",
+        "notification_group",
+    }:
+        parts = [resource_kind, "name", required_attribute("name")]
+    elif resource_kind == "saved_filter":
+        parts = [resource_kind, "slug", required_attribute("slug")]
+    elif resource_kind == "table_config":
+        parts = [
+            resource_kind,
+            required_attribute("object_type"),
+            required_attribute("table"),
+            required_attribute("name"),
+            relationships.get("user", "shared"),
+        ]
+    elif resource_kind == "config_context":
+        unsupported = attributes.get("/unsupported_assignment_types")
+        if unsupported:
+            raise ValueError(
+                "The config context uses qualifiers outside the supported provider graph: "
+                + ", ".join(str(value) for value in unsupported)
+                + "."
+            )
+        parts = [resource_kind, "name", required_attribute("name")]
+    elif resource_kind == "event_rule":
+        action_type = required_attribute("action_type")
+        if action_type not in {"webhook", "notification"}:
+            raise ValueError(f"Event rule action type {action_type!r} is not portable.")
+        expected = "action_webhook" if action_type == "webhook" else "action_notification_group"
+        if not relationships.get(expected):
+            raise ValueError(f"Event rule requires relationship {expected}.")
         parts = [resource_kind, "name", required_attribute("name")]
     elif resource_kind == "user":
         parts = [resource_kind, "username", str(required_attribute("username")).casefold()]

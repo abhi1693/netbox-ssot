@@ -263,9 +263,55 @@ def test_relationship_cardinality_preserves_single_many_to_many_values() -> None
         normalize_relationship_cardinality("rack", {"site": ["dc1", "dc2"]})
 
     assert normalize_relationship_cardinality("provider", {"asn": ["64512"]}) == {"asn": ["64512"]}
+    assert normalize_relationship_cardinality("user", {"group": ["operators"], "permission": ["view-sites"]}) == {
+        "group": ["operators"],
+        "permission": ["view-sites"],
+    }
+
+
+def test_extras_identities_are_portable_and_fail_closed_for_unsupported_actions() -> None:
+    assert natural_identity("custom_field", {"/name": "environment"}, {})
+    assert natural_identity("saved_filter", {"/slug": "active-sites"}, {})
+    shared = natural_identity(
+        "table_config",
+        {"/object_type": "dcim.site", "/table": "SiteTable", "/name": "Operations"},
+        {},
+    )
+    personal = natural_identity(
+        "table_config",
+        {"/object_type": "dcim.site", "/table": "SiteTable", "/name": "Operations"},
+        {"user": "alice"},
+    )
+    assert shared != personal
+    assert natural_identity(
+        "event_rule",
+        {"/name": "Site changes", "/action_type": "webhook"},
+        {"action_webhook": "automation"},
+    )
+
+    with pytest.raises(ValueError, match="not portable"):
+        natural_identity(
+            "event_rule",
+            {"/name": "Run script", "/action_type": "script"},
+            {},
+        )
+    with pytest.raises(ValueError, match="outside the supported provider graph"):
+        natural_identity(
+            "config_context",
+            {"/name": "Clusters", "/unsupported_assignment_types": ["clusters"]},
+            {},
+        )
+
+
+def test_extras_many_to_many_relationships_preserve_cardinality() -> None:
     assert normalize_relationship_cardinality(
-        "user", {"group": ["operators"], "permission": ["view-sites"]}
-    ) == {"group": ["operators"], "permission": ["view-sites"]}
+        "config_context",
+        {"site": ["site-a"], "tenant": ["tenant-a", "tenant-b"]},
+    ) == {"site": ["site-a"], "tenant": ["tenant-a", "tenant-b"]}
+    assert normalize_relationship_cardinality(
+        "notification_group",
+        {"group": ["operators"], "user": ["alice"]},
+    ) == {"group": ["operators"], "user": ["alice"]}
 
 
 @pytest.mark.parametrize(

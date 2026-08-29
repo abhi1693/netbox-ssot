@@ -257,9 +257,6 @@ ATTRIBUTE_FIELDS: Final[dict[str, tuple[str, ...]]] = {
 EXTRA_ATTRIBUTE_FIELDS: Final[dict[str, tuple[str, ...]]] = {
     "tag": ("object_types",),
     "asn": ("role",),
-    "device_role": ("config_template",),
-    "platform": ("config_template",),
-    "device": ("config_template",),
     "module_type": ("attributes",),
     "rack_reservation": ("user",),
     "inventory_item": ("component_type",),
@@ -295,10 +292,15 @@ RELATIONSHIP_FIELDS: Final[dict[str, dict[str, tuple[str, str]]]] = {
         "owner": ("owner", "owner"),
     },
     "manufacturer": {"owner": ("owner", "owner")},
-    "device_role": {"parent": ("device_role", "parent"), "owner": ("owner", "owner")},
+    "device_role": {
+        "parent": ("device_role", "parent"),
+        "config_template": ("config_template", "config_template"),
+        "owner": ("owner", "owner"),
+    },
     "platform": {
         "parent": ("platform", "parent"),
         "manufacturer": ("manufacturer", "manufacturer"),
+        "config_template": ("config_template", "config_template"),
         "owner": ("owner", "owner"),
     },
     "device_type": {
@@ -376,6 +378,7 @@ RELATIONSHIP_FIELDS: Final[dict[str, dict[str, tuple[str, str]]]] = {
         "location": ("location", "location"),
         "rack": ("rack", "rack"),
         "virtual_chassis": ("virtual_chassis", "virtual_chassis"),
+        "config_template": ("config_template", "config_template"),
         "owner": ("owner", "owner"),
     },
     "virtual_device_context": {

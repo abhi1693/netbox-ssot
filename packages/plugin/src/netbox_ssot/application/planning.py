@@ -90,10 +90,6 @@ def external_reference_requirements(records: list[ApplicationRecord]) -> tuple[R
             raise ApplicationPlanError(f"Resource kind {record.resource_kind!r} cannot be applied.")
         if record.resource_kind == "asn":
             _add_scalar(requirements, attributes, "/role", "ipam.role", "slug")
-        if record.resource_kind in {"device_role", "platform"}:
-            _add_scalar(requirements, attributes, "/config_template", "extras.configtemplate", "name")
-        if record.resource_kind == "device":
-            _add_scalar(requirements, attributes, "/config_template", "extras.configtemplate", "name")
         if record.resource_kind == "rack_reservation":
             _add_scalar(requirements, attributes, "/user", "users.user", "username")
     return tuple(sorted(requirements))
@@ -115,6 +111,10 @@ def relationship_dependencies(
         members = [name for name in record.relationships if name.startswith("member_")]
         if len(members) != 1:
             raise ApplicationPlanError("A circuit group assignment must contain exactly one supported member.")
+    if record.resource_kind == "event_rule":
+        actions = [name for name in record.relationships if name.startswith("action_")]
+        if len(actions) != 1:
+            raise ApplicationPlanError("An event rule must contain exactly one supported action target.")
     dependencies: list[tuple[str, str]] = []
     required = REQUIRED_RELATIONSHIPS.get(record.resource_kind, frozenset())
     for relationship_name in required:

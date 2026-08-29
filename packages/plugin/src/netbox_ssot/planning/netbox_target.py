@@ -64,7 +64,21 @@ from dcim.models import (
     VirtualChassis,
     VirtualDeviceContext,
 )
-from extras.models import Tag
+from extras.models import (
+    ConfigContext,
+    ConfigContextProfile,
+    ConfigTemplate,
+    CustomField,
+    CustomFieldChoiceSet,
+    CustomLink,
+    EventRule,
+    ExportTemplate,
+    NotificationGroup,
+    SavedFilter,
+    TableConfig,
+    Tag,
+    Webhook,
+)
 from ipam.models import ASN, RIR
 from tenancy.models import Tenant, TenantGroup
 from users.models import Group, ObjectPermission, Owner, OwnerGroup, User
@@ -78,6 +92,18 @@ MODEL_BY_KIND = {
     "owner_group": OwnerGroup,
     "owner": Owner,
     "data_source": DataSource,
+    "custom_field_choice_set": CustomFieldChoiceSet,
+    "custom_field": CustomField,
+    "custom_link": CustomLink,
+    "export_template": ExportTemplate,
+    "saved_filter": SavedFilter,
+    "table_config": TableConfig,
+    "config_context_profile": ConfigContextProfile,
+    "config_context": ConfigContext,
+    "config_template": ConfigTemplate,
+    "webhook": Webhook,
+    "notification_group": NotificationGroup,
+    "event_rule": EventRule,
     "object_permission": ObjectPermission,
     "user_group": Group,
     "user": User,
@@ -155,13 +181,15 @@ def _queryset(resource_kind: str) -> Iterable[Any]:
     model = MODEL_BY_KIND[resource_kind]
     related = {field_name for _, field_name in RELATIONSHIP_FIELDS.get(resource_kind, {}).values()}
     queryset = model.objects.all()
+    if resource_kind == "event_rule":
+        queryset = queryset.filter(action_type__in=("webhook", "notification"))
     if related:
         queryset = queryset.select_related(*sorted(related))
     extra_related = {
         "asn": ("role",),
-        "device_role": ("config_template",),
-        "platform": ("config_template",),
-        "device": ("config_template",),
+        "custom_field": ("related_object_type",),
+        "table_config": ("object_type",),
+        "event_rule": ("action_object_type",),
         "rack_reservation": ("user",),
         "inventory_item": ("component_type",),
         "inventory_item_template": ("component_type",),
@@ -180,6 +208,24 @@ def _queryset(resource_kind: str) -> Iterable[Any]:
         prefetch.append("object_types")
     if resource_kind == "object_permission":
         prefetch.append("object_types")
+    if resource_kind in {"custom_field", "custom_link", "export_template", "saved_filter", "event_rule"}:
+        prefetch.append("object_types")
+    if resource_kind == "config_context":
+        prefetch.extend(
+            (
+                "regions",
+                "site_groups",
+                "sites",
+                "locations",
+                "device_types",
+                "roles",
+                "platforms",
+                "tenant_groups",
+                "tenants",
+            )
+        )
+    if resource_kind == "notification_group":
+        prefetch.extend(("groups", "users"))
     if resource_kind == "user_group":
         prefetch.append("object_permissions")
     if resource_kind == "user":
@@ -244,8 +290,17 @@ def _attributes(resource_kind: str, obj: Any) -> dict[str, Any]:
             add("/parameters", parameters)
     elif resource_kind == "asn":
         add("/role", obj.role.slug if obj.role else None)
-    elif resource_kind in {"device_role", "platform", "device"}:
-        add("/config_template", obj.config_template.name if obj.config_template else None)
+    elif resource_kind in {"custom_field", "custom_link", "export_template", "saved_filter", "event_rule"}:
+        add("/object_types", sorted(f"{item.app_label}.{item.model}" for item in obj.object_types.all()))
+        if resource_kind == "custom_field":
+            add(
+                "/related_object_type",
+                f"{obj.related_object_type.app_label}.{obj.related_object_type.model}"
+                if obj.related_object_type
+                else None,
+            )
+    elif resource_kind == "table_config":
+        add("/object_type", f"{obj.object_type.app_label}.{obj.object_type.model}")
     elif resource_kind == "module_type":
         add("/attributes", obj.attribute_data)
     elif resource_kind == "rack_reservation":
@@ -286,6 +341,18 @@ def _relationships(resource_kind: str, obj: Any) -> dict[str, Any]:
     elif resource_kind == "user":
         add_many("group", "user_group", obj.groups.all())
         add_many("permission", "object_permission", obj.object_permissions.all())
+    elif resource_kind == "config_context":
+        from .extras import CONFIG_CONTEXT_MULTI_RELATIONSHIPS
+
+        for name, target_kind in CONFIG_CONTEXT_MULTI_RELATIONSHIPS.items():
+            add_many(name, target_kind, getattr(obj, f"{name}s").all())
+    elif resource_kind == "notification_group":
+        add_many("group", "user_group", obj.groups.all())
+        add_many("user", "user", obj.users.all())
+    elif resource_kind == "event_rule" and obj.action_object is not None:
+        target_kind = _kind_for_model(obj.action_object)
+        if target_kind in {"webhook", "notification_group"}:
+            add(f"action_{target_kind}", target_kind, obj.action_object)
     elif resource_kind == "site" or resource_kind == "provider":
         add_many("asn", "asn", obj.asns.all())
     elif resource_kind == "interface":
@@ -349,8 +416,32 @@ def _target_identity(resource_kind: str, obj: Any) -> str:
     }
     if resource_kind in slug_kinds:
         attributes["/slug"] = obj.slug
-    elif resource_kind in {"owner_group", "owner", "object_permission", "user_group", "data_source"}:
+    elif resource_kind in {
+        "owner_group",
+        "owner",
+        "object_permission",
+        "user_group",
+        "data_source",
+        "custom_field_choice_set",
+        "custom_field",
+        "custom_link",
+        "export_template",
+        "config_context_profile",
+        "config_context",
+        "config_template",
+        "webhook",
+        "notification_group",
+        "event_rule",
+    }:
         attributes["/name"] = obj.name
+    elif resource_kind == "saved_filter":
+        attributes["/slug"] = obj.slug
+    elif resource_kind == "table_config":
+        attributes["/object_type"] = f"{obj.object_type.app_label}.{obj.object_type.model}"
+        attributes["/table"] = obj.table
+        attributes["/name"] = obj.name
+        if obj.user:
+            relationships["user"] = _target_identity("user", obj.user)
     elif resource_kind == "user":
         attributes["/username"] = obj.username
     elif resource_kind == "asn":

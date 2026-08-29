@@ -23,6 +23,7 @@ from ..models import (
 from ..planning.adapters import NO_DELETE_FLAGS, AdapterCapabilities, build_adapter_pair
 from ..planning.comparison import ENGINE_VERSION, SUPPORTED_RESOURCE_KINDS, CanonicalRecord, snapshot_digest
 from ..planning.core import PORTABLE_DATA_SOURCE_PARAMETER_KEYS, portable_data_source_parameters
+from ..planning.extras import CONFIG_CONTEXT_MULTI_RELATIONSHIPS, CONTENT_TYPE_LIST_KINDS
 from ..planning.netbox_target import MODEL_BY_KIND, load_netbox_target_records
 from ..planning.resource_registry import ATTRIBUTE_FIELDS, RELATIONSHIP_FIELDS, TAGGED_KINDS, relationship_target
 from ..review import review_integrity_issue
@@ -230,6 +231,7 @@ def _readiness_reasons(
             reasons.append(_reference_problem_message(reference_problems))
         reasons.extend(_content_type_problems(mutable_records))
         reasons.extend(_data_source_problems(mutable_records))
+        reasons.extend(_extras_problems(mutable_records, target_records))
     except ApplicationPlanError as exc:
         reasons.append(str(exc))
     return reasons
@@ -311,11 +313,18 @@ def _content_type_problems(records: list[ApplicationRecord]) -> list[str]:
     content_type_model = apps.get_model("contenttypes.contenttype")
     missing: set[str] = set()
     for record in records:
-        if record.resource_kind not in {"tag", "object_permission"}:
-            continue
-        values = record.attributes.get("/object_types", [])
-        if not isinstance(values, list):
-            raise ApplicationPlanError(f"{record.resource_kind} attribute /object_types must be a list.")
+        values: list[Any] = []
+        if record.resource_kind in {"tag", "object_permission"} | CONTENT_TYPE_LIST_KINDS:
+            raw_values = record.attributes.get("/object_types", [])
+            if not isinstance(raw_values, list):
+                raise ApplicationPlanError(f"{record.resource_kind} attribute /object_types must be a list.")
+            values.extend(raw_values)
+        if record.resource_kind == "custom_field":
+            related = record.attributes.get("/related_object_type")
+            if related not in (None, ""):
+                values.append(related)
+        if record.resource_kind == "table_config":
+            values.append(record.attributes.get("/object_type"))
         for value in values:
             if not isinstance(value, str) or value.count(".") != 1:
                 raise ApplicationPlanError("Object types must use the app_label.model format.")
@@ -372,6 +381,26 @@ def _data_source_problems(records: list[ApplicationRecord]) -> list[str]:
             "credentials remain destination-local."
         )
     return problems
+
+
+def _extras_problems(
+    records: list[ApplicationRecord],
+    target_records: list[CanonicalRecord],
+) -> list[str]:
+    targets = {(record.resource_kind, record.identity_key): record for record in target_records}
+    immutable_type_changes = [
+        record.identity_key
+        for record in records
+        if record.resource_kind == "custom_field"
+        and (target := targets.get(record.key)) is not None
+        and record.attributes.get("/type") != target.attributes.get("/type")
+    ]
+    if not immutable_type_changes:
+        return []
+    return [
+        f"Changing the type of {len(immutable_type_changes)} existing Custom Fields is not supported; "
+        "create a replacement field instead."
+    ]
 
 
 class _NetBoxMutationBackend:
@@ -536,6 +565,13 @@ def _write_object(
     kind = record.resource_kind
 
     if kind in ATTRIBUTE_FIELDS:
+        if (
+            kind == "custom_field"
+            and not obj._state.adding
+            and "/type" in attributes
+            and obj.type != attributes["/type"]
+        ):
+            raise ApplicationPlanError("Changing the type of an existing custom field is not supported.")
         _write_declared_fields(obj, kind, attributes)
         for relationship_name, (target_kind, field_name) in RELATIONSHIP_FIELDS[kind].items():
             if (kind, relationship_name) in {
@@ -556,12 +592,17 @@ def _write_object(
             )
         if kind == "asn":
             obj.role = _scalar_reference(references, "ipam.role", "slug", attributes.get("/role"))
-        elif kind in {"device_role", "platform", "device"}:
-            obj.config_template = _scalar_reference(
-                references,
-                "extras.configtemplate",
-                "name",
-                attributes.get("/config_template"),
+        elif kind == "custom_field":
+            obj.related_object_type = _content_type(attributes.get("/related_object_type"))
+        elif kind == "table_config":
+            obj.object_type = _content_type(attributes.get("/object_type"), required=True)
+        elif kind == "event_rule":
+            obj.action_object = _generic_relationship_object(
+                kind,
+                "action_",
+                relationships,
+                target_by_key,
+                object_cache,
             )
         elif kind == "module_type":
             obj.attribute_data = attributes.get("/attributes")
@@ -609,6 +650,10 @@ def _write_object(
 
     if kind == "user" and obj._state.adding:
         obj.set_unusable_password()
+    if kind in {"export_template", "config_context_profile", "config_context", "config_template"}:
+        # The portable graph owns the materialized inline definition, not the
+        # source instance's generated DataFile binding or synchronization state.
+        obj.data_file = None
     obj.full_clean()
     if obj._state.adding and kind in {"device", "module"}:
         super(obj.__class__, obj).save()
@@ -621,6 +666,8 @@ def _write_object(
     if kind == "tag":
         obj.object_types.set(_content_types(attributes.get("/object_types", [])))
     if kind == "object_permission":
+        obj.object_types.set(_content_types(attributes.get("/object_types", [])))
+    if kind in CONTENT_TYPE_LIST_KINDS:
         obj.object_types.set(_content_types(attributes.get("/object_types", [])))
     if kind == "user_group":
         obj.object_permissions.set(
@@ -645,6 +692,14 @@ def _write_object(
         obj.asns.set(_relationship_objects("asn", relationships.get("asn"), target_by_key, object_cache))
     if kind == "provider":
         obj.asns.set(_relationship_objects("asn", relationships.get("asn"), target_by_key, object_cache))
+    if kind == "config_context":
+        for name, target_kind in CONFIG_CONTEXT_MULTI_RELATIONSHIPS.items():
+            getattr(obj, f"{name}s").set(
+                _relationship_objects(target_kind, relationships.get(name), target_by_key, object_cache)
+            )
+    if kind == "notification_group":
+        obj.groups.set(_relationship_objects("user_group", relationships.get("group"), target_by_key, object_cache))
+        obj.users.set(_relationship_objects("user", relationships.get("user"), target_by_key, object_cache))
     if kind in TAGGED_KINDS:
         obj.tags.set(_relationship_objects("tag", relationships.get("tag"), target_by_key, object_cache))
     if kind == "interface":
@@ -839,6 +894,15 @@ def _content_types(values: Any) -> list[Any]:
         app_label, model = value.split(".", 1)
         content_types.append(content_type_model.objects.get(app_label=app_label, model=model))
     return content_types
+
+
+def _content_type(value: Any, *, required: bool = False) -> Any | None:
+    if value in (None, ""):
+        if required:
+            raise ApplicationPlanError("A content type is required.")
+        return None
+    values = _content_types([value])
+    return values[0]
 
 
 def _load_target_object(record: CanonicalRecord) -> Any:

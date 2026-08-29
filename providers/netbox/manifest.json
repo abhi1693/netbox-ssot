@@ -4,7 +4,7 @@
   "icon_class": "mdi mdi-cube-outline",
   "description": "Collects portable configuration and infrastructure data from a remote NetBox REST API.",
   "instance_url_field": "base_url",
-  "implementation_version": "0.0.10",
+  "implementation_version": "0.0.11",
   "contract_version": "1.0",
   "documentation_url": "https://github.com/abhi1693/netbox-ssot",
   "execution_modes": [
@@ -135,6 +135,60 @@
       ]
     },
     {
+      "id": "extras_customization",
+      "title": "Extras customization",
+      "description": "Custom fields and choice sets, custom links, and export templates. Synced template content is flattened; source file bindings and sync state remain local.",
+      "resource_kinds": ["custom_field_choice_set", "custom_field", "custom_link", "export_template"],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": ["references"],
+      "data_mappings": [
+        {"source_name": "Custom field choice set", "source_model": "extras.CustomFieldChoiceSet", "source_path": "extras/custom-field-choice-sets/", "destination_kind": "custom_field_choice_set"},
+        {"source_name": "Custom field", "source_model": "extras.CustomField", "source_path": "extras/custom-fields/", "destination_kind": "custom_field"},
+        {"source_name": "Custom link", "source_model": "extras.CustomLink", "source_path": "extras/custom-links/", "destination_kind": "custom_link"},
+        {"source_name": "Export template", "source_model": "extras.ExportTemplate", "source_path": "extras/export-templates/", "destination_kind": "export_template"}
+      ]
+    },
+    {
+      "id": "extras_templates",
+      "title": "Configuration templates",
+      "description": "Portable configuration template definitions and inline template content. Data Source file bindings and synchronization state remain destination-local.",
+      "resource_kinds": ["config_template"],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": ["references"],
+      "data_mappings": [
+        {"source_name": "Config template", "source_model": "extras.ConfigTemplate", "source_path": "extras/config-templates/", "destination_kind": "config_template"}
+      ]
+    },
+    {
+      "id": "extras_views",
+      "title": "Shared views",
+      "description": "Saved filters and table configurations, including their optional user ownership and target object types.",
+      "resource_kinds": ["saved_filter", "table_config"],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": ["users"],
+      "data_mappings": [
+        {"source_name": "Saved filter", "source_model": "extras.SavedFilter", "source_path": "extras/saved-filters/", "destination_kind": "saved_filter"},
+        {"source_name": "Table config", "source_model": "extras.TableConfig", "source_path": "extras/table-configs/", "destination_kind": "table_config"}
+      ]
+    },
+    {
+      "id": "extras_automation",
+      "title": "Event automation",
+      "description": "Webhooks, notification groups, and event rules. Webhook secrets, extra headers, CA paths, script actions, and API-inaccessible rule data remain local.",
+      "resource_kinds": ["webhook", "notification_group", "event_rule"],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": ["references", "users"],
+      "data_mappings": [
+        {"source_name": "Webhook", "source_model": "extras.Webhook", "source_path": "extras/webhooks/", "destination_kind": "webhook"},
+        {"source_name": "Notification group", "source_model": "extras.NotificationGroup", "source_path": "extras/notification-groups/", "destination_kind": "notification_group"},
+        {"source_name": "Event rule", "source_model": "extras.EventRule", "source_path": "extras/event-rules/", "destination_kind": "event_rule"}
+      ]
+    },
+    {
       "id": "regions",
       "title": "Regions",
       "description": "Complete Region hierarchy, core fields, ownership references, and tags.",
@@ -195,13 +249,27 @@
       "default_enabled": true,
       "completeness": "declared_scope",
       "depends_on": [
-        "references"
+        "references",
+        "extras_templates"
       ],
       "data_mappings": [
         {"source_name": "Manufacturer", "source_model": "dcim.Manufacturer", "source_path": "dcim/manufacturers/", "destination_kind": "manufacturer"},
         {"source_name": "Device role", "source_model": "dcim.DeviceRole", "source_path": "dcim/device-roles/", "destination_kind": "device_role"},
         {"source_name": "Platform", "source_model": "dcim.Platform", "source_path": "dcim/platforms/", "destination_kind": "platform"},
         {"source_name": "Device type", "source_model": "dcim.DeviceType", "source_path": "dcim/device-types/", "destination_kind": "device_type"}
+      ]
+    },
+    {
+      "id": "extras_contexts",
+      "title": "Configuration contexts",
+      "description": "Configuration context profiles and contexts for supported DCIM and tenancy qualifiers. Virtualization qualifiers and Data Source file bindings remain local.",
+      "resource_kinds": ["config_context_profile", "config_context"],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": ["locations", "device_catalog"],
+      "data_mappings": [
+        {"source_name": "Config context profile", "source_model": "extras.ConfigContextProfile", "source_path": "extras/config-context-profiles/", "destination_kind": "config_context_profile"},
+        {"source_name": "Config context", "source_model": "extras.ConfigContext", "source_path": "extras/config-contexts/", "destination_kind": "config_context"}
       ]
     },
     {

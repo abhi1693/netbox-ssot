@@ -67,9 +67,29 @@ var datasetEndpoints = map[string][]endpoint{
 		{Path: "users/users/", Kind: "user"},
 	},
 	"data_sources": {{Path: "core/data-sources/", Kind: "data_source"}},
-	"regions":      {{Path: "dcim/regions/", Kind: "region"}},
-	"sites":        {{Path: "dcim/sites/", Kind: "site"}},
-	"locations":    {{Path: "dcim/locations/", Kind: "location"}},
+	"extras_customization": {
+		{Path: "extras/custom-field-choice-sets/", Kind: "custom_field_choice_set"},
+		{Path: "extras/custom-fields/", Kind: "custom_field"},
+		{Path: "extras/custom-links/", Kind: "custom_link"},
+		{Path: "extras/export-templates/", Kind: "export_template"},
+	},
+	"extras_templates": {{Path: "extras/config-templates/", Kind: "config_template"}},
+	"extras_views": {
+		{Path: "extras/saved-filters/", Kind: "saved_filter"},
+		{Path: "extras/table-configs/", Kind: "table_config"},
+	},
+	"extras_automation": {
+		{Path: "extras/webhooks/", Kind: "webhook"},
+		{Path: "extras/notification-groups/", Kind: "notification_group"},
+		{Path: "extras/event-rules/", Kind: "event_rule"},
+	},
+	"extras_contexts": {
+		{Path: "extras/config-context-profiles/", Kind: "config_context_profile"},
+		{Path: "extras/config-contexts/", Kind: "config_context"},
+	},
+	"regions":   {{Path: "dcim/regions/", Kind: "region"}},
+	"sites":     {{Path: "dcim/sites/", Kind: "site"}},
+	"locations": {{Path: "dcim/locations/", Kind: "location"}},
 	"device_catalog": {
 		{Path: "dcim/manufacturers/", Kind: "manufacturer"},
 		{Path: "dcim/device-roles/", Kind: "device_role"},
@@ -523,9 +543,9 @@ func mapObservation(request contracts.CollectionRequest, kind string, record map
 		attributePaths = append(attributePaths, attribute.Path)
 	}
 	digestValue := any(record)
-	if kind == "data_source" {
-		// Core DataSource API records contain backend credentials. Hash only the
-		// portable projection so secret material never enters evidence, even as a
+	if kind == "data_source" || kind == "webhook" {
+		// Data Source and Webhook API records can contain credentials. Hash only
+		// the portable projection so secret material never enters evidence, even as a
 		// reusable offline-verification digest.
 		digestValue = map[string]any{
 			"attributes":    attributes,
@@ -614,6 +634,58 @@ func attributesFor(kind string, record map[string]any) []contracts.ObservationAt
 		if parameters := portableDataSourceParameters(choiceValue(record["type"]), record["parameters"]); len(parameters) > 0 {
 			add("/parameters", parameters)
 		}
+	case "custom_field_choice_set":
+		addFields("name", "description", "extra_choices", "choice_colors", "order_alphabetically")
+		addChoice("/base_choices", "base_choices")
+	case "custom_field":
+		addFields(
+			"name", "label", "group_name", "description", "required", "unique", "search_weight",
+			"is_cloneable", "default", "related_object_filter", "weight", "validation_minimum",
+			"validation_maximum", "validation_regex", "validation_schema", "comments",
+		)
+		addChoices("type", "filter_logic", "ui_visible", "ui_editable")
+		add("/object_types", stringValues(record["object_types"]))
+		add("/related_object_type", contentTypeValue(record["related_object_type"]))
+	case "custom_link":
+		addFields("name", "enabled", "link_text", "link_url", "weight", "group_name", "new_window")
+		addChoice("/button_class", "button_class")
+		add("/object_types", stringValues(record["object_types"]))
+	case "export_template":
+		addFields(
+			"name", "description", "environment_params", "template_code", "mime_type", "file_name",
+			"file_extension", "as_attachment",
+		)
+		add("/object_types", stringValues(record["object_types"]))
+	case "saved_filter":
+		addFields("name", "slug", "description", "weight", "enabled", "shared", "parameters")
+		add("/object_types", stringValues(record["object_types"]))
+	case "table_config":
+		addFields("table", "name", "description", "weight", "enabled", "shared", "columns", "ordering")
+		add("/object_type", contentTypeValue(record["object_type"]))
+	case "config_context_profile":
+		addFields("name", "description", "schema", "comments")
+	case "config_context":
+		addFields("name", "weight", "description", "is_active", "data")
+		if values := unsupportedConfigContextAssignments(record); len(values) > 0 {
+			add("/unsupported_assignment_types", values)
+		}
+	case "config_template":
+		addFields(
+			"name", "description", "environment_params", "template_code", "mime_type", "file_name",
+			"file_extension", "as_attachment", "debug",
+		)
+	case "webhook":
+		addFields(
+			"name", "description", "payload_url", "http_content_type", "body_template", "ssl_verification",
+		)
+		addChoice("/http_method", "http_method")
+	case "notification_group":
+		addFields("name", "description")
+	case "event_rule":
+		addFields("name", "enabled", "conditions", "description")
+		addChoice("/action_type", "action_type")
+		add("/event_types", stringValues(record["event_types"]))
+		add("/object_types", stringValues(record["object_types"]))
 	case "tenant_group", "site_group":
 		addDirect("/name", "name")
 		addDirect("/slug", "slug")
@@ -675,13 +747,11 @@ func attributesFor(kind string, record map[string]any) []contracts.ObservationAt
 		addDirect("/slug", "slug")
 		addDirect("/color", "color")
 		addDirect("/vm_role", "vm_role")
-		add("/config_template", nestedValue(record["config_template"], "name"))
 		addDirect("/description", "description")
 		addDirect("/comments", "comments")
 	case "platform":
 		addDirect("/name", "name")
 		addDirect("/slug", "slug")
-		add("/config_template", nestedValue(record["config_template"], "name"))
 		addDirect("/description", "description")
 		addDirect("/comments", "comments")
 	case "device_type":
@@ -776,7 +846,6 @@ func attributesFor(kind string, record map[string]any) []contracts.ObservationAt
 		)
 		addChoices("face", "status", "airflow")
 		addDecimals("position", "latitude", "longitude")
-		add("/config_template", nestedValue(record["config_template"], "name"))
 	case "virtual_device_context":
 		addFields("name", "identifier", "description", "comments")
 		addChoices("status")
@@ -944,6 +1013,38 @@ func relationshipsFor(kind string, record map[string]any) []contracts.Relationsh
 		addMany("permission", "object_permission", record["permissions"])
 	case "data_source":
 		add("owner", "owner", record["owner"])
+	case "custom_field_choice_set", "custom_link", "export_template":
+		add("owner", "owner", record["owner"])
+	case "custom_field":
+		add("choice_set", "custom_field_choice_set", record["choice_set"])
+		add("owner", "owner", record["owner"])
+	case "saved_filter":
+		add("user", "user", record["user"])
+		add("owner", "owner", record["owner"])
+	case "table_config":
+		add("user", "user", record["user"])
+	case "config_context_profile", "config_template", "webhook":
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "config_context":
+		add("profile", "config_context_profile", record["profile"])
+		add("owner", "owner", record["owner"])
+		addMany("region", "region", record["regions"])
+		addMany("site_group", "site_group", record["site_groups"])
+		addMany("site", "site", record["sites"])
+		addMany("location", "location", record["locations"])
+		addMany("device_type", "device_type", record["device_types"])
+		addMany("role", "device_role", record["roles"])
+		addMany("platform", "platform", record["platforms"])
+		addMany("tenant_group", "tenant_group", record["tenant_groups"])
+		addMany("tenant", "tenant", record["tenants"])
+	case "notification_group":
+		addMany("group", "user_group", record["groups"])
+		addMany("user", "user", record["users"])
+	case "event_rule":
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+		addGeneric("action", record["action_object_type"], record["action_object_id"])
 	case "tenant_group":
 		add("parent", "tenant_group", record["parent"])
 		add("owner", "owner", record["owner"])
@@ -986,11 +1087,13 @@ func relationshipsFor(kind string, record map[string]any) []contracts.Relationsh
 		addMany("tag", "tag", record["tags"])
 	case "device_role":
 		add("parent", "device_role", record["parent"])
+		add("config_template", "config_template", record["config_template"])
 		add("owner", "owner", record["owner"])
 		addMany("tag", "tag", record["tags"])
 	case "platform":
 		add("parent", "platform", record["parent"])
 		add("manufacturer", "manufacturer", record["manufacturer"])
+		add("config_template", "config_template", record["config_template"])
 		add("owner", "owner", record["owner"])
 		addMany("tag", "tag", record["tags"])
 	case "device_type":
@@ -1054,6 +1157,7 @@ func relationshipsFor(kind string, record map[string]any) []contracts.Relationsh
 		add("location", "location", record["location"])
 		add("rack", "rack", record["rack"])
 		add("virtual_chassis", "virtual_chassis", record["virtual_chassis"])
+		add("config_template", "config_template", record["config_template"])
 		add("owner", "owner", record["owner"])
 		addMany("tag", "tag", record["tags"])
 	case "virtual_device_context":
@@ -1225,8 +1329,20 @@ func resourceKindForObjectType(objectType string) (string, bool) {
 		"circuits.circuit":               "circuit",
 		"circuits.circuittermination":    "circuit_termination",
 		"circuits.virtualcircuit":        "virtual_circuit",
+		"extras.webhook":                 "webhook",
+		"extras.notificationgroup":       "notification_group",
 	}[objectType]
 	return kind, ok
+}
+
+func unsupportedConfigContextAssignments(record map[string]any) []string {
+	values := make([]string, 0, 3)
+	for _, field := range []string{"cluster_types", "cluster_groups", "clusters"} {
+		if items, ok := record[field].([]any); ok && len(items) > 0 {
+			values = append(values, field)
+		}
+	}
+	return values
 }
 
 func unsupportedTerminationTypes(record map[string]any) []string {
