@@ -2,9 +2,9 @@
   "provider_id": "netbox",
   "display_name": "NetBox",
   "icon_class": "mdi mdi-cube-outline",
-  "description": "Collects infrastructure and IPAM data from a remote NetBox REST API.",
+  "description": "Collects portable configuration and infrastructure data from a remote NetBox REST API.",
   "instance_url_field": "base_url",
-  "implementation_version": "0.0.9",
+  "implementation_version": "0.0.10",
   "contract_version": "1.0",
   "documentation_url": "https://github.com/abhi1693/netbox-ssot",
   "execution_modes": [
@@ -106,6 +106,18 @@
         {"source_name": "Site group", "source_model": "dcim.SiteGroup", "source_path": "dcim/site-groups/", "destination_kind": "site_group"},
         {"source_name": "RIR", "source_model": "ipam.RIR", "source_path": "ipam/rirs/", "destination_kind": "rir"},
         {"source_name": "ASN", "source_model": "ipam.ASN", "source_path": "ipam/asns/", "destination_kind": "asn"}
+      ]
+    },
+    {
+      "id": "data_sources",
+      "title": "Core data sources",
+      "description": "Portable Data Source configuration. Credentials, generated files, synchronization state, jobs, audit history, object-type metadata, and background worker state are never copied.",
+      "resource_kinds": ["data_source"],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": ["references"],
+      "data_mappings": [
+        {"source_name": "Data source", "source_model": "core.DataSource", "source_path": "core/data-sources/", "destination_kind": "data_source"}
       ]
     },
     {

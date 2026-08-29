@@ -15,6 +15,7 @@ from netbox_ssot.planning.comparison import (
     natural_identity,
     normalize_relationship_cardinality,
 )
+from netbox_ssot.planning.core import portable_data_source_parameters
 from netbox_ssot_contracts import (
     ChangeAction,
     ChangeProposal,
@@ -231,6 +232,25 @@ def test_user_identities_are_portable_without_credentials() -> None:
 
     with pytest.raises(ValueError, match="username"):
         natural_identity("user", {}, {})
+
+
+def test_data_source_identity_and_parameters_exclude_destination_credentials() -> None:
+    assert natural_identity("data_source", {"/name": "Automation"}, {})
+    assert portable_data_source_parameters(
+        "git",
+        {
+            "branch": "production",
+            "username": "source-user",
+            "password": "source-password",
+        },
+    ) == {"branch": "production"}
+    assert portable_data_source_parameters(
+        "amazon-s3",
+        {"aws_access_key_id": "key", "aws_secret_access_key": "secret"},
+    ) == {}
+
+    with pytest.raises(ValueError, match="name"):
+        natural_identity("data_source", {}, {})
 
 
 def test_relationship_cardinality_preserves_single_many_to_many_values() -> None:

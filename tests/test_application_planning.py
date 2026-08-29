@@ -178,6 +178,17 @@ def test_dependency_order_places_permissions_before_groups_and_users() -> None:
     assert positions[("user_group", "operators")] < positions[("user", "alice")]
 
 
+def test_dependency_order_places_data_source_owner_first() -> None:
+    records = [
+        record("data_source", "automation", relationships={"owner": "network-team"}),
+        record("owner", "network-team"),
+    ]
+
+    positions = {item.key: index for index, item in enumerate(dependency_order(records))}
+
+    assert positions[("owner", "network-team")] < positions[("data_source", "automation")]
+
+
 def test_dependency_order_rejects_duplicate_identity_and_cycles() -> None:
     duplicate = [record("region", "one"), record("region", "one")]
     with pytest.raises(ApplicationPlanError, match="duplicate"):

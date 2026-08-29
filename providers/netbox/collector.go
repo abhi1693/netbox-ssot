@@ -66,9 +66,10 @@ var datasetEndpoints = map[string][]endpoint{
 		{Path: "users/groups/", Kind: "user_group"},
 		{Path: "users/users/", Kind: "user"},
 	},
-	"regions":   {{Path: "dcim/regions/", Kind: "region"}},
-	"sites":     {{Path: "dcim/sites/", Kind: "site"}},
-	"locations": {{Path: "dcim/locations/", Kind: "location"}},
+	"data_sources": {{Path: "core/data-sources/", Kind: "data_source"}},
+	"regions":      {{Path: "dcim/regions/", Kind: "region"}},
+	"sites":        {{Path: "dcim/sites/", Kind: "site"}},
+	"locations":    {{Path: "dcim/locations/", Kind: "location"}},
 	"device_catalog": {
 		{Path: "dcim/manufacturers/", Kind: "manufacturer"},
 		{Path: "dcim/device-roles/", Kind: "device_role"},
@@ -147,7 +148,10 @@ var datasetEndpoints = map[string][]endpoint{
 	},
 }
 
-var errInvalidTokenFormat = errors.New("invalid NetBox token format")
+var (
+	errInvalidTokenFormat            = errors.New("invalid NetBox token format")
+	errUnsafeDataSourceConfiguration = errors.New("unsafe data source configuration")
+)
 
 type page struct {
 	Next    *string          `json:"next"`
@@ -338,6 +342,9 @@ func (c *Collector) collectEndpoint(
 		for _, record := range payload.Results {
 			observation, err := mapObservation(request, endpoint.Kind, record)
 			if err != nil {
+				if errors.Is(err, errUnsafeDataSourceConfiguration) {
+					return observations, &collectError{code: "unsafe_source_configuration", retryable: false}
+				}
 				return observations, &collectError{code: "invalid_record", retryable: false}
 			}
 			observations = append(observations, observation)
@@ -496,6 +503,11 @@ func mapObservation(request contracts.CollectionRequest, kind string, record map
 	if !ok {
 		return contracts.Observation{}, errors.New("record has no stable ID")
 	}
+	if kind == "data_source" {
+		if err := validatePortableDataSource(record); err != nil {
+			return contracts.Observation{}, err
+		}
+	}
 	collectedAt := time.Now().UTC()
 	attributes := attributesFor(kind, record)
 	sort.Slice(attributes, func(i, j int) bool { return attributes[i].Path < attributes[j].Path })
@@ -510,7 +522,17 @@ func mapObservation(request contracts.CollectionRequest, kind string, record map
 	for _, attribute := range attributes {
 		attributePaths = append(attributePaths, attribute.Path)
 	}
-	raw, err := json.Marshal(record)
+	digestValue := any(record)
+	if kind == "data_source" {
+		// Core DataSource API records contain backend credentials. Hash only the
+		// portable projection so secret material never enters evidence, even as a
+		// reusable offline-verification digest.
+		digestValue = map[string]any{
+			"attributes":    attributes,
+			"relationships": relationships,
+		}
+	}
+	raw, err := json.Marshal(digestValue)
 	if err != nil {
 		return contracts.Observation{}, errors.New("record is not serializable")
 	}
@@ -585,6 +607,13 @@ func attributesFor(kind string, record map[string]any) []contracts.ObservationAt
 		addFields("name", "description")
 	case "user":
 		addFields("username", "first_name", "last_name", "email", "is_active")
+	case "data_source":
+		addFields("name")
+		addChoice("/type", "type")
+		addFields("source_url", "enabled", "sync_interval", "ignore_rules", "description", "comments")
+		if parameters := portableDataSourceParameters(choiceValue(record["type"]), record["parameters"]); len(parameters) > 0 {
+			add("/parameters", parameters)
+		}
 	case "tenant_group", "site_group":
 		addDirect("/name", "name")
 		addDirect("/slug", "slug")
@@ -913,6 +942,8 @@ func relationshipsFor(kind string, record map[string]any) []contracts.Relationsh
 	case "user":
 		addMany("group", "user_group", record["groups"])
 		addMany("permission", "object_permission", record["permissions"])
+	case "data_source":
+		add("owner", "owner", record["owner"])
 	case "tenant_group":
 		add("parent", "tenant_group", record["parent"])
 		add("owner", "owner", record["owner"])
@@ -1142,6 +1173,30 @@ func relationshipsFor(kind string, record map[string]any) []contracts.Relationsh
 		addMany("tag", "tag", record["tags"])
 	}
 	return relationships
+}
+
+func validatePortableDataSource(record map[string]any) error {
+	rawURL, ok := record["source_url"].(string)
+	if !ok || rawURL == "" {
+		return errors.New("data source has no URL")
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return errUnsafeDataSourceConfiguration
+	}
+	return nil
+}
+
+func portableDataSourceParameters(backendType any, value any) map[string]any {
+	parameters, ok := value.(map[string]any)
+	if !ok || backendType != "git" {
+		return nil
+	}
+	branch, ok := parameters["branch"].(string)
+	if !ok || branch == "" {
+		return nil
+	}
+	return map[string]any{"branch": branch}
 }
 
 func resourceKindForObjectType(objectType string) (string, bool) {

@@ -86,6 +86,7 @@ class ResourceKind(StrEnum):
     OBJECT_PERMISSION = "object_permission"
     USER_GROUP = "user_group"
     USER = "user"
+    DATA_SOURCE = "data_source"
     VLAN = "vlan"
     PREFIX = "prefix"
     IP_ADDRESS = "ip_address"

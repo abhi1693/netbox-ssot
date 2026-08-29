@@ -3,11 +3,13 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlsplit
 
 from django.apps import apps
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, OperationalError, connection, transaction
 from netbox.plugins import get_plugin_config
+from netbox.registry import registry
 
 from ..models import (
     ApplyItem,
@@ -20,6 +22,7 @@ from ..models import (
 )
 from ..planning.adapters import NO_DELETE_FLAGS, AdapterCapabilities, build_adapter_pair
 from ..planning.comparison import ENGINE_VERSION, SUPPORTED_RESOURCE_KINDS, CanonicalRecord, snapshot_digest
+from ..planning.core import PORTABLE_DATA_SOURCE_PARAMETER_KEYS, portable_data_source_parameters
 from ..planning.netbox_target import MODEL_BY_KIND, load_netbox_target_records
 from ..planning.resource_registry import ATTRIBUTE_FIELDS, RELATIONSHIP_FIELDS, TAGGED_KINDS, relationship_target
 from ..review import review_integrity_issue
@@ -226,6 +229,7 @@ def _readiness_reasons(
         if reference_problems:
             reasons.append(_reference_problem_message(reference_problems))
         reasons.extend(_content_type_problems(mutable_records))
+        reasons.extend(_data_source_problems(mutable_records))
     except ApplicationPlanError as exc:
         reasons.append(str(exc))
     return reasons
@@ -321,6 +325,53 @@ def _content_type_problems(records: list[ApplicationRecord]) -> list[str]:
     if not missing:
         return []
     return [f"The target does not provide {len(missing)} required object types: {', '.join(sorted(missing)[:10])}."]
+
+
+def _data_source_problems(records: list[ApplicationRecord]) -> list[str]:
+    missing_backends: set[str] = set()
+    unsafe_urls: list[str] = []
+    invalid_parameters: list[str] = []
+    for record in records:
+        if record.resource_kind != "data_source":
+            continue
+        backend_type = record.attributes.get("/type")
+        if not isinstance(backend_type, str) or not backend_type:
+            raise ApplicationPlanError("A data source requires a backend type.")
+        if backend_type not in registry["data_backends"]:
+            missing_backends.add(backend_type)
+
+        source_url = record.attributes.get("/source_url")
+        if not isinstance(source_url, str) or not source_url:
+            raise ApplicationPlanError("A data source requires a source URL.")
+        try:
+            parsed = urlsplit(source_url)
+            unsafe = parsed.username is not None or bool(parsed.query) or bool(parsed.fragment)
+        except ValueError:
+            unsafe = True
+        if unsafe:
+            unsafe_urls.append(record.identity_key)
+
+        parameters = record.attributes.get("/parameters", {})
+        if not isinstance(parameters, dict) or parameters != portable_data_source_parameters(backend_type, parameters):
+            invalid_parameters.append(record.identity_key)
+
+    problems: list[str] = []
+    if missing_backends:
+        problems.append(
+            "Install the Data Source backend types required by the source before applying: "
+            f"{', '.join(sorted(missing_backends))}."
+        )
+    if unsafe_urls:
+        problems.append(
+            f"Remove credentials, query strings, and fragments from {len(unsafe_urls)} Data Source URLs "
+            "before applying."
+        )
+    if invalid_parameters:
+        problems.append(
+            f"Remove non-portable parameters from {len(invalid_parameters)} Data Sources; "
+            "credentials remain destination-local."
+        )
+    return problems
 
 
 class _NetBoxMutationBackend:
@@ -551,6 +602,8 @@ def _write_object(
         elif kind == "cable":
             obj.a_terminations = _cable_termination_objects("a", relationships, target_by_key, object_cache)
             obj.b_terminations = _cable_termination_objects("b", relationships, target_by_key, object_cache)
+        elif kind == "data_source":
+            _write_data_source_parameters(obj, attributes)
     else:
         raise ApplicationPlanError(f"Resource kind {record.resource_kind!r} cannot be written.")
 
@@ -643,6 +696,22 @@ def _write_declared_fields(obj: Any, resource_kind: str, attributes: dict[str, A
             setattr(obj, field_name, None)
         elif field.get_internal_type() in {"CharField", "TextField"}:
             setattr(obj, field_name, "")
+
+
+def _write_data_source_parameters(obj: Any, attributes: dict[str, Any]) -> None:
+    desired = attributes.get("/parameters", {})
+    if not isinstance(desired, dict):
+        raise ApplicationPlanError("Data Source attribute /parameters must be an object.")
+    portable = portable_data_source_parameters(obj.type, desired)
+    if desired != portable:
+        raise ApplicationPlanError("Data Source parameters contain non-portable or credential-bearing values.")
+
+    current = dict(obj.parameters) if isinstance(obj.parameters, dict) else {}
+    managed_keys = set().union(*PORTABLE_DATA_SOURCE_PARAMETER_KEYS.values())
+    for key in managed_keys:
+        current.pop(key, None)
+    current.update(portable)
+    obj.parameters = current or None
 
 
 def _generic_relationship_object(

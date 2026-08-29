@@ -248,6 +248,104 @@ func TestUserRecordsExcludeCredentialsAndPreserveAccessRelationships(t *testing.
 	}
 }
 
+func TestDataSourceRecordsPreservePortableConfigurationWithoutCredentialsOrRuntimeState(t *testing.T) {
+	record := map[string]any{
+		"id":   json.Number("41"),
+		"name": "Automation", "type": map[string]any{"value": "git"},
+		"source_url": "https://git.example.com/network/automation.git", "enabled": true,
+		"sync_interval": json.Number("60"), "ignore_rules": "secrets/*", "description": "Config",
+		"comments": "Managed", "status": map[string]any{"value": "completed"},
+		"last_synced": "2026-01-01T00:00:00Z",
+		"parameters": map[string]any{
+			"branch": "production", "username": "source-user", "password": "source-password",
+		},
+	}
+	attributes := attributesFor("data_source", record)
+	values := make(map[string]any, len(attributes))
+	for _, attribute := range attributes {
+		values[attribute.Path] = attribute.Value
+	}
+	parameters, ok := values["/parameters"].(map[string]any)
+	if !ok || len(parameters) != 1 || parameters["branch"] != "production" {
+		t.Fatalf("portable parameters = %#v", values["/parameters"])
+	}
+	for _, forbidden := range []string{"/status", "/last_synced", "/password", "/username"} {
+		if _, ok := values[forbidden]; ok {
+			t.Errorf("runtime or credential field %q was collected", forbidden)
+		}
+	}
+	if strings.Contains(string(mustJSON(t, attributes)), "source-password") ||
+		strings.Contains(string(mustJSON(t, attributes)), "source-user") {
+		t.Fatalf("data source attributes leaked backend credentials: %+v", attributes)
+	}
+	request := collectionRequest("https://netbox.example.test")
+	first, err := mapObservation(request, "data_source", record)
+	if err != nil {
+		t.Fatalf("mapObservation() error = %v", err)
+	}
+	record["parameters"].(map[string]any)["password"] = "rotated-source-password"
+	second, err := mapObservation(request, "data_source", record)
+	if err != nil {
+		t.Fatalf("mapObservation() error = %v", err)
+	}
+	if first.Evidence[0].RawDigest != second.Evidence[0].RawDigest {
+		t.Fatal("destination-local credential changed the portable evidence digest")
+	}
+
+	relationships := relationshipsFor("data_source", map[string]any{
+		"owner": map[string]any{"id": json.Number("21")},
+	})
+	if len(relationships) != 1 || relationships[0].Kind != "owner" || relationships[0].TargetKind != "owner" {
+		t.Fatalf("data source relationships = %+v", relationships)
+	}
+
+	manifest, err := New().Manifest()
+	if err != nil {
+		t.Fatalf("Manifest() error = %v", err)
+	}
+	for _, dataset := range manifest.Datasets {
+		for _, mapping := range dataset.DataMappings {
+			switch mapping.SourceModel {
+			case "core.DataFile", "core.Job", "core.ObjectChange", "core.ObjectType", "core.ConfigRevision":
+				t.Fatalf("runtime Core model was advertised: %+v", mapping)
+			}
+		}
+	}
+}
+
+func TestCollectRejectsCredentialBearingDataSourceURL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		if request.URL.Path != "/api/core/data-sources/" {
+			json.NewEncoder(response).Encode(map[string]any{"next": nil, "results": []any{}})
+			return
+		}
+		json.NewEncoder(response).Encode(map[string]any{
+			"next": nil,
+			"results": []any{map[string]any{
+				"id": 1, "name": "Unsafe", "type": map[string]any{"value": "git"},
+				"source_url": "https://user:secret@git.example.com/repository.git",
+			}},
+		})
+	}))
+	defer server.Close()
+
+	request := collectionRequest(server.URL)
+	request.Datasets = []string{"data_sources"}
+	batch := NewWithClient(server.Client()).Collect(
+		context.Background(), request, &staticSecrets{value: "source-token"},
+	)
+
+	if batch.State != "failed" || len(batch.Messages) != 1 ||
+		batch.Messages[0].Code != "unsafe_source_configuration" {
+		t.Fatalf("batch = %+v", batch)
+	}
+	encoded := string(mustJSON(t, batch))
+	if strings.Contains(encoded, "secret") || strings.Contains(encoded, "user") {
+		t.Fatalf("failure leaked source URL credentials: %s", encoded)
+	}
+}
+
 func TestConnectionReadsStatusWithoutExposingToken(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodGet {
@@ -748,6 +846,15 @@ func attributeValue(observation contracts.Observation, path string) any {
 		}
 	}
 	return nil
+}
+
+func mustJSON(t *testing.T, value any) []byte {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	return encoded
 }
 
 func findObservation(
