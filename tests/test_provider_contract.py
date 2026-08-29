@@ -127,7 +127,7 @@ def test_wireless_closes_over_scope_vlan_and_interface_dependencies() -> None:
 
 
 def test_netbox_provider_is_agent_read_only() -> None:
-    assert MANIFEST.implementation_version == "0.0.16"
+    assert MANIFEST.implementation_version == "0.0.1"
     assert MANIFEST.execution_modes == (ExecutionMode.AGENT,)
     assert MANIFEST.capabilities == (ProviderCapability.SOURCE_READ,)
     assert MANIFEST.agent_compatibility.collector_id == "netbox"

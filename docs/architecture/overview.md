@@ -160,8 +160,9 @@ Every provider publishes a versioned manifest with:
 - scope and completeness capabilities; and
 - a documentation URL.
 
-Provider implementation versions start at `0.0.1` and advance by one patch release for every provider implementation
-change. They are independent of the shared contract, plugin package, and agent binary versions.
+Provider implementation versions remain at `0.0.1` throughout pre-release development. They change only as part of an
+explicitly authorized provider release, not for ordinary implementation changes. They are independent of comparison
+engine versions, the shared contract, plugin package, and agent binary versions.
 
 The UI renders normalized configuration and data-model mappings derived from the manifest. The provider supplies source
 model names and identifiers; the destination resolves canonical resource kinds to its installed model names and list

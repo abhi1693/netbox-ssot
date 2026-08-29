@@ -28,8 +28,9 @@ Termination; and Circuit Group plus the typed assigned member. Generic terminati
 Provider Network. Generic group members are restricted to Circuit and Virtual Circuit.
 
 The Go collector remains read-only. Preview and reviewed `source.sync_to(target)` execution use the same canonical
-fields and relationships. Destination-only records and deletion remain out of scope. The comparison engine version and
-provider implementation patch version advance because the supported graph and cable identity boundary changed.
+fields and relationships. Destination-only records and deletion remain out of scope. The comparison engine version
+advances because the supported graph and cable identity boundary changed; the provider implementation remains at the
+pre-release version `0.0.1`.
 
 ## Consequences
 

@@ -4,7 +4,7 @@
   "icon_class": "mdi mdi-cube-outline",
   "description": "Collects portable configuration and infrastructure data from a remote NetBox REST API.",
   "instance_url_field": "base_url",
-  "implementation_version": "0.0.16",
+  "implementation_version": "0.0.1",
   "contract_version": "1.0",
   "documentation_url": "https://github.com/abhi1693/netbox-ssot",
   "execution_modes": [

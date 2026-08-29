@@ -6,8 +6,8 @@
 2. Keep provider-specific payloads behind provider adapters. The contracts package must not import Django, NetBox, or a vendor SDK.
 3. Implement code that runs on a customer edge in Go. Python is reserved for the NetBox plugin/control plane.
 4. Add tests for every contract and safety rule before connecting it to a live system.
-5. Increment a changed provider's manifest `implementation_version` by exactly one patch version. Provider versions
-   begin at `0.0.1`; do not advance the major or minor component.
+5. Keep every pre-release provider manifest `implementation_version` at `0.0.1`. Ordinary implementation changes must
+   not bump it; change it only as part of an explicitly authorized provider release.
 6. Run the complete local gate before submitting a change:
 
    ```shell

@@ -25,8 +25,8 @@ Treat IKE pre-shared keys as destination-local credentials. They are excluded fr
 comparison, and apply. Creating an IKE Policy leaves its key blank; updating one preserves the destination value.
 
 Use name identities for globally unique cryptographic and tunnel objects, slug identities for Tunnel Groups and
-L2VPNs, and assigned-object identities for both termination models. Advance the provider manifest to 0.0.15 and the
-comparison engine to 14.0 so older agents and cached comparisons cannot be mistaken for this expanded graph.
+L2VPNs, and assigned-object identities for both termination models. Keep the provider manifest at pre-release version
+`0.0.1` and advance the comparison engine to 14.0 so cached comparisons cannot be mistaken for this expanded graph.
 
 ## Consequences
 
@@ -36,4 +36,4 @@ comparison engine to 14.0 so older agents and cached comparisons cannot be mista
   over route targets, VLANs, and both physical and virtual interfaces.
 - Contact assignments can retain Tunnel Group, Tunnel, and L2VPN targets.
 - Operators must provision or retain IKE pre-shared keys independently on each destination.
-- Agents must embed provider manifest 0.0.15 before sources can select the new datasets.
+- Agents must embed the current provider manifest before sources can select the new datasets.

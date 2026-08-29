@@ -26,8 +26,8 @@ VM's aggregate disk value once they exist. These ownership rules avoid circular 
 model and signals.
 
 Use slug identities for organizational types, placement-qualified identities for clusters and VMs, and parent-VM plus
-name identities for components. Advance the provider manifest to 0.0.14 and the comparison engine to 13.0 so cached
-comparisons cannot be mistaken for the expanded graph.
+name identities for components. Keep the provider manifest at pre-release version `0.0.1` and advance the comparison
+engine to 13.0 so cached comparisons cannot be mistaken for the expanded graph.
 
 ## Consequences
 
@@ -35,4 +35,4 @@ comparisons cannot be mistaken for the expanded graph.
   dependency ordering, review, and explicit local apply.
 - Selecting dependent IPAM, DCIM, Extras, or Tenancy datasets closes over the required Virtualization datasets.
 - Virtualization's cross-app generic assignments retain their typed targets and can be recreated safely.
-- Agents must embed provider manifest 0.0.14 before sources can select the new datasets.
+- Agents must embed the current provider manifest before sources can select the new datasets.

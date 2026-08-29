@@ -27,5 +27,5 @@ evidence digest is calculated from the portable projection rather than the sourc
 - Collection, DiffSync comparison, target snapshots, dependency ordering, and explicit local apply share one typed
   graph; no model-specific name lookup is needed for ASN Roles.
 - Duplicate NetBox rows without a portable unique key fail closed through duplicate natural identities.
-- The provider implementation advances to 0.0.12 and the comparison engine to 11.0. Agents must embed that collector
-  manifest before the new datasets can be assigned.
+- The provider implementation remains at pre-release version `0.0.1`; the comparison engine advances to 11.0. Agents
+  must embed the current collector manifest before the new datasets can be assigned.

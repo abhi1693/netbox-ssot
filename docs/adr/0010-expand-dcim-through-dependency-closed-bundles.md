@@ -34,8 +34,8 @@ circuit or wireless termination and a MAC assigned to a VM interface are rejecte
 provider never creates a half-cable or silently drops a generic assignment.
 
 The comparison engine version advances because the supported target snapshot and identity rules changed. The NetBox
-provider implementation advances by one patch version. Apply remains one reviewed serializable transaction, never
-deletes destination-only objects, and never creates resolve-only references implicitly.
+provider implementation remains at the pre-release version `0.0.1`. Apply remains one reviewed serializable
+transaction, never deletes destination-only objects, and never creates resolve-only references implicitly.
 
 ## Consequences
 

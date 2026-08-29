@@ -30,7 +30,7 @@ rather than portable desired state.
 
 ## Consequences
 
-- The NetBox provider implementation advances to 0.0.11 and the comparison engine to 10.0.
+- The NetBox provider implementation remains at pre-release version `0.0.1`; the comparison engine advances to 10.0.
 - DCIM collections that use Config Templates automatically include the template dataset.
 - A reviewed plan can create an entire supported Extras dependency graph without local name-based template lookups.
 - Explicit credentials and unsupported executable/runtime surfaces are never copied implicitly.

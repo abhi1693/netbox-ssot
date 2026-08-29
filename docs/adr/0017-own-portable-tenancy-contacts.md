@@ -31,5 +31,5 @@ Assignment is identified by its target object, Contact, and Contact Role, matchi
 - Contact details are intentionally treated as portable configuration and therefore appear in immutable evidence and
   review. Operators must scope access to that evidence appropriately.
 - Assignments to Virtualization, Wireless, or other not-yet-owned app models remain visible as skipped records.
-- The provider implementation advances to 0.0.13 and the comparison engine to 12.0. Agents must embed that collector
-  manifest before the new datasets can be assigned.
+- The provider implementation remains at pre-release version `0.0.1`; the comparison engine advances to 12.0. Agents
+  must embed the current collector manifest before the new datasets can be assigned.

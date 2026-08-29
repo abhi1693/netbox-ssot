@@ -29,8 +29,9 @@ Existing passwords are never read or changed. Superuser state, API Tokens, login
 permissions, UserConfig data, and Owner-to-user/group memberships are not collected or applied.
 
 The dataset uses the same immutable observation, DiffSync preview, append-only review, target revalidation, permission
-check, and transactional `source.sync_to(target)` path as other provider bundles. The comparison engine version and
-provider implementation patch version advance because the supported resource graph changed.
+check, and transactional `source.sync_to(target)` path as other provider bundles. The comparison engine version
+advances because the supported resource graph changed; the provider implementation remains at the pre-release version
+`0.0.1`.
 
 ## Consequences
 

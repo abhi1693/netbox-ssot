@@ -29,8 +29,8 @@ destination parameter remains intact. Synchronization status, last-synced timest
 Changes, Object Types, Config Revisions, Auto-Sync records, and background worker state are not collected or applied.
 
 The dataset uses the existing immutable observation, typed DiffSync preview, append-only review, target revalidation,
-permission check, and transactional `source.sync_to(target)` path. The comparison engine and provider implementation
-versions advance because the supported resource graph changed.
+permission check, and transactional `source.sync_to(target)` path. The comparison engine advances because the
+supported resource graph changed; the provider implementation remains at the pre-release version `0.0.1`.
 
 ## Consequences
 

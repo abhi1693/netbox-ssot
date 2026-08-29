@@ -23,8 +23,8 @@ observations, evidence digests, comparison, and apply. Creating either resource 
 preserves the destination value.
 
 Use hierarchical slug identities for LAN groups, scoped SSID identities for LANs, and an order-independent pair of
-interface identities for links. Advance the provider manifest to 0.0.16 and the comparison engine to 15.0 so older
-agents and cached comparisons cannot be mistaken for this expanded graph.
+interface identities for links. Keep the provider manifest at pre-release version `0.0.1` and advance the comparison
+engine to 15.0 so cached comparisons cannot be mistaken for this expanded graph.
 
 ## Consequences
 
@@ -33,4 +33,4 @@ agents and cached comparisons cannot be mistaken for this expanded graph.
 - Selecting Wireless networks closes over DCIM geography, VLAN, device, and interface dependencies.
 - Reversing the A and B ends of a link does not create a duplicate portable identity.
 - Operators must provision or retain wireless pre-shared keys independently on each destination.
-- Agents must embed provider manifest 0.0.16 before sources can select the new dataset.
+- Agents must embed the current provider manifest before sources can select the new dataset.
