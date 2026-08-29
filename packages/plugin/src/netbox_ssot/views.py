@@ -1205,7 +1205,7 @@ def _observation_display_name(observation: StoredObservation) -> str:
         for item in observation.attributes
         if isinstance(item, dict) and isinstance(item.get("path"), str)
     }
-    for path in ("/name", "/asn", "/model", "/address", "/prefix", "/slug"):
+    for path in ("/name", "/ssid", "/asn", "/model", "/address", "/prefix", "/slug"):
         value = attributes.get(path)
         if value is not None and str(value):
             return str(value)

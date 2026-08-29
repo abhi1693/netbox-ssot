@@ -99,6 +99,11 @@ var datasetEndpoints = map[string][]endpoint{
 		{Path: "vpn/l2vpns/", Kind: "l2vpn"},
 		{Path: "vpn/l2vpn-terminations/", Kind: "l2vpn_termination"},
 	},
+	"wireless_networks": {
+		{Path: "wireless/wireless-lan-groups/", Kind: "wireless_lan_group"},
+		{Path: "wireless/wireless-lans/", Kind: "wireless_lan"},
+		{Path: "wireless/wireless-links/", Kind: "wireless_link"},
+	},
 	"ipam_registries": {
 		{Path: "ipam/asn-ranges/", Kind: "asn_range"},
 		{Path: "ipam/aggregates/", Kind: "aggregate"},
@@ -608,7 +613,8 @@ func mapObservation(request contracts.CollectionRequest, kind string, record map
 		attributePaths = append(attributePaths, attribute.Path)
 	}
 	digestValue := any(record)
-	if kind == "data_source" || kind == "webhook" || kind == "fhrp_group" || kind == "ike_policy" {
+	if kind == "data_source" || kind == "webhook" || kind == "fhrp_group" || kind == "ike_policy" ||
+		kind == "wireless_lan" || kind == "wireless_link" {
 		// Some API records contain destination-local credentials. Hash only the
 		// portable projection so secret material never enters evidence, even as a
 		// reusable offline-verification digest.
@@ -811,6 +817,16 @@ func attributesFor(kind string, record map[string]any) []contracts.ObservationAt
 		addChoices("type", "status")
 	case "l2vpn_termination":
 		add("/assigned_object_type", contentTypeValue(record["assigned_object_type"]))
+	case "wireless_lan_group":
+		addFields("name", "slug", "description", "comments")
+	case "wireless_lan":
+		addFields("ssid", "description", "comments")
+		addChoices("status", "auth_type", "auth_cipher")
+		add("/scope_type", contentTypeValue(record["scope_type"]))
+	case "wireless_link":
+		addFields("ssid", "description", "comments")
+		addChoices("status", "auth_type", "auth_cipher", "distance_unit")
+		addDecimal("/distance", "distance")
 	case "rir":
 		addDirect("/name", "name")
 		addDirect("/slug", "slug")
@@ -1311,6 +1327,23 @@ func relationshipsFor(kind string, record map[string]any) []contracts.Relationsh
 	case "l2vpn_termination":
 		add("l2vpn", "l2vpn", record["l2vpn"])
 		addGeneric("assigned", record["assigned_object_type"], record["assigned_object_id"])
+		addMany("tag", "tag", record["tags"])
+	case "wireless_lan_group":
+		add("parent", "wireless_lan_group", record["parent"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "wireless_lan":
+		add("group", "wireless_lan_group", record["group"])
+		add("vlan", "vlan", record["vlan"])
+		addGeneric("scope", record["scope_type"], record["scope_id"])
+		add("tenant", "tenant", record["tenant"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "wireless_link":
+		add("interface_a", "interface", record["interface_a"])
+		add("interface_b", "interface", record["interface_b"])
+		add("tenant", "tenant", record["tenant"])
+		add("owner", "owner", record["owner"])
 		addMany("tag", "tag", record["tags"])
 	case "site_group":
 		add("parent", "site_group", record["parent"])

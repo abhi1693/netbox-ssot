@@ -627,7 +627,7 @@ def _write_object(
                 target_by_key,
                 object_cache,
             )
-        elif kind in {"vlan_group", "prefix", "cluster"}:
+        elif kind in {"vlan_group", "prefix", "cluster", "wireless_lan"}:
             obj.scope = _generic_relationship_object(
                 kind,
                 "scope_",

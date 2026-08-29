@@ -704,6 +704,115 @@ func TestIKEPreSharedKeyIsExcludedFromEvidenceDigest(t *testing.T) {
 	}
 }
 
+func TestWirelessRecordsPreservePortableFieldsAndRelationships(t *testing.T) {
+	lanAttributes := attributesFor("wireless_lan", map[string]any{
+		"ssid": "Corporate", "status": map[string]any{"value": "active"},
+		"auth_type":   map[string]any{"value": "wpa-personal"},
+		"auth_cipher": map[string]any{"value": "aes"}, "auth_psk": "source-secret",
+		"scope_type": "dcim.site", "description": "Corporate wireless",
+	})
+	values := make(map[string]any, len(lanAttributes))
+	for _, attribute := range lanAttributes {
+		values[attribute.Path] = attribute.Value
+	}
+	if values["/ssid"] != "Corporate" || values["/status"] != "active" ||
+		values["/auth_type"] != "wpa-personal" || values["/scope_type"] != "dcim.site" {
+		t.Fatalf("wireless LAN attributes = %#v", values)
+	}
+	if _, ok := values["/auth_psk"]; ok {
+		t.Fatal("wireless LAN pre-shared key was included in portable attributes")
+	}
+
+	linkAttributes := attributesFor("wireless_link", map[string]any{
+		"ssid": "Backhaul", "status": map[string]any{"value": "connected"},
+		"distance": json.Number("0.5"), "distance_unit": map[string]any{"value": "km"},
+	})
+	values = make(map[string]any, len(linkAttributes))
+	for _, attribute := range linkAttributes {
+		values[attribute.Path] = attribute.Value
+	}
+	if values["/distance"] != 0.5 || values["/distance_unit"] != "km" {
+		t.Fatalf("wireless link attributes = %#v", values)
+	}
+
+	tests := []struct {
+		kind   string
+		record map[string]any
+		want   map[string]string
+	}{
+		{
+			kind: "wireless_lan_group",
+			record: map[string]any{
+				"parent": map[string]any{"id": json.Number("1")},
+				"owner":  map[string]any{"id": json.Number("2")},
+				"tags":   []any{map[string]any{"id": json.Number("3")}},
+			},
+			want: map[string]string{"parent": "wireless_lan_group", "owner": "owner", "tag": "tag"},
+		},
+		{
+			kind: "wireless_lan",
+			record: map[string]any{
+				"group": map[string]any{"id": json.Number("4")}, "vlan": map[string]any{"id": json.Number("5")},
+				"scope_type": "dcim.location", "scope_id": json.Number("6"),
+				"tenant": map[string]any{"id": json.Number("7")}, "owner": map[string]any{"id": json.Number("8")},
+			},
+			want: map[string]string{
+				"group": "wireless_lan_group", "vlan": "vlan", "scope_location": "location",
+				"tenant": "tenant", "owner": "owner",
+			},
+		},
+		{
+			kind: "wireless_link",
+			record: map[string]any{
+				"interface_a": map[string]any{"id": json.Number("9")},
+				"interface_b": map[string]any{"id": json.Number("10")},
+				"tenant":      map[string]any{"id": json.Number("11")},
+			},
+			want: map[string]string{
+				"interface_a": "interface", "interface_b": "interface", "tenant": "tenant",
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.kind, func(t *testing.T) {
+			got := map[string]string{}
+			for _, relationship := range relationshipsFor(test.kind, test.record) {
+				got[relationship.Kind] = relationship.TargetKind
+			}
+			if !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("relationships = %#v, want %#v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestWirelessPreSharedKeysAreExcludedFromEvidenceDigest(t *testing.T) {
+	request := collectionRequest("https://netbox.example.test")
+	for _, kind := range []string{"wireless_lan", "wireless_link"} {
+		t.Run(kind, func(t *testing.T) {
+			record := map[string]any{
+				"id": json.Number("1"), "ssid": "Corporate", "auth_psk": "source-secret",
+			}
+			first, err := mapObservation(request, kind, record)
+			if err != nil {
+				t.Fatalf("mapObservation() error = %v", err)
+			}
+			record["auth_psk"] = "different-secret"
+			second, err := mapObservation(request, kind, record)
+			if err != nil {
+				t.Fatalf("mapObservation() error = %v", err)
+			}
+			if first.Evidence[0].RawDigest != second.Evidence[0].RawDigest {
+				t.Fatal("wireless pre-shared key affected the portable evidence digest")
+			}
+			encoded, _ := json.Marshal(first)
+			if strings.Contains(string(encoded), "source-secret") {
+				t.Fatalf("wireless observation leaked the pre-shared key: %s", encoded)
+			}
+		})
+	}
+}
+
 func TestCollectRejectsCredentialBearingDataSourceURL(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		response.Header().Set("Content-Type", "application/json")

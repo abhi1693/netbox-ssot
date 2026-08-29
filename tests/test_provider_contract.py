@@ -113,8 +113,21 @@ def test_l2vpns_close_over_route_targets_vlans_and_interface_dependencies() -> N
     } <= selected
 
 
+def test_wireless_closes_over_scope_vlan_and_interface_dependencies() -> None:
+    selected = set(selected_dataset_ids(MANIFEST, ("wireless_networks",)))
+
+    assert {
+        "references",
+        "wireless_networks",
+        "locations",
+        "ipam_vlans",
+        "device_components",
+        "virtualization_components",
+    } <= selected
+
+
 def test_netbox_provider_is_agent_read_only() -> None:
-    assert MANIFEST.implementation_version == "0.0.15"
+    assert MANIFEST.implementation_version == "0.0.16"
     assert MANIFEST.execution_modes == (ExecutionMode.AGENT,)
     assert MANIFEST.capabilities == (ProviderCapability.SOURCE_READ,)
     assert MANIFEST.agent_compatibility.collector_id == "netbox"
@@ -177,6 +190,7 @@ def test_installed_netbox_provider_is_discovered_by_entry_point() -> None:
         "vpn_crypto",
         "vpn_tunnels",
         "vpn_l2vpns",
+        "wireless_networks",
         "rack_reservations",
         "power",
         "circuit_catalog",
@@ -284,6 +298,9 @@ def test_installed_netbox_provider_is_discovered_by_entry_point() -> None:
         ("vpn.TunnelTermination", "tunnel_termination"),
         ("vpn.L2VPN", "l2vpn"),
         ("vpn.L2VPNTermination", "l2vpn_termination"),
+        ("wireless.WirelessLANGroup", "wireless_lan_group"),
+        ("wireless.WirelessLAN", "wireless_lan"),
+        ("wireless.WirelessLink", "wireless_link"),
         ("dcim.RackReservation", "rack_reservation"),
         ("dcim.PowerPanel", "power_panel"),
         ("dcim.PowerFeed", "power_feed"),

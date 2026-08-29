@@ -427,6 +427,45 @@ def test_vpn_identities_preserve_typed_terminations_and_policy_cardinality() -> 
         )
 
 
+def test_wireless_identities_preserve_scope_and_symmetric_link_endpoints() -> None:
+    group = natural_identity("wireless_lan_group", {"/slug": "campus"}, {})
+    site_lan = natural_identity(
+        "wireless_lan",
+        {"/ssid": "Corporate", "/scope_type": "dcim.site"},
+        {"group": group, "scope_site": "site-a", "tenant": "tenant-a"},
+    )
+    location_lan = natural_identity(
+        "wireless_lan",
+        {"/ssid": "Corporate", "/scope_type": "dcim.location"},
+        {"group": group, "scope_location": "room-a", "tenant": "tenant-a"},
+    )
+    link = natural_identity(
+        "wireless_link",
+        {},
+        {"interface_a": "device-a:radio0", "interface_b": "device-b:radio0"},
+    )
+
+    assert site_lan != location_lan
+    assert link == natural_identity(
+        "wireless_link",
+        {},
+        {"interface_a": "device-b:radio0", "interface_b": "device-a:radio0"},
+    )
+
+    with pytest.raises(ValueError, match="outside the supported DCIM graph"):
+        natural_identity(
+            "wireless_lan",
+            {"/ssid": "Corporate", "/scope_type": "virtualization.cluster"},
+            {"group": group},
+        )
+    with pytest.raises(ValueError, match="two distinct interfaces"):
+        natural_identity(
+            "wireless_link",
+            {},
+            {"interface_a": "device-a:radio0", "interface_b": "device-a:radio0"},
+        )
+
+
 def test_tenancy_contact_identities_preserve_hierarchy_and_fail_closed_for_unknown_targets() -> None:
     parent = natural_identity("contact_group", {"/slug": "operations"}, {})
     child = natural_identity("contact_group", {"/slug": "escalations"}, {"parent": parent})

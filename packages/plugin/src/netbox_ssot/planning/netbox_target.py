@@ -123,12 +123,14 @@ from vpn.models import (
     TunnelGroup,
     TunnelTermination,
 )
+from wireless.models import WirelessLAN, WirelessLANGroup, WirelessLink
 
 from .comparison import CanonicalRecord, natural_identity, normalize_value
 from .core import portable_data_source_parameters
 from .resource_registry import ATTRIBUTE_FIELDS, RELATIONSHIP_FIELDS, TAGGED_KINDS
 from .tenancy import TENANCY_CONTACT_TARGET_KINDS
 from .virtualization import VIRTUALIZATION_SCOPE_TARGET_KINDS
+from .wireless import WIRELESS_SCOPE_TARGET_KINDS
 
 MODEL_BY_KIND = {
     "tag": Tag,
@@ -173,6 +175,9 @@ MODEL_BY_KIND = {
     "tunnel_termination": TunnelTermination,
     "l2vpn": L2VPN,
     "l2vpn_termination": L2VPNTermination,
+    "wireless_lan_group": WirelessLANGroup,
+    "wireless_lan": WirelessLAN,
+    "wireless_link": WirelessLink,
     "site_group": SiteGroup,
     "rir": RIR,
     "role": Role,
@@ -301,7 +306,7 @@ def _queryset(resource_kind: str) -> Iterable[Any]:
             | Q(assigned_object_type__app_label="dcim", assigned_object_type__model="interface")
             | Q(assigned_object_type__app_label="virtualization", assigned_object_type__model="vminterface")
         )
-    elif resource_kind == "cluster":
+    elif resource_kind in {"cluster", "wireless_lan"}:
         queryset = queryset.filter(
             Q(scope_type__isnull=True)
             | Q(scope_type__app_label="dcim", scope_type__model__in=("region", "sitegroup", "site", "location"))
@@ -345,6 +350,7 @@ def _queryset(resource_kind: str) -> Iterable[Any]:
         "service": ("parent_object_type",),
         "contact_assignment": ("object_type",),
         "cluster": ("scope_type",),
+        "wireless_lan": ("scope_type",),
         "tunnel_termination": ("termination_type",),
         "l2vpn_termination": ("assigned_object_type",),
     }.get(resource_kind, ())
@@ -401,6 +407,8 @@ def _queryset(resource_kind: str) -> Iterable[Any]:
     if resource_kind == "contact_assignment":
         prefetch.append("object")
     if resource_kind == "cluster":
+        prefetch.append("scope")
+    if resource_kind == "wireless_lan":
         prefetch.append("scope")
     if resource_kind == "vm_interface":
         prefetch.append("tagged_vlans")
@@ -484,6 +492,7 @@ def _attributes(resource_kind: str, obj: Any) -> dict[str, Any]:
         "service",
         "contact_assignment",
         "cluster",
+        "wireless_lan",
         "tunnel_termination",
         "l2vpn_termination",
     }:
@@ -494,6 +503,7 @@ def _attributes(resource_kind: str, obj: Any) -> dict[str, Any]:
             "service": "parent_object_type",
             "contact_assignment": "object_type",
             "cluster": "scope_type",
+            "wireless_lan": "scope_type",
             "tunnel_termination": "termination_type",
             "l2vpn_termination": "assigned_object_type",
         }[resource_kind]
@@ -567,6 +577,10 @@ def _relationships(resource_kind: str, obj: Any) -> dict[str, Any]:
     elif resource_kind == "cluster" and obj.scope is not None:
         target_kind = _kind_for_model(obj.scope)
         if target_kind in VIRTUALIZATION_SCOPE_TARGET_KINDS:
+            add(f"scope_{target_kind}", target_kind, obj.scope)
+    elif resource_kind == "wireless_lan" and obj.scope is not None:
+        target_kind = _kind_for_model(obj.scope)
+        if target_kind in WIRELESS_SCOPE_TARGET_KINDS:
             add(f"scope_{target_kind}", target_kind, obj.scope)
     elif resource_kind == "vm_interface":
         add_many("tagged_vlan", "vlan", obj.tagged_vlans.all())
@@ -816,6 +830,13 @@ def _target_identity(resource_kind: str, obj: Any) -> str:
         relationships["virtual_machine"] = _target_identity("virtual_machine", obj.virtual_machine)
     elif resource_kind in {"tunnel_group", "l2vpn"}:
         attributes["/slug"] = obj.slug
+    elif resource_kind == "wireless_lan_group":
+        attributes["/slug"] = obj.slug
+        if obj.parent:
+            relationships["parent"] = _target_identity("wireless_lan_group", obj.parent)
+    elif resource_kind == "wireless_link":
+        relationships["interface_a"] = _target_identity("interface", obj.interface_a)
+        relationships["interface_b"] = _target_identity("interface", obj.interface_b)
     elif resource_kind == "tunnel_termination":
         if obj.termination is not None:
             target_kind = _kind_for_model(obj.termination)
@@ -827,6 +848,19 @@ def _target_identity(resource_kind: str, obj: Any) -> str:
         if target_kind in {"vlan", "interface", "vm_interface"}:
             relationships[f"assigned_{target_kind}"] = _target_identity(target_kind, obj.assigned_object)
             attributes["/assigned_object_type"] = obj.assigned_object_type.model
+    elif resource_kind == "wireless_lan":
+        attributes["/ssid"] = obj.ssid
+        if obj.group:
+            relationships["group"] = _target_identity("wireless_lan_group", obj.group)
+        if obj.tenant:
+            relationships["tenant"] = _target_identity("tenant", obj.tenant)
+        if obj.vlan:
+            relationships["vlan"] = _target_identity("vlan", obj.vlan)
+        if obj.scope is not None:
+            target_kind = _kind_for_model(obj.scope)
+            if target_kind in WIRELESS_SCOPE_TARGET_KINDS:
+                relationships[f"scope_{target_kind}"] = _target_identity(target_kind, obj.scope)
+                attributes["/scope_type"] = obj.scope_type.model
 
     if resource_kind in {"region", "site_group", "tenant_group", "device_role", "contact_group"} and obj.parent:
         relationships["parent"] = _target_identity(resource_kind, obj.parent)
@@ -979,6 +1013,7 @@ def _display_name(attributes: dict[str, Any], fallback: str) -> str:
     return str(
         attributes.get("/name")
         or attributes.get("/username")
+        or attributes.get("/ssid")
         or attributes.get("/cid")
         or attributes.get("/account")
         or attributes.get("/model")

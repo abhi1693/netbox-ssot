@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from . import circuits, core, dcim, extras, ipam, tenancy, users, virtualization, vpn
+from . import circuits, core, dcim, extras, ipam, tenancy, users, virtualization, vpn, wireless
 
 RESOURCE_KINDS: Final = (
     dcim.DCIM_RESOURCE_KINDS
@@ -14,6 +14,7 @@ RESOURCE_KINDS: Final = (
     | tenancy.TENANCY_RESOURCE_KINDS
     | virtualization.VIRTUALIZATION_RESOURCE_KINDS
     | vpn.VPN_RESOURCE_KINDS
+    | wireless.WIRELESS_RESOURCE_KINDS
 )
 ATTRIBUTE_FIELDS: Final = {
     **dcim.ATTRIBUTE_FIELDS,
@@ -25,6 +26,7 @@ ATTRIBUTE_FIELDS: Final = {
     **tenancy.TENANCY_ATTRIBUTE_FIELDS,
     **virtualization.VIRTUALIZATION_ATTRIBUTE_FIELDS,
     **vpn.VPN_ATTRIBUTE_FIELDS,
+    **wireless.WIRELESS_ATTRIBUTE_FIELDS,
 }
 EXTRA_ATTRIBUTE_FIELDS: Final = {
     **dcim.EXTRA_ATTRIBUTE_FIELDS,
@@ -35,6 +37,7 @@ EXTRA_ATTRIBUTE_FIELDS: Final = {
     **tenancy.TENANCY_EXTRA_ATTRIBUTE_FIELDS,
     **virtualization.VIRTUALIZATION_EXTRA_ATTRIBUTE_FIELDS,
     **vpn.VPN_EXTRA_ATTRIBUTE_FIELDS,
+    **wireless.WIRELESS_EXTRA_ATTRIBUTE_FIELDS,
 }
 RELATIONSHIP_FIELDS: Final = {
     **dcim.RELATIONSHIP_FIELDS,
@@ -46,6 +49,7 @@ RELATIONSHIP_FIELDS: Final = {
     **tenancy.TENANCY_RELATIONSHIP_FIELDS,
     **virtualization.VIRTUALIZATION_RELATIONSHIP_FIELDS,
     **vpn.VPN_RELATIONSHIP_FIELDS,
+    **wireless.WIRELESS_RELATIONSHIP_FIELDS,
 }
 TAGGED_KINDS: Final = (
     dcim.TAGGED_KINDS
@@ -55,6 +59,7 @@ TAGGED_KINDS: Final = (
     | tenancy.TENANCY_TAGGED_KINDS
     | virtualization.VIRTUALIZATION_TAGGED_KINDS
     | vpn.VPN_TAGGED_KINDS
+    | wireless.WIRELESS_TAGGED_KINDS
 )
 REQUIRED_RELATIONSHIPS: Final = {
     **dcim.REQUIRED_RELATIONSHIPS,
@@ -66,6 +71,7 @@ REQUIRED_RELATIONSHIPS: Final = {
     **tenancy.TENANCY_REQUIRED_RELATIONSHIPS,
     **virtualization.VIRTUALIZATION_REQUIRED_RELATIONSHIPS,
     **vpn.VPN_REQUIRED_RELATIONSHIPS,
+    **wireless.WIRELESS_REQUIRED_RELATIONSHIPS,
 }
 IDENTITY_RELATIONSHIPS: Final = {
     **dcim.IDENTITY_RELATIONSHIPS,
@@ -77,6 +83,7 @@ IDENTITY_RELATIONSHIPS: Final = {
     **tenancy.TENANCY_IDENTITY_RELATIONSHIPS,
     **virtualization.VIRTUALIZATION_IDENTITY_RELATIONSHIPS,
     **vpn.VPN_IDENTITY_RELATIONSHIPS,
+    **wireless.WIRELESS_IDENTITY_RELATIONSHIPS,
 }
 
 
@@ -90,6 +97,7 @@ def relationship_target(resource_kind: str, name: str) -> str | None:
         or tenancy.tenancy_relationship_target(resource_kind, name)
         or virtualization.virtualization_relationship_target(resource_kind, name)
         or vpn.vpn_relationship_target(resource_kind, name)
+        or wireless.wireless_relationship_target(resource_kind, name)
     )
 
 
@@ -114,4 +122,5 @@ def is_identity_relationship(resource_kind: str, name: str) -> bool:
         or tenancy.is_tenancy_identity_relationship(resource_kind, name)
         or virtualization.is_virtualization_identity_relationship(resource_kind, name)
         or vpn.is_vpn_identity_relationship(resource_kind, name)
+        or wireless.is_wireless_identity_relationship(resource_kind, name)
     )

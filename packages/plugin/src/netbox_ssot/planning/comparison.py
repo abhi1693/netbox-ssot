@@ -10,7 +10,7 @@ from .adapters import build_adapter_pair
 from .diffsync_engine import ComparisonOnlyDiffSyncEngine
 from .resource_registry import ATTRIBUTE_FIELDS, is_multi_relationship
 
-ENGINE_VERSION = "14.0"
+ENGINE_VERSION = "15.0"
 SUPPORTED_RESOURCE_KINDS = frozenset(ATTRIBUTE_FIELDS)
 MULTI_RELATIONSHIPS = {
     "tenant_group": frozenset({"tag"}),
@@ -123,7 +123,14 @@ def natural_identity(
         return value
 
     parts: list[Any]
-    if resource_kind in {"region", "site_group", "tenant_group", "device_role", "contact_group"}:
+    if resource_kind in {
+        "region",
+        "site_group",
+        "tenant_group",
+        "device_role",
+        "contact_group",
+        "wireless_lan_group",
+    }:
         parts = [resource_kind, relationships.get("parent", "root"), required_attribute("slug")]
     elif resource_kind == "tenant":
         parts = [resource_kind, relationships.get("group", "root"), required_attribute("slug")]
@@ -248,6 +255,25 @@ def natural_identity(
         if len(assignments) != 1:
             raise ValueError("An L2VPN termination requires exactly one supported assigned object.")
         parts = [resource_kind, assignments]
+    elif resource_kind == "wireless_lan":
+        scopes = sorted((name, value) for name, value in relationships.items() if name.startswith("scope_"))
+        if attributes.get("/scope_type") and len(scopes) != 1:
+            raise ValueError("The wireless LAN scope targets a model outside the supported DCIM graph.")
+        if len(scopes) > 1:
+            raise ValueError("A wireless LAN can contain at most one scope.")
+        parts = [
+            resource_kind,
+            relationships.get("group", "no-group"),
+            scopes or "global",
+            relationships.get("tenant", "no-tenant"),
+            relationships.get("vlan", "no-vlan"),
+            required_attribute("ssid"),
+        ]
+    elif resource_kind == "wireless_link":
+        endpoints = sorted((required_relationship("interface_a"), required_relationship("interface_b")))
+        if endpoints[0] == endpoints[1]:
+            raise ValueError("A wireless link requires two distinct interfaces.")
+        parts = [resource_kind, endpoints]
     elif resource_kind in {"route_target", "vlan_translation_policy", "service_template"}:
         parts = [resource_kind, "name", required_attribute("name")]
     elif resource_kind == "vrf":

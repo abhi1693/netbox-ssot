@@ -321,6 +321,7 @@ def _display_name(attributes: dict[str, Any], fallback: str) -> str:
     for path in (
         "/name",
         "/username",
+        "/ssid",
         "/cid",
         "/account",
         "/asn",

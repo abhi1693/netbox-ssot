@@ -4,7 +4,7 @@
   "icon_class": "mdi mdi-cube-outline",
   "description": "Collects portable configuration and infrastructure data from a remote NetBox REST API.",
   "instance_url_field": "base_url",
-  "implementation_version": "0.0.15",
+  "implementation_version": "0.0.16",
   "contract_version": "1.0",
   "documentation_url": "https://github.com/abhi1693/netbox-ssot",
   "execution_modes": [
@@ -583,6 +583,20 @@
       "data_mappings": [
         {"source_name": "L2VPN", "source_model": "vpn.L2VPN", "source_path": "vpn/l2vpns/", "destination_kind": "l2vpn"},
         {"source_name": "L2VPN termination", "source_model": "vpn.L2VPNTermination", "source_path": "vpn/l2vpn-terminations/", "destination_kind": "l2vpn_termination"}
+      ]
+    },
+    {
+      "id": "wireless_networks",
+      "title": "Wireless networks",
+      "description": "Wireless LAN groups, scoped LANs, and point-to-point interface links. Pre-shared keys remain destination-local and are never collected.",
+      "resource_kinds": ["wireless_lan_group", "wireless_lan", "wireless_link"],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": ["locations", "ipam_vlans", "device_components"],
+      "data_mappings": [
+        {"source_name": "Wireless LAN group", "source_model": "wireless.WirelessLANGroup", "source_path": "wireless/wireless-lan-groups/", "destination_kind": "wireless_lan_group"},
+        {"source_name": "Wireless LAN", "source_model": "wireless.WirelessLAN", "source_path": "wireless/wireless-lans/", "destination_kind": "wireless_lan"},
+        {"source_name": "Wireless link", "source_model": "wireless.WirelessLink", "source_path": "wireless/wireless-links/", "destination_kind": "wireless_link"}
       ]
     },
     {
