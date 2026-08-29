@@ -392,6 +392,30 @@ def test_ipam_generic_relationships_fail_closed_outside_owned_graph(
         natural_identity(kind, attributes, relationships)
 
 
+def test_tenancy_contact_identities_preserve_hierarchy_and_fail_closed_for_unknown_targets() -> None:
+    parent = natural_identity("contact_group", {"/slug": "operations"}, {})
+    child = natural_identity("contact_group", {"/slug": "escalations"}, {"parent": parent})
+    role = natural_identity("contact_role", {"/slug": "technical"}, {})
+    contact = natural_identity("contact", {"/name": "Alice"}, {})
+    assignment = natural_identity(
+        "contact_assignment",
+        {"/object_type": "tenancy.tenant"},
+        {"object_tenant": "customer", "contact": contact, "role": role},
+    )
+
+    assert child != natural_identity("contact_group", {"/slug": "escalations"}, {})
+    assert assignment
+    assert normalize_relationship_cardinality("contact", {"group": [parent, child]}) == {
+        "group": [child, parent]
+    }
+    with pytest.raises(ValueError, match="outside the supported provider graph"):
+        natural_identity(
+            "contact_assignment",
+            {"/object_type": "virtualization.virtualmachine"},
+            {"contact": contact, "role": role},
+        )
+
+
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [

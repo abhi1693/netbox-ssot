@@ -189,6 +189,45 @@ func TestCircuitRecordsPreserveTypedFieldsAndPortableRelationships(t *testing.T)
 	}
 }
 
+func TestTenancyContactRecordsPreservePortableAssignments(t *testing.T) {
+	attributes := attributesFor("contact", map[string]any{
+		"name": "Alice", "title": "Network engineer", "phone": "+1-555-0100",
+		"email": "alice@example.com", "address": "1 Example Way", "link": "https://example.com/contact",
+	})
+	values := make(map[string]any, len(attributes))
+	for _, attribute := range attributes {
+		values[attribute.Path] = attribute.Value
+	}
+	if values["/name"] != "Alice" || values["/email"] != "alice@example.com" {
+		t.Fatalf("contact attributes = %#v", values)
+	}
+
+	relationships := relationshipsFor("contact_assignment", map[string]any{
+		"contact":     map[string]any{"id": json.Number("1")},
+		"role":        map[string]any{"id": json.Number("2")},
+		"object_type": "tenancy.tenant",
+		"object_id":   json.Number("3"),
+		"tags":        []any{map[string]any{"id": json.Number("4")}},
+	})
+	got := map[string]string{}
+	for _, relationship := range relationships {
+		got[relationship.Kind] = relationship.TargetKind
+	}
+	want := map[string]string{
+		"contact": "contact", "role": "contact_role", "object_tenant": "tenant", "tag": "tag",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("contact assignment relationships = %#v, want %#v", got, want)
+	}
+
+	unsupported := relationshipsFor("contact_assignment", map[string]any{
+		"object_type": "virtualization.virtualmachine", "object_id": json.Number("5"),
+	})
+	if len(unsupported) != 0 {
+		t.Fatalf("unsupported contact assignment relationships = %#v", unsupported)
+	}
+}
+
 func TestIPAMRecordsPreserveTypedFieldsAndPortableRelationships(t *testing.T) {
 	attributes := attributesFor("ip_address", map[string]any{
 		"address":              "192.0.2.10/24",

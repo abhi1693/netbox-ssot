@@ -4,7 +4,7 @@
   "icon_class": "mdi mdi-cube-outline",
   "description": "Collects portable configuration and infrastructure data from a remote NetBox REST API.",
   "instance_url_field": "base_url",
-  "implementation_version": "0.0.12",
+  "implementation_version": "0.0.13",
   "contract_version": "1.0",
   "documentation_url": "https://github.com/abhi1693/netbox-ssot",
   "execution_modes": [
@@ -108,6 +108,48 @@
         {"source_name": "RIR", "source_model": "ipam.RIR", "source_path": "ipam/rirs/", "destination_kind": "rir"},
         {"source_name": "Role", "source_model": "ipam.Role", "source_path": "ipam/roles/", "destination_kind": "role"},
         {"source_name": "ASN", "source_model": "ipam.ASN", "source_path": "ipam/asns/", "destination_kind": "asn"}
+      ]
+    },
+    {
+      "id": "tenancy_contacts",
+      "title": "Tenancy contacts",
+      "description": "Contact groups, roles, and portable contact details with ownership, grouping, and tagging relationships.",
+      "resource_kinds": ["contact_group", "contact_role", "contact"],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": ["references"],
+      "data_mappings": [
+        {"source_name": "Contact group", "source_model": "tenancy.ContactGroup", "source_path": "tenancy/contact-groups/", "destination_kind": "contact_group"},
+        {"source_name": "Contact role", "source_model": "tenancy.ContactRole", "source_path": "tenancy/contact-roles/", "destination_kind": "contact_role"},
+        {"source_name": "Contact", "source_model": "tenancy.Contact", "source_path": "tenancy/contacts/", "destination_kind": "contact"}
+      ]
+    },
+    {
+      "id": "tenancy_contact_assignments",
+      "title": "Tenancy contact assignments",
+      "description": "Contact assignments to contact-capable objects represented by this provider. Assignments to unsupported apps are surfaced as skipped records.",
+      "resource_kinds": ["contact_assignment"],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": [
+        "tenancy_contacts",
+        "ipam_registries",
+        "ipam_prefixes",
+        "ipam_addresses",
+        "ipam_services",
+        "regions",
+        "sites",
+        "locations",
+        "device_catalog",
+        "racks",
+        "devices",
+        "power",
+        "circuit_catalog",
+        "circuits",
+        "virtual_circuits"
+      ],
+      "data_mappings": [
+        {"source_name": "Contact assignment", "source_model": "tenancy.ContactAssignment", "source_path": "tenancy/contact-assignments/", "destination_kind": "contact_assignment"}
       ]
     },
     {

@@ -40,8 +40,29 @@ def test_ipam_services_selection_closes_over_routing_vlan_and_dcim_dependencies(
     }
 
 
+def test_contact_assignments_close_over_every_supported_target_dataset() -> None:
+    selected = set(selected_dataset_ids(MANIFEST, ("tenancy_contact_assignments",)))
+
+    assert {
+        "references",
+        "tenancy_contacts",
+        "tenancy_contact_assignments",
+        "ipam_registries",
+        "ipam_services",
+        "regions",
+        "locations",
+        "device_catalog",
+        "racks",
+        "devices",
+        "power",
+        "circuit_catalog",
+        "circuits",
+        "virtual_circuits",
+    } <= selected
+
+
 def test_netbox_provider_is_agent_read_only() -> None:
-    assert MANIFEST.implementation_version == "0.0.12"
+    assert MANIFEST.implementation_version == "0.0.13"
     assert MANIFEST.execution_modes == (ExecutionMode.AGENT,)
     assert MANIFEST.capabilities == (ProviderCapability.SOURCE_READ,)
     assert MANIFEST.agent_compatibility.collector_id == "netbox"
@@ -74,6 +95,8 @@ def test_installed_netbox_provider_is_discovered_by_entry_point() -> None:
     assert wizard.provider.display_name == "NetBox"
     assert wizard.provider.icon_class == "mdi mdi-cube-outline"
     assert wizard.default_datasets == (
+        "tenancy_contacts",
+        "tenancy_contact_assignments",
         "ipam_registries",
         "ipam_routing",
         "ipam_vlans",
@@ -112,6 +135,10 @@ def test_installed_netbox_provider_is_discovered_by_entry_point() -> None:
         if dataset.selectable
         for mapping in dataset.data_mappings
     ) == (
+        ("tenancy.ContactGroup", "contact_group"),
+        ("tenancy.ContactRole", "contact_role"),
+        ("tenancy.Contact", "contact"),
+        ("tenancy.ContactAssignment", "contact_assignment"),
         ("ipam.ASNRange", "asn_range"),
         ("ipam.Aggregate", "aggregate"),
         ("ipam.RouteTarget", "route_target"),

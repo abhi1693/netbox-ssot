@@ -100,12 +100,13 @@ from ipam.models import (
     VLANTranslationPolicy,
     VLANTranslationRule,
 )
-from tenancy.models import Tenant, TenantGroup
+from tenancy.models import Contact, ContactAssignment, ContactGroup, ContactRole, Tenant, TenantGroup
 from users.models import Group, ObjectPermission, Owner, OwnerGroup, User
 
 from .comparison import CanonicalRecord, natural_identity, normalize_value
 from .core import portable_data_source_parameters
 from .resource_registry import ATTRIBUTE_FIELDS, RELATIONSHIP_FIELDS, TAGGED_KINDS
+from .tenancy import TENANCY_CONTACT_TARGET_KINDS
 
 MODEL_BY_KIND = {
     "tag": Tag,
@@ -129,6 +130,10 @@ MODEL_BY_KIND = {
     "user": User,
     "tenant_group": TenantGroup,
     "tenant": Tenant,
+    "contact_group": ContactGroup,
+    "contact_role": ContactRole,
+    "contact": Contact,
+    "contact_assignment": ContactAssignment,
     "site_group": SiteGroup,
     "rir": RIR,
     "role": Role,
@@ -239,6 +244,15 @@ def _queryset(resource_kind: str) -> Iterable[Any]:
             Q(parent_object_type__app_label="dcim", parent_object_type__model="device")
             | Q(parent_object_type__app_label="ipam", parent_object_type__model="fhrpgroup")
         )
+    elif resource_kind == "contact_assignment":
+        supported = Q(pk__in=[])
+        for target_kind in TENANCY_CONTACT_TARGET_KINDS:
+            target_model = MODEL_BY_KIND[target_kind]
+            supported |= Q(
+                object_type__app_label=target_model._meta.app_label,
+                object_type__model=target_model._meta.model_name,
+            )
+        queryset = queryset.filter(supported)
     if related:
         queryset = queryset.select_related(*sorted(related))
     extra_related = {
@@ -256,6 +270,7 @@ def _queryset(resource_kind: str) -> Iterable[Any]:
         "ip_address": ("assigned_object_type",),
         "fhrp_group_assignment": ("interface_type",),
         "service": ("parent_object_type",),
+        "contact_assignment": ("object_type",),
     }.get(resource_kind, ())
     if extra_related:
         queryset = queryset.select_related(*extra_related)
@@ -298,6 +313,10 @@ def _queryset(resource_kind: str) -> Iterable[Any]:
         prefetch.extend(("import_targets", "export_targets"))
     if resource_kind == "service":
         prefetch.extend(("parent", "ipaddresses"))
+    if resource_kind == "contact":
+        prefetch.append("groups")
+    if resource_kind == "contact_assignment":
+        prefetch.append("object")
     if resource_kind in {"vlan_group", "prefix"}:
         prefetch.append("scope")
     if resource_kind == "ip_address":
@@ -367,12 +386,13 @@ def _attributes(resource_kind: str, obj: Any) -> dict[str, Any]:
             "/scope_type",
             f"{obj.scope_type.app_label}.{obj.scope_type.model}" if obj.scope_type else None,
         )
-    elif resource_kind in {"prefix", "ip_address", "fhrp_group_assignment", "service"}:
+    elif resource_kind in {"prefix", "ip_address", "fhrp_group_assignment", "service", "contact_assignment"}:
         field_name = {
             "prefix": "scope_type",
             "ip_address": "assigned_object_type",
             "fhrp_group_assignment": "interface_type",
             "service": "parent_object_type",
+            "contact_assignment": "object_type",
         }[resource_kind]
         content_type = getattr(obj, field_name)
         add(f"/{field_name}", f"{content_type.app_label}.{content_type.model}" if content_type else None)
@@ -435,6 +455,12 @@ def _relationships(resource_kind: str, obj: Any) -> dict[str, Any]:
     elif resource_kind == "notification_group":
         add_many("group", "user_group", obj.groups.all())
         add_many("user", "user", obj.users.all())
+    elif resource_kind == "contact":
+        add_many("group", "contact_group", obj.groups.all())
+    elif resource_kind == "contact_assignment" and obj.object is not None:
+        target_kind = _kind_for_model(obj.object)
+        if target_kind in TENANCY_CONTACT_TARGET_KINDS:
+            add(f"object_{target_kind}", target_kind, obj.object)
     elif resource_kind == "vrf":
         add_many("import_target", "route_target", obj.import_targets.all())
         add_many("export_target", "route_target", obj.export_targets.all())
@@ -509,6 +535,8 @@ def _target_identity(resource_kind: str, obj: Any) -> str:
         "tag",
         "tenant_group",
         "tenant",
+        "contact_group",
+        "contact_role",
         "site_group",
         "rir",
         "region",
@@ -543,6 +571,7 @@ def _target_identity(resource_kind: str, obj: Any) -> str:
         "route_target",
         "vlan_translation_policy",
         "service_template",
+        "contact",
     }:
         attributes["/name"] = obj.name
     elif resource_kind == "saved_filter":
@@ -619,8 +648,16 @@ def _target_identity(resource_kind: str, obj: Any) -> str:
             if target_kind in {"device", "fhrp_group"}:
                 relationships[f"parent_{target_kind}"] = _target_identity(target_kind, obj.parent)
                 attributes["/parent_object_type"] = obj.parent_object_type.model
+    elif resource_kind == "contact_assignment":
+        relationships["contact"] = _target_identity("contact", obj.contact)
+        relationships["role"] = _target_identity("contact_role", obj.role)
+        if obj.object is not None:
+            target_kind = _kind_for_model(obj.object)
+            if target_kind in TENANCY_CONTACT_TARGET_KINDS:
+                relationships[f"object_{target_kind}"] = _target_identity(target_kind, obj.object)
+                attributes["/object_type"] = obj.object_type.model
 
-    if resource_kind in {"region", "site_group", "tenant_group", "device_role"} and obj.parent:
+    if resource_kind in {"region", "site_group", "tenant_group", "device_role", "contact_group"} and obj.parent:
         relationships["parent"] = _target_identity(resource_kind, obj.parent)
     elif resource_kind == "tenant" and obj.group:
         relationships["group"] = _target_identity("tenant_group", obj.group)

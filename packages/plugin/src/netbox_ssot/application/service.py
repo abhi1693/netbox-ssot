@@ -655,6 +655,14 @@ def _write_object(
                 target_by_key,
                 object_cache,
             )
+        elif kind == "contact_assignment":
+            obj.object = _generic_relationship_object(
+                kind,
+                "object_",
+                relationships,
+                target_by_key,
+                object_cache,
+            )
         elif kind == "circuit_termination":
             obj.termination = _generic_relationship_object(
                 kind,
@@ -733,6 +741,10 @@ def _write_object(
     if kind == "service":
         obj.ipaddresses.set(
             _relationship_objects("ip_address", relationships.get("ip_address"), target_by_key, object_cache)
+        )
+    if kind == "contact":
+        obj.groups.set(
+            _relationship_objects("contact_group", relationships.get("group"), target_by_key, object_cache)
         )
     if kind == "config_context":
         for name, target_kind in CONFIG_CONTEXT_MULTI_RELATIONSHIPS.items():

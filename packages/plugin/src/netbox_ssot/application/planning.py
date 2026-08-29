@@ -113,6 +113,10 @@ def relationship_dependencies(
         actions = [name for name in record.relationships if name.startswith("action_")]
         if len(actions) != 1:
             raise ApplicationPlanError("An event rule must contain exactly one supported action target.")
+    if record.resource_kind == "contact_assignment":
+        targets = [name for name in record.relationships if name.startswith("object_")]
+        if len(targets) != 1:
+            raise ApplicationPlanError("A contact assignment must contain exactly one supported target object.")
     generic_requirements = {
         "fhrp_group_assignment": "interface_",
         "service": "parent_",

@@ -10,7 +10,7 @@ from .adapters import build_adapter_pair
 from .diffsync_engine import ComparisonOnlyDiffSyncEngine
 from .resource_registry import ATTRIBUTE_FIELDS, is_multi_relationship
 
-ENGINE_VERSION = "11.0"
+ENGINE_VERSION = "12.0"
 SUPPORTED_RESOURCE_KINDS = frozenset(ATTRIBUTE_FIELDS)
 MULTI_RELATIONSHIPS = {
     "tenant_group": frozenset({"tag"}),
@@ -123,7 +123,7 @@ def natural_identity(
         return value
 
     parts: list[Any]
-    if resource_kind in {"region", "site_group", "tenant_group", "device_role"}:
+    if resource_kind in {"region", "site_group", "tenant_group", "device_role", "contact_group"}:
         parts = [resource_kind, relationships.get("parent", "root"), required_attribute("slug")]
     elif resource_kind == "tenant":
         parts = [resource_kind, relationships.get("group", "root"), required_attribute("slug")]
@@ -176,8 +176,22 @@ def natural_identity(
         parts = [resource_kind, "username", str(required_attribute("username")).casefold()]
     elif resource_kind == "asn":
         parts = [resource_kind, "asn", required_attribute("asn")]
-    elif resource_kind in {"role", "asn_range"}:
+    elif resource_kind in {"role", "asn_range", "contact_role"}:
         parts = [resource_kind, "slug", required_attribute("slug")]
+    elif resource_kind == "contact":
+        parts = [resource_kind, "name", str(required_attribute("name")).casefold()]
+    elif resource_kind == "contact_assignment":
+        objects = sorted((name, value) for name, value in relationships.items() if name.startswith("object_"))
+        if attributes.get("/object_type") and len(objects) != 1:
+            raise ValueError("The contact assignment targets a model outside the supported provider graph.")
+        if len(objects) != 1:
+            raise ValueError("A contact assignment requires exactly one supported target object.")
+        parts = [
+            resource_kind,
+            objects,
+            required_relationship("contact"),
+            required_relationship("role"),
+        ]
     elif resource_kind in {"route_target", "vlan_translation_policy", "service_template"}:
         parts = [resource_kind, "name", required_attribute("name")]
     elif resource_kind == "vrf":

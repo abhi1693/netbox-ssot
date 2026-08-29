@@ -62,6 +62,14 @@ var datasetEndpoints = map[string][]endpoint{
 		{Path: "ipam/roles/", Kind: "role"},
 		{Path: "ipam/asns/", Kind: "asn"},
 	},
+	"tenancy_contacts": {
+		{Path: "tenancy/contact-groups/", Kind: "contact_group"},
+		{Path: "tenancy/contact-roles/", Kind: "contact_role"},
+		{Path: "tenancy/contacts/", Kind: "contact"},
+	},
+	"tenancy_contact_assignments": {
+		{Path: "tenancy/contact-assignments/", Kind: "contact_assignment"},
+	},
 	"ipam_registries": {
 		{Path: "ipam/asn-ranges/", Kind: "asn_range"},
 		{Path: "ipam/aggregates/", Kind: "aggregate"},
@@ -724,6 +732,13 @@ func attributesFor(kind string, record map[string]any) []contracts.ObservationAt
 		addDirect("/slug", "slug")
 		addDirect("/description", "description")
 		addDirect("/comments", "comments")
+	case "contact_group", "contact_role":
+		addFields("name", "slug", "description", "comments")
+	case "contact":
+		addFields("name", "title", "phone", "email", "address", "link", "description", "comments")
+	case "contact_assignment":
+		addChoice("/priority", "priority")
+		add("/object_type", contentTypeValue(record["object_type"]))
 	case "rir":
 		addDirect("/name", "name")
 		addDirect("/slug", "slug")
@@ -1126,6 +1141,22 @@ func relationshipsFor(kind string, record map[string]any) []contracts.Relationsh
 		add("group", "tenant_group", record["group"])
 		add("owner", "owner", record["owner"])
 		addMany("tag", "tag", record["tags"])
+	case "contact_group":
+		add("parent", "contact_group", record["parent"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "contact_role":
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "contact":
+		addMany("group", "contact_group", record["groups"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "contact_assignment":
+		add("contact", "contact", record["contact"])
+		add("role", "contact_role", record["role"])
+		addGeneric("object", record["object_type"], record["object_id"])
+		addMany("tag", "tag", record["tags"])
 	case "site_group":
 		add("parent", "site_group", record["parent"])
 		add("owner", "owner", record["owner"])
@@ -1476,8 +1507,18 @@ func resourceKindForObjectType(objectType string) (string, bool) {
 		"dcim.device":                    "device",
 		"dcim.rackgroup":                 "rack_group",
 		"dcim.rack":                      "rack",
+		"dcim.manufacturer":              "manufacturer",
+		"dcim.powerpanel":                "power_panel",
+		"tenancy.tenant":                 "tenant",
+		"ipam.asn":                       "asn",
+		"ipam.aggregate":                 "aggregate",
+		"ipam.prefix":                    "prefix",
+		"ipam.iprange":                   "ip_range",
+		"ipam.ipaddress":                 "ip_address",
+		"ipam.service":                   "service",
 		"ipam.fhrpgroup":                 "fhrp_group",
 		"circuits.provider":              "provider",
+		"circuits.provideraccount":       "provider_account",
 		"circuits.providernetwork":       "provider_network",
 		"circuits.circuit":               "circuit",
 		"circuits.circuittermination":    "circuit_termination",

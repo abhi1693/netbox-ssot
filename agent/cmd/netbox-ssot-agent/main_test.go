@@ -154,7 +154,7 @@ func TestEnrollCommandCreatesPrivateFileAndReturnsOnlyPublicIdentity(t *testing.
 			t.Errorf("decode enrollment request: %v", err)
 		}
 		if len(enrollment.Providers) != 1 || enrollment.Providers[0].ProviderID != "netbox" ||
-			enrollment.Providers[0].ImplementationVersion != "0.0.12" {
+			enrollment.Providers[0].ImplementationVersion != "0.0.13" {
 			t.Errorf("provider capabilities = %+v", enrollment.Providers)
 		}
 		publicKey, err := base64.RawURLEncoding.DecodeString(enrollment.PublicKey)
