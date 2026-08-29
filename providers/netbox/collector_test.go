@@ -43,6 +43,66 @@ func TestManifestMatchesCompiledCollector(t *testing.T) {
 	}
 }
 
+func TestEveryManifestMappingHasTheSameCompiledEndpoint(t *testing.T) {
+	manifest, err := New().Manifest()
+	if err != nil {
+		t.Fatalf("Manifest() error = %v", err)
+	}
+	for _, dataset := range manifest.Datasets {
+		compiled := make(map[string]string, len(datasetEndpoints[dataset.ID]))
+		for _, endpoint := range datasetEndpoints[dataset.ID] {
+			compiled[endpoint.Kind] = endpoint.Path
+		}
+		if len(compiled) != len(dataset.DataMappings) {
+			t.Fatalf("dataset %q has %d compiled endpoints, want %d mappings", dataset.ID, len(compiled), len(dataset.DataMappings))
+		}
+		for _, mapping := range dataset.DataMappings {
+			if got := compiled[mapping.DestinationKind]; got != mapping.SourcePath {
+				t.Errorf("dataset %q kind %q endpoint = %q, want %q", dataset.ID, mapping.DestinationKind, got, mapping.SourcePath)
+			}
+		}
+	}
+}
+
+func TestDynamicDCIMRelationshipsUseTheCorrectTargetKinds(t *testing.T) {
+	templateRelationships := relationshipsFor("front_port_template", map[string]any{
+		"rear_ports": []any{map[string]any{
+			"position": json.Number("1"), "rear_port": json.Number("7"), "rear_port_position": json.Number("2"),
+		}},
+	})
+	if len(templateRelationships) != 1 || templateRelationships[0].Kind != "mapping_1_2" ||
+		templateRelationships[0].TargetKind != "rear_port_template" ||
+		templateRelationships[0].TargetExternalID != "netbox:rear_port_template:7" {
+		t.Fatalf("template relationships = %+v", templateRelationships)
+	}
+
+	cableRelationships := relationshipsFor("cable", map[string]any{
+		"a_terminations": []any{map[string]any{"object_type": "dcim.interface", "object_id": json.Number("9")}},
+		"b_terminations": []any{map[string]any{"object_type": "dcim.powerfeed", "object_id": json.Number("3")}},
+	})
+	if len(cableRelationships) != 2 || cableRelationships[0].TargetKind != "interface" ||
+		cableRelationships[1].TargetKind != "power_feed" {
+		t.Fatalf("cable relationships = %+v", cableRelationships)
+	}
+}
+
+func TestCableRecordsExposeUnsupportedTerminationTypes(t *testing.T) {
+	attributes := attributesFor("cable", map[string]any{
+		"a_terminations": []any{map[string]any{"object_type": "dcim.interface", "object_id": 9}},
+		"b_terminations": []any{map[string]any{"object_type": "circuits.circuittermination", "object_id": 3}},
+	})
+	var got any
+	for _, attribute := range attributes {
+		if attribute.Path == "/unsupported_termination_types" {
+			got = attribute.Value
+		}
+	}
+	values, ok := got.([]string)
+	if !ok || len(values) != 1 || values[0] != "circuits.circuittermination" {
+		t.Fatalf("unsupported termination types = %#v", got)
+	}
+}
+
 func TestConnectionReadsStatusWithoutExposingToken(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodGet {
@@ -355,6 +415,117 @@ func TestCollectRegionsSitesAndLocationsWithFullCoreFieldCoverage(t *testing.T) 
 	}
 	if child.Relationships[0].Kind != "parent" || child.Relationships[1].Kind != "site" {
 		t.Fatalf("child relationships = %+v", child.Relationships)
+	}
+}
+
+func TestCollectDeviceCatalogAndRacksWithFullCoreFieldCoverage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		var results []any
+		switch request.URL.Path {
+		case "/api/dcim/manufacturers/":
+			results = []any{map[string]any{
+				"id": 100, "name": "Acme", "slug": "acme", "description": "Hardware maker",
+				"comments": "Manufacturer notes", "owner": map[string]any{"id": 21},
+				"tags": []any{map[string]any{"id": 10}},
+			}}
+		case "/api/dcim/device-roles/":
+			results = []any{map[string]any{
+				"id": 101, "name": "Leaf", "slug": "leaf", "color": "2196f3", "vm_role": false,
+				"config_template": map[string]any{"id": 900, "name": "Network OS"},
+				"description":     "Leaf switches", "owner": map[string]any{"id": 21},
+				"tags": []any{map[string]any{"id": 10}},
+			}}
+		case "/api/dcim/platforms/":
+			results = []any{map[string]any{
+				"id": 102, "name": "Acme OS", "slug": "acme-os", "manufacturer": map[string]any{"id": 100},
+				"config_template": map[string]any{"id": 900, "name": "Network OS"},
+				"description":     "Switch software", "owner": map[string]any{"id": 21},
+				"tags": []any{map[string]any{"id": 10}},
+			}}
+		case "/api/dcim/device-types/":
+			results = []any{map[string]any{
+				"id": 103, "manufacturer": map[string]any{"id": 100},
+				"default_platform": map[string]any{"id": 102}, "model": "Switch 48", "slug": "switch-48",
+				"part_number": "SW48", "u_height": "1.0", "exclude_from_utilization": false,
+				"is_full_depth": true, "subdevice_role": map[string]any{"value": "parent"},
+				"airflow": map[string]any{"value": "front-to-rear"}, "weight": "7.50",
+				"weight_unit": map[string]any{"value": "kg"}, "description": "48-port switch",
+				"owner": map[string]any{"id": 21}, "tags": []any{map[string]any{"id": 10}},
+			}}
+		case "/api/dcim/rack-groups/":
+			results = []any{map[string]any{
+				"id": 104, "name": "Row A", "slug": "row-a", "description": "First row",
+				"owner": map[string]any{"id": 21}, "tags": []any{map[string]any{"id": 10}},
+			}}
+		case "/api/dcim/rack-roles/":
+			results = []any{map[string]any{
+				"id": 105, "name": "Compute", "slug": "compute", "color": "9c27b0",
+				"description": "Compute racks", "owner": map[string]any{"id": 21},
+				"tags": []any{map[string]any{"id": 10}},
+			}}
+		case "/api/dcim/rack-types/":
+			results = []any{map[string]any{
+				"id": 106, "manufacturer": map[string]any{"id": 100}, "model": "R42", "slug": "r42",
+				"form_factor": map[string]any{"value": "4-post-cabinet"}, "width": map[string]any{"value": 19},
+				"u_height": 42, "starting_unit": 1, "desc_units": false, "outer_width": 600,
+				"outer_height": 2000, "outer_depth": 1200, "outer_unit": map[string]any{"value": "mm"},
+				"weight": "100.25", "max_weight": 1500, "weight_unit": map[string]any{"value": "kg"},
+				"mounting_depth": 1000, "description": "Standard rack", "owner": map[string]any{"id": 21},
+				"tags": []any{map[string]any{"id": 10}},
+			}}
+		case "/api/dcim/racks/":
+			results = []any{map[string]any{
+				"id": 107, "name": "A01", "facility_id": "DC-A01", "site": map[string]any{"id": 2},
+				"location": map[string]any{"id": 4}, "group": map[string]any{"id": 104},
+				"tenant": map[string]any{"id": 31}, "status": map[string]any{"value": "active"},
+				"role": map[string]any{"id": 105}, "serial": "RACK-SERIAL", "asset_tag": "RACK-ASSET",
+				"rack_type": map[string]any{"id": 106}, "form_factor": map[string]any{"value": "4-post-cabinet"},
+				"width": map[string]any{"value": 19}, "u_height": 42, "starting_unit": 1, "desc_units": false,
+				"outer_width": 600, "outer_height": 2000, "outer_depth": 1200,
+				"outer_unit": map[string]any{"value": "mm"}, "mounting_depth": 1000,
+				"airflow": map[string]any{"value": "front-to-rear"}, "weight": "100.25", "max_weight": 1500,
+				"weight_unit": map[string]any{"value": "kg"}, "description": "Primary rack",
+				"owner": map[string]any{"id": 21}, "tags": []any{map[string]any{"id": 10}},
+			}}
+		default:
+			results = []any{}
+		}
+		json.NewEncoder(response).Encode(map[string]any{"next": nil, "results": results})
+	}))
+	defer server.Close()
+
+	request := collectionRequest(server.URL)
+	request.Datasets = []string{"racks"}
+	batch := NewWithClient(server.Client()).Collect(
+		context.Background(),
+		request,
+		&staticSecrets{value: "source-token"},
+	)
+
+	if batch.State != "complete" || len(batch.Observations) != 8 {
+		t.Fatalf("batch state = %q, observations = %d, messages = %+v", batch.State, len(batch.Observations), batch.Messages)
+	}
+	if strings.Join(batch.Datasets, ",") != "references,regions,sites,locations,device_catalog,racks" {
+		t.Fatalf("datasets = %v", batch.Datasets)
+	}
+	deviceType := findObservation(t, batch, "device_type", "netbox:device_type:103")
+	if attributeValue(deviceType, "/u_height") != 1.0 || attributeValue(deviceType, "/weight") != 7.5 {
+		t.Fatalf("device type numeric attributes = %+v", deviceType.Attributes)
+	}
+	if len(deviceType.Relationships) != 4 || deviceType.Relationships[0].Kind != "default_platform" {
+		t.Fatalf("device type relationships = %+v", deviceType.Relationships)
+	}
+	rackType := findObservation(t, batch, "rack_type", "netbox:rack_type:106")
+	if attributeValue(rackType, "/form_factor") != "4-post-cabinet" || attributeValue(rackType, "/weight") != 100.25 {
+		t.Fatalf("rack type attributes = %+v", rackType.Attributes)
+	}
+	rack := findObservation(t, batch, "rack", "netbox:rack:107")
+	if attributeValue(rack, "/status") != "active" || attributeValue(rack, "/width") != json.Number("19") {
+		t.Fatalf("rack attributes = %+v", rack.Attributes)
+	}
+	if len(rack.Relationships) != 8 || rack.Relationships[0].Kind != "group" || rack.Relationships[7].Kind != "tenant" {
+		t.Fatalf("rack relationships = %+v", rack.Relationships)
 	}
 }
 

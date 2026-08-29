@@ -15,9 +15,11 @@ from .comparison import (
     ComparisonResult,
     compare_canonical_records,
     natural_identity,
+    normalize_relationship_cardinality,
     normalize_value,
     snapshot_digest,
 )
+from .dcim import is_identity_relationship
 from .netbox_target import load_netbox_target_records
 
 
@@ -111,12 +113,13 @@ def _load_source_records(collection_run: CollectionRun) -> tuple[list[CanonicalR
     observations = list(collection_run.stored_observations.all())
     by_external_id = {observation.external_id: observation for observation in observations}
     resolved: dict[str, CanonicalRecord] = {}
+    identities: dict[str, str] = {}
     failures: dict[str, str] = {}
     resolving: set[str] = set()
 
-    def resolve(external_id: str) -> CanonicalRecord:
-        if external_id in resolved:
-            return resolved[external_id]
+    def resolve_identity(external_id: str) -> str:
+        if external_id in identities:
+            return identities[external_id]
         if external_id in failures:
             raise ValueError(failures[external_id])
         observation = by_external_id.get(external_id)
@@ -132,14 +135,38 @@ def _load_source_records(collection_run: CollectionRun) -> tuple[list[CanonicalR
             }
             relationship_values: dict[str, list[str]] = defaultdict(list)
             for relationship in observation.relationships:
-                target = resolve(str(relationship["target_external_id"]))
-                relationship_values[str(relationship["kind"])].append(target.identity_key)
-            relationships: dict[str, Any] = {
-                name: values[0] if len(values) == 1 else sorted(values)
-                for name, values in sorted(relationship_values.items())
-            }
-            identity_relationships = {name: value for name, value in relationships.items() if isinstance(value, str)}
-            identity_key = natural_identity(observation.resource_kind, attributes, identity_relationships)
+                relationship_name = str(relationship["kind"])
+                if is_identity_relationship(observation.resource_kind, relationship_name):
+                    relationship_values[relationship_name].append(
+                        resolve_identity(str(relationship["target_external_id"]))
+                    )
+            relationships = normalize_relationship_cardinality(observation.resource_kind, relationship_values)
+            identity_key = natural_identity(observation.resource_kind, attributes, relationships)
+            identities[external_id] = identity_key
+            return identity_key
+        except (KeyError, TypeError, ValueError) as exc:
+            failures[external_id] = str(exc)
+            raise
+        finally:
+            resolving.remove(external_id)
+
+    def resolve(external_id: str) -> CanonicalRecord:
+        if external_id in resolved:
+            return resolved[external_id]
+        observation = by_external_id.get(external_id)
+        if observation is None:
+            raise ValueError(f"Relationship target {external_id!r} is absent from the collection run.")
+        attributes = {
+            str(item["path"]): _normalize_attribute(str(item["path"]), item.get("value"))
+            for item in observation.attributes
+        }
+        relationship_values: dict[str, list[str]] = defaultdict(list)
+        for relationship in observation.relationships:
+            target_external_id = str(relationship["target_external_id"])
+            relationship_values[str(relationship["kind"])].append(resolve_identity(target_external_id))
+        relationships = normalize_relationship_cardinality(observation.resource_kind, relationship_values)
+        identity_key = resolve_identity(external_id)
+        try:
             record = CanonicalRecord(
                 resource_kind=observation.resource_kind,
                 identity_key=identity_key,
@@ -153,8 +180,6 @@ def _load_source_records(collection_run: CollectionRun) -> tuple[list[CanonicalR
         except (KeyError, TypeError, ValueError) as exc:
             failures[external_id] = str(exc)
             raise
-        finally:
-            resolving.remove(external_id)
 
     rejected: list[ItemDraft] = []
     for observation in observations:

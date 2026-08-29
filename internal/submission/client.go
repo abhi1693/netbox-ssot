@@ -40,6 +40,11 @@ type ingestResponse struct {
 	PayloadDigest    string `json:"payload_digest"`
 }
 
+type errorResponse struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
 func Submit(ctx context.Context, options Options, body []byte) contracts.SubmissionResult {
 	if err := validateOptions(options); err != nil {
 		return failed("invalid_submission_configuration", "Submission configuration is invalid.", false)
@@ -76,7 +81,14 @@ func Submit(ctx context.Context, options Options, body []byte) contracts.Submiss
 	defer response.Body.Close()
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		retryable := response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500
-		return failed("http_status", fmt.Sprintf("Ingest endpoint returned HTTP %d.", response.StatusCode), retryable)
+		summary := fmt.Sprintf("Ingest endpoint returned HTTP %d.", response.StatusCode)
+		var rejected errorResponse
+		decoder := json.NewDecoder(io.LimitReader(response.Body, maxResponseSize))
+		if strings.HasPrefix(response.Header.Get("Content-Type"), "application/json") &&
+			decoder.Decode(&rejected) == nil && rejected.Message != "" && len(rejected.Message) <= 1_000 {
+			summary = fmt.Sprintf("Ingest endpoint returned HTTP %d: %s", response.StatusCode, rejected.Message)
+		}
+		return failed("http_status", summary, retryable)
 	}
 
 	var accepted ingestResponse

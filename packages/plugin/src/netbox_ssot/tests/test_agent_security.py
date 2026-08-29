@@ -39,7 +39,7 @@ from netbox_ssot_contracts import AgentProviderCapability
 NETBOX_CAPABILITIES = (
     AgentProviderCapability(
         provider_id="netbox",
-        implementation_version="0.0.4",
+        implementation_version="0.0.7",
         contract_version="1.0",
     ),
 )

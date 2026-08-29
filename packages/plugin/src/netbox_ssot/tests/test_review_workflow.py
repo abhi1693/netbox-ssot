@@ -12,7 +12,8 @@ from django.urls import reverse
 from django.utils import timezone
 from users.models import ObjectPermission
 
-from netbox_ssot.application.service import inspect_application
+from netbox_ssot.application.planning import ReferenceRequirement
+from netbox_ssot.application.service import _reference_problem_message, inspect_application
 from netbox_ssot.models import (
     CollectionRun,
     CollectorAgent,
@@ -23,6 +24,7 @@ from netbox_ssot.models import (
     ReviewDecision,
 )
 from netbox_ssot.planning.comparison import ENGINE_VERSION, snapshot_digest
+from netbox_ssot.planning.netbox_target import load_netbox_target_records
 from netbox_ssot.review import (
     ReviewRejectedError,
     approve_all_review_items,
@@ -74,7 +76,7 @@ class ReviewWorkflowTests(TestCase):
         self.comparison = ComparisonRun.objects.create(
             collection_run=run,
             source_payload_digest=run.payload_digest,
-            target_snapshot_digest=snapshot_digest([]),
+            target_snapshot_digest=snapshot_digest(load_netbox_target_records()),
             engine_version=ENGINE_VERSION,
             create_count=2,
         )
@@ -126,9 +128,7 @@ class ReviewWorkflowTests(TestCase):
 
         assert ReviewDecision.objects.filter(comparison=self.comparison).count() == 2
         assert latest_review_decisions(self.comparison)[self.items[0].pk] == approved
-        assert latest_review_decisions(self.comparison, item_ids=(self.items[0].pk,)) == {
-            self.items[0].pk: approved
-        }
+        assert latest_review_decisions(self.comparison, item_ids=(self.items[0].pk,)) == {self.items[0].pk: approved}
         assert latest_review_decision(self.items[0]) == approved
         with pytest.raises(ValidationError):
             rejected.save()
@@ -214,7 +214,26 @@ class ReviewWorkflowTests(TestCase):
             self.reviewer,
         )
 
-        assert inspect_application(self.comparison, self.applier).ready
+        readiness = inspect_application(self.comparison, self.applier)
+        assert readiness.ready, (
+            readiness.reasons,
+            readiness.current_target_digest,
+            self.comparison.target_snapshot_digest,
+        )
+
+    def test_external_reference_message_has_an_exact_non_negative_remainder(self) -> None:
+        problems = (
+            (ReferenceRequirement("users.user", "username", "alice"), 0),
+            (ReferenceRequirement("users.user", "username", "bob"), 0),
+        )
+
+        message = _reference_problem_message(problems)
+
+        assert "Create or uniquely match 2 local objects" in message
+        assert "User with username 'alice' (missing)" in message
+        assert "User with username 'bob' (missing)" in message
+        assert "plus" not in message
+        assert "-8" not in message
 
     def test_forged_approval_without_item_decisions_fails_closed(self) -> None:
         ComparisonReview.objects.create(
@@ -247,7 +266,7 @@ class ReviewWorkflowTests(TestCase):
         different_operator = inspect_application(self.comparison, self.applier)
 
         assert "different operator" in " ".join(same_operator.reasons)
-        assert different_operator.ready
+        assert different_operator.ready, different_operator.reasons
 
     def test_review_permission_controls_decision_endpoint(self) -> None:
         url = reverse(
@@ -308,6 +327,32 @@ class ReviewWorkflowTests(TestCase):
 
         assert response.status_code == 200
         self.assertContains(response, "Approve")
+
+    def test_review_page_explains_why_apply_is_unavailable(self) -> None:
+        self.comparison.skipped_count = 1
+        ComparisonRun.objects.filter(pk=self.comparison.pk).update(skipped_count=1)
+        ComparisonItem.objects.create(
+            comparison=self.comparison,
+            sequence=3,
+            action=ComparisonItem.Action.SKIPPED,
+            resource_kind="device",
+            identity_key="unresolved-device",
+            display_name="Unnamed device",
+            source_external_id="netbox:device:blocked",
+            match_basis="unresolved_identity",
+            reason="A portable identity could not be established.",
+        )
+        self.reviewer.is_superuser = True
+        self.reviewer.save(update_fields=("is_superuser",))
+        self.client.force_login(self.reviewer)
+
+        response = self.client.get(reverse("plugins:netbox_ssot:comparison_detail", kwargs={"pk": self.comparison.pk}))
+
+        self.assertContains(response, "Apply unavailable")
+        self.assertContains(response, "Why apply is unavailable")
+        self.assertContains(response, "A portable identity could not be established.")
+        self.assertContains(response, "?action=skipped")
+        self.assertContains(response, "apply remains blocked")
 
     def test_comparison_list_marks_no_change_comparison_as_resolved(self) -> None:
         ComparisonRun.objects.create(

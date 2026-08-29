@@ -9,6 +9,7 @@ The project is being rebuilt from first principles. The current alpha foundation
 - a NetBox plugin with schema-driven sources, one-time agent enrollment, signing-key rotation, immutable observation storage, durable
   comparison previews, guarded local application, receipts, source-object bindings, and agent health visibility;
 - a real NetBox provider descriptor and Go-based read-only collector;
+- end-to-end comparison and guarded apply support for every public writable NetBox 4.6 DCIM resource;
 - timestamped Ed25519 batch signing with idempotent plugin ingestion; and
 - architecture decisions that make review, provenance, field ownership, and safe apply mandatory.
 
@@ -228,10 +229,17 @@ Finalization stores an immutable review with the reviewer, outcome, counts, reas
 all comparison items, and the latest decision for every item. An operator with the separate plugin apply permission and
 the necessary NetBox model permissions can explicitly apply only a finalized approval. Apply rechecks the review
 digest, complete collection evidence, source digest, item counts, comparison engine, and current target snapshot. It
-orders the complete geography dependency graph and commits supporting references, Regions, Sites, and Locations in one
-database transaction. Every successful operation creates immutable apply/item receipts and updates durable
-source-object bindings. Repeating the same apply is idempotent. Destination-only objects are never changed, and there
-is no deletion path.
+orders the complete supported dependency graph and commits supporting references, geography, device-catalog, and rack
+objects in one database transaction. Every successful operation creates immutable apply/item receipts and updates
+durable source-object bindings. Repeating the same apply is idempotent. Destination-only objects are never changed,
+and there is no deletion path.
+
+The NetBox provider exposes dependency-closed datasets for the complete public writable DCIM model surface: geography,
+device and module catalogs, component templates, racks and reservations, devices and installed components, inventory,
+MAC addresses, power, and cabling. Internal aggregate/helper rows such as cable terminations and port mappings travel
+with their owning DCIM object rather than as independent resources. References owned by other NetBox apps remain
+resolve-only: Config Templates and ASN Roles must match exactly, and Rack Reservation users must match a unique local
+username. A cable or generic assignment that crosses into an unsupported app is skipped rather than partially applied.
 
 Deployments that require four-eyes approval can prevent the final reviewer from also applying the comparison:
 
@@ -245,8 +253,9 @@ PLUGINS_CONFIG = {
 
 ### Current NetBox compatibility scope
 
-The NetBox provider presents only three selectable datasets: Regions, Sites, and Locations. A hidden supporting dataset
-is included automatically so the Go collector can emit complete, stable references rather than lossy embedded names:
+The NetBox provider presents five selectable datasets: Regions, Sites, Locations, Device catalog, and Racks. A hidden
+supporting dataset is included automatically so the Go collector can emit complete, stable references rather than
+lossy embedded names. Selecting Racks closes the dependency graph through Locations and Device catalog automatically.
 
 Each dataset also declares its provider-native source model and canonical destination kind. The source detail UI joins
 that declaration with the installed destination model registry and presents an explicit source-to-destination mapping;
@@ -259,9 +268,15 @@ the shared UI never assumes that both systems use the same model names.
 - RIRs and ASNs include native fields, ownership, tenancy, Tags, and required RIR placement. ASN Role is resolve-only.
 - Regions, Sites, and Locations include native scalar fields, complete hierarchy, ownership, tenancy, groups, ASNs,
   and Tags.
+- Device catalog includes Manufacturers, hierarchical Device Roles and Platforms, and Device Types with native core
+  fields, ownership, Tags, manufacturer placement, and default-platform relationships. Config Templates are
+  resolve-only and must already have one exact matching name in the target.
+- Racks includes Rack Groups, Rack Roles, Rack Types, and Racks with native core physical fields, ownership, tenancy,
+  type, role, Site/Location placement, and Tags.
 
-Custom fields, contact assignments, and image attachments remain outside this compatibility boundary. They require
-explicit field ownership and secret-handling policies rather than automatic copying.
+Custom fields, contact assignments, image attachments, device-type component templates, Devices, and rack reservations
+remain outside this compatibility boundary. They require their own complete dependency and ownership rules rather than
+shallow observation-only support.
 
 ## Safety defaults
 

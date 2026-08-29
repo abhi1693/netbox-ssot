@@ -25,11 +25,18 @@ normal configured interval, preserving responsive administrator actions after re
 The current implementation includes durable comparison previews and a separately permissioned local NetBox apply
 boundary. Provider collectors and agents remain read-only and cannot reach the target write service.
 
-The selectable target boundary is Regions, Sites, and Locations. Their automatically collected support bundle includes
-Tags, Owner Groups, Owners, Tenant Groups, Tenants, Site Groups, RIRs, and ASNs, allowing portable references and full
-hierarchies to be compared and applied without inventing objects from embedded names. Destination authorization
-memberships, ASN Roles, custom fields, and cross-cutting extensions remain excluded or resolve-only until explicit
-ownership policies exist.
+The selectable target boundary covers every public writable NetBox 4.6 DCIM resource through dependency-closed
+datasets: geography; device, module, and rack catalogs; component templates; racks and reservations; devices and their
+installed components; inventory and MAC addresses; power; and cabling. The automatically collected support graph also
+includes Tags, Owner Groups, Owners, Tenant Groups, Tenants, RIRs, and ASNs. Internal aggregate/helper rows such as
+Cable Terminations, Cable Paths, Port Template Mappings, and Port Mappings are projected and written through their
+owning DCIM object rather than advertised as standalone resources.
+
+Destination authorization memberships, ASN Roles, Config Templates, Rack Reservation users, custom fields, contact
+assignments, and images remain outside the owned graph or resolve-only. Cross-app device addressing/cluster fields,
+Interface IPAM and wireless-policy fields, VM-interface MAC assignments, and circuit/wireless cable endpoints are not
+silently discarded: a record whose generic relation or cable termination crosses the supported graph fails closed and
+is shown as blocked before apply.
 
 The initial bounded contexts are:
 
@@ -119,7 +126,7 @@ Rejection resolves the snapshot but cannot produce a partial apply.
 
 Apply is a separate command path and accepts only a finalized approval whose decision digest still matches. It requires
 explicit confirmation, re-reads the complete target snapshot, verifies digests and permissions, rejects stale or
-ambiguous proposals, resolves the full geography dependency graph, and executes supported changes in dependency order
+ambiguous proposals, resolves the full supported dependency graph, and executes supported changes in dependency order
 within one transaction. A deployment may additionally require the reviewer and applier to be different users.
 Successful operations store an immutable run/item receipt and durable source bindings.
 
@@ -151,7 +158,7 @@ constructs fail closed and make the provider unavailable instead of degrading to
 1. Contracts, provider registry, real NetBox descriptor, Go collector, and schema-driven UI.
 2. Persistence for sources, agents, runs, and observations, followed later by bindings, plans, decisions, and receipts.
 3. Compare-only DiffSync planner and plan review workflow.
-4. Guarded local NetBox apply service for complete geography bundles.
+4. Guarded local NetBox apply service for complete dependency-closed compatibility bundles.
 5. Validate complete one-way NetBox collection from either a production or development instance.
 6. One-time enrollment, file-backed signing keys, rotation overlap, revocation, and unattended outbound operation.
 7. Read-only UniFi Network collector in the Go agent.

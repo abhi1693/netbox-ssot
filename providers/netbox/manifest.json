@@ -4,7 +4,7 @@
   "icon_class": "mdi mdi-cube-outline",
   "description": "Collects infrastructure and IPAM data from a remote NetBox REST API.",
   "instance_url_field": "base_url",
-  "implementation_version": "0.0.4",
+  "implementation_version": "0.0.7",
   "contract_version": "1.0",
   "documentation_url": "https://github.com/abhi1693/netbox-ssot",
   "execution_modes": [
@@ -82,7 +82,7 @@
     {
       "id": "references",
       "title": "Supporting references",
-      "description": "Automatically collected dependencies for complete Region, Site, and Location compatibility.",
+      "description": "Automatically collected ownership, tenancy, tagging, grouping, and ASN dependencies.",
       "resource_kinds": [
         "tag",
         "owner_group",
@@ -154,6 +154,168 @@
       ],
       "data_mappings": [
         {"source_name": "Location", "source_model": "dcim.Location", "source_path": "dcim/locations/", "destination_kind": "location"}
+      ]
+    },
+    {
+      "id": "device_catalog",
+      "title": "Device catalog",
+      "description": "Manufacturers, hierarchical device roles and platforms, and complete device-type core fields.",
+      "resource_kinds": [
+        "manufacturer",
+        "device_role",
+        "platform",
+        "device_type"
+      ],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": [
+        "references"
+      ],
+      "data_mappings": [
+        {"source_name": "Manufacturer", "source_model": "dcim.Manufacturer", "source_path": "dcim/manufacturers/", "destination_kind": "manufacturer"},
+        {"source_name": "Device role", "source_model": "dcim.DeviceRole", "source_path": "dcim/device-roles/", "destination_kind": "device_role"},
+        {"source_name": "Platform", "source_model": "dcim.Platform", "source_path": "dcim/platforms/", "destination_kind": "platform"},
+        {"source_name": "Device type", "source_model": "dcim.DeviceType", "source_path": "dcim/device-types/", "destination_kind": "device_type"}
+      ]
+    },
+    {
+      "id": "racks",
+      "title": "Racks",
+      "description": "Rack groups, roles, types, and racks with complete core physical and placement fields.",
+      "resource_kinds": [
+        "rack_group",
+        "rack_role",
+        "rack_type",
+        "rack"
+      ],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": [
+        "locations",
+        "device_catalog"
+      ],
+      "data_mappings": [
+        {"source_name": "Rack group", "source_model": "dcim.RackGroup", "source_path": "dcim/rack-groups/", "destination_kind": "rack_group"},
+        {"source_name": "Rack role", "source_model": "dcim.RackRole", "source_path": "dcim/rack-roles/", "destination_kind": "rack_role"},
+        {"source_name": "Rack type", "source_model": "dcim.RackType", "source_path": "dcim/rack-types/", "destination_kind": "rack_type"},
+        {"source_name": "Rack", "source_model": "dcim.Rack", "source_path": "dcim/racks/", "destination_kind": "rack"}
+      ]
+    },
+    {
+      "id": "module_catalog",
+      "title": "Module catalog",
+      "description": "Module type profiles, module types, and inventory item roles.",
+      "resource_kinds": ["module_type_profile", "module_type", "inventory_item_role"],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": ["device_catalog"],
+      "data_mappings": [
+        {"source_name": "Module type profile", "source_model": "dcim.ModuleTypeProfile", "source_path": "dcim/module-type-profiles/", "destination_kind": "module_type_profile"},
+        {"source_name": "Module type", "source_model": "dcim.ModuleType", "source_path": "dcim/module-types/", "destination_kind": "module_type"},
+        {"source_name": "Inventory item role", "source_model": "dcim.InventoryItemRole", "source_path": "dcim/inventory-item-roles/", "destination_kind": "inventory_item_role"}
+      ]
+    },
+    {
+      "id": "component_templates",
+      "title": "Component templates",
+      "description": "All reusable Device Type and Module Type component definitions.",
+      "resource_kinds": [
+        "console_port_template", "console_server_port_template", "power_port_template", "power_outlet_template",
+        "interface_template", "rear_port_template", "front_port_template", "module_bay_template",
+        "device_bay_template", "inventory_item_template"
+      ],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": ["module_catalog"],
+      "data_mappings": [
+        {"source_name": "Console port template", "source_model": "dcim.ConsolePortTemplate", "source_path": "dcim/console-port-templates/", "destination_kind": "console_port_template"},
+        {"source_name": "Console server port template", "source_model": "dcim.ConsoleServerPortTemplate", "source_path": "dcim/console-server-port-templates/", "destination_kind": "console_server_port_template"},
+        {"source_name": "Power port template", "source_model": "dcim.PowerPortTemplate", "source_path": "dcim/power-port-templates/", "destination_kind": "power_port_template"},
+        {"source_name": "Power outlet template", "source_model": "dcim.PowerOutletTemplate", "source_path": "dcim/power-outlet-templates/", "destination_kind": "power_outlet_template"},
+        {"source_name": "Interface template", "source_model": "dcim.InterfaceTemplate", "source_path": "dcim/interface-templates/", "destination_kind": "interface_template"},
+        {"source_name": "Rear port template", "source_model": "dcim.RearPortTemplate", "source_path": "dcim/rear-port-templates/", "destination_kind": "rear_port_template"},
+        {"source_name": "Front port template", "source_model": "dcim.FrontPortTemplate", "source_path": "dcim/front-port-templates/", "destination_kind": "front_port_template"},
+        {"source_name": "Module bay template", "source_model": "dcim.ModuleBayTemplate", "source_path": "dcim/module-bay-templates/", "destination_kind": "module_bay_template"},
+        {"source_name": "Device bay template", "source_model": "dcim.DeviceBayTemplate", "source_path": "dcim/device-bay-templates/", "destination_kind": "device_bay_template"},
+        {"source_name": "Inventory item template", "source_model": "dcim.InventoryItemTemplate", "source_path": "dcim/inventory-item-templates/", "destination_kind": "inventory_item_template"}
+      ]
+    },
+    {
+      "id": "devices",
+      "title": "Devices",
+      "description": "Virtual chassis and physical devices with complete DCIM-native placement and catalog references.",
+      "resource_kinds": ["virtual_chassis", "device"],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": ["racks", "component_templates"],
+      "data_mappings": [
+        {"source_name": "Virtual chassis", "source_model": "dcim.VirtualChassis", "source_path": "dcim/virtual-chassis/", "destination_kind": "virtual_chassis"},
+        {"source_name": "Device", "source_model": "dcim.Device", "source_path": "dcim/devices/", "destination_kind": "device"}
+      ]
+    },
+    {
+      "id": "device_components",
+      "title": "Device components",
+      "description": "Modules, virtual contexts, installed ports, interfaces, bays, inventory, and MAC addresses.",
+      "resource_kinds": [
+        "virtual_device_context", "module_bay", "device_bay", "module", "console_port", "console_server_port",
+        "power_port", "power_outlet", "interface", "rear_port", "front_port", "inventory_item", "mac_address"
+      ],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": ["devices"],
+      "data_mappings": [
+        {"source_name": "Virtual device context", "source_model": "dcim.VirtualDeviceContext", "source_path": "dcim/virtual-device-contexts/", "destination_kind": "virtual_device_context"},
+        {"source_name": "Module bay", "source_model": "dcim.ModuleBay", "source_path": "dcim/module-bays/", "destination_kind": "module_bay"},
+        {"source_name": "Device bay", "source_model": "dcim.DeviceBay", "source_path": "dcim/device-bays/", "destination_kind": "device_bay"},
+        {"source_name": "Module", "source_model": "dcim.Module", "source_path": "dcim/modules/", "destination_kind": "module"},
+        {"source_name": "Console port", "source_model": "dcim.ConsolePort", "source_path": "dcim/console-ports/", "destination_kind": "console_port"},
+        {"source_name": "Console server port", "source_model": "dcim.ConsoleServerPort", "source_path": "dcim/console-server-ports/", "destination_kind": "console_server_port"},
+        {"source_name": "Power port", "source_model": "dcim.PowerPort", "source_path": "dcim/power-ports/", "destination_kind": "power_port"},
+        {"source_name": "Power outlet", "source_model": "dcim.PowerOutlet", "source_path": "dcim/power-outlets/", "destination_kind": "power_outlet"},
+        {"source_name": "Interface", "source_model": "dcim.Interface", "source_path": "dcim/interfaces/", "destination_kind": "interface"},
+        {"source_name": "Rear port", "source_model": "dcim.RearPort", "source_path": "dcim/rear-ports/", "destination_kind": "rear_port"},
+        {"source_name": "Front port", "source_model": "dcim.FrontPort", "source_path": "dcim/front-ports/", "destination_kind": "front_port"},
+        {"source_name": "Inventory item", "source_model": "dcim.InventoryItem", "source_path": "dcim/inventory-items/", "destination_kind": "inventory_item"},
+        {"source_name": "MAC address", "source_model": "dcim.MACAddress", "source_path": "dcim/mac-addresses/", "destination_kind": "mac_address"}
+      ]
+    },
+    {
+      "id": "rack_reservations",
+      "title": "Rack reservations",
+      "description": "Reserved rack units and their destination user references.",
+      "resource_kinds": ["rack_reservation"],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": ["racks"],
+      "data_mappings": [
+        {"source_name": "Rack reservation", "source_model": "dcim.RackReservation", "source_path": "dcim/rack-reservations/", "destination_kind": "rack_reservation"}
+      ]
+    },
+    {
+      "id": "power",
+      "title": "Power",
+      "description": "Power panels and feeds including rack placement and electrical characteristics.",
+      "resource_kinds": ["power_panel", "power_feed"],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": ["racks"],
+      "data_mappings": [
+        {"source_name": "Power panel", "source_model": "dcim.PowerPanel", "source_path": "dcim/power-panels/", "destination_kind": "power_panel"},
+        {"source_name": "Power feed", "source_model": "dcim.PowerFeed", "source_path": "dcim/power-feeds/", "destination_kind": "power_feed"}
+      ]
+    },
+    {
+      "id": "cabling",
+      "title": "Cabling",
+      "description": "Cable bundles and cables with endpoint terminations managed as one aggregate.",
+      "resource_kinds": ["cable_bundle", "cable"],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": ["device_components", "power"],
+      "data_mappings": [
+        {"source_name": "Cable bundle", "source_model": "dcim.CableBundle", "source_path": "dcim/cable-bundles/", "destination_kind": "cable_bundle"},
+        {"source_name": "Cable", "source_model": "dcim.Cable", "source_path": "dcim/cables/", "destination_kind": "cable"}
       ]
     }
   ]

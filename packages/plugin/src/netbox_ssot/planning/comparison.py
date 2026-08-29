@@ -8,24 +8,46 @@ from typing import Any, ClassVar
 
 from diffsync import Adapter, DiffSyncModel
 
+from .dcim import DCIM_RESOURCE_KINDS, is_multi_relationship
 from .diffsync_engine import ComparisonOnlyDiffSyncEngine
 
-ENGINE_VERSION = "3.0"
-SUPPORTED_RESOURCE_KINDS = frozenset(
-    {
-        "tag",
-        "owner_group",
-        "owner",
-        "tenant_group",
-        "tenant",
-        "site_group",
-        "rir",
-        "asn",
-        "region",
-        "site",
-        "location",
-    }
+ENGINE_VERSION = "5.0"
+SUPPORTED_RESOURCE_KINDS = (
+    frozenset(
+        {
+            "tag",
+            "owner_group",
+            "owner",
+            "tenant_group",
+            "tenant",
+            "site_group",
+            "rir",
+            "asn",
+            "region",
+            "site",
+            "location",
+        }
+    )
+    | DCIM_RESOURCE_KINDS
 )
+MULTI_RELATIONSHIPS = {
+    "tenant_group": frozenset({"tag"}),
+    "tenant": frozenset({"tag"}),
+    "site_group": frozenset({"tag"}),
+    "rir": frozenset({"tag"}),
+    "asn": frozenset({"tag"}),
+    "region": frozenset({"tag"}),
+    "site": frozenset({"asn", "tag"}),
+    "location": frozenset({"tag"}),
+    "manufacturer": frozenset({"tag"}),
+    "device_role": frozenset({"tag"}),
+    "platform": frozenset({"tag"}),
+    "device_type": frozenset({"tag"}),
+    "rack_group": frozenset({"tag"}),
+    "rack_role": frozenset({"tag"}),
+    "rack_type": frozenset({"tag"}),
+    "rack": frozenset({"tag"}),
+}
 
 
 class ComparisonAction(StrEnum):
@@ -101,10 +123,25 @@ def normalize_value(value: Any) -> Any:
     return str(value)
 
 
+def normalize_relationship_cardinality(
+    resource_kind: str,
+    relationship_values: dict[str, list[str]],
+) -> dict[str, Any]:
+    relationships: dict[str, Any] = {}
+    for name, values in sorted(relationship_values.items()):
+        if is_multi_relationship(resource_kind, name) or name in MULTI_RELATIONSHIPS.get(resource_kind, frozenset()):
+            relationships[name] = sorted(values)
+        elif len(values) == 1:
+            relationships[name] = values[0]
+        else:
+            raise ValueError(f"Scalar relationship {name!r} contains {len(values)} targets.")
+    return relationships
+
+
 def natural_identity(
     resource_kind: str,
     attributes: dict[str, Any],
-    relationships: dict[str, str],
+    relationships: dict[str, Any],
 ) -> str:
     def required_attribute(name: str) -> Any:
         value = attributes.get(f"/{name}")
@@ -119,11 +156,11 @@ def natural_identity(
         return value
 
     parts: list[Any]
-    if resource_kind in {"region", "site_group", "tenant_group"}:
+    if resource_kind in {"region", "site_group", "tenant_group", "device_role"}:
         parts = [resource_kind, relationships.get("parent", "root"), required_attribute("slug")]
     elif resource_kind == "tenant":
         parts = [resource_kind, relationships.get("group", "root"), required_attribute("slug")]
-    elif resource_kind in {"tag", "rir", "site"}:
+    elif resource_kind in {"tag", "rir", "site", "manufacturer", "rack_group", "rack_role"}:
         parts = [resource_kind, "slug", required_attribute("slug")]
     elif resource_kind in {"owner_group", "owner"}:
         parts = [resource_kind, "name", required_attribute("name")]
@@ -136,6 +173,137 @@ def natural_identity(
             relationships.get("parent", "root"),
             required_attribute("slug"),
         ]
+    elif resource_kind == "platform":
+        parts = [resource_kind, relationships.get("manufacturer", "global"), required_attribute("slug")]
+    elif resource_kind in {"device_type", "rack_type"}:
+        parts = [resource_kind, required_relationship("manufacturer"), required_attribute("model")]
+    elif resource_kind == "rack":
+        parts = [
+            resource_kind,
+            required_relationship("site"),
+            relationships.get("location", "site-root"),
+            required_attribute("name"),
+        ]
+    elif resource_kind in {"module_type_profile", "virtual_chassis", "cable_bundle"}:
+        parts = [resource_kind, "name", required_attribute("name")]
+    elif resource_kind == "inventory_item_role":
+        parts = [resource_kind, "slug", required_attribute("slug")]
+    elif resource_kind == "module_type":
+        parts = [resource_kind, required_relationship("manufacturer"), required_attribute("model")]
+    elif resource_kind in {
+        "console_port_template",
+        "console_server_port_template",
+        "power_port_template",
+        "power_outlet_template",
+        "interface_template",
+        "front_port_template",
+        "rear_port_template",
+        "module_bay_template",
+    }:
+        parent = relationships.get("device_type") or relationships.get("module_type")
+        if not isinstance(parent, str) or not parent:
+            raise ValueError("A component template requires exactly one device_type or module_type relationship.")
+        if relationships.get("device_type") and relationships.get("module_type"):
+            raise ValueError("A component template cannot belong to both a device type and module type.")
+        parts = [resource_kind, parent, required_attribute("name")]
+    elif resource_kind == "device_bay_template":
+        parts = [resource_kind, required_relationship("device_type"), required_attribute("name")]
+    elif resource_kind == "inventory_item_template":
+        parts = [
+            resource_kind,
+            required_relationship("device_type"),
+            relationships.get("parent", "root"),
+            required_attribute("name"),
+        ]
+    elif resource_kind == "device":
+        name = attributes.get("/name")
+        if name:
+            parts = [
+                resource_kind,
+                required_relationship("site"),
+                relationships.get("tenant", "no-tenant"),
+                "name",
+                str(name).casefold(),
+            ]
+        elif attributes.get("/asset_tag"):
+            parts = [resource_kind, "asset_tag", required_attribute("asset_tag")]
+        elif relationships.get("virtual_chassis") and attributes.get("/vc_position") is not None:
+            parts = [resource_kind, relationships["virtual_chassis"], "position", attributes["/vc_position"]]
+        elif relationships.get("rack") and attributes.get("/position") is not None and attributes.get("/face"):
+            parts = [
+                resource_kind,
+                relationships["rack"],
+                "position",
+                attributes["/position"],
+                attributes["/face"],
+            ]
+        else:
+            raise ValueError(
+                "A device requires a name, asset tag, virtual chassis position, or rack position for portable identity."
+            )
+    elif resource_kind == "virtual_device_context":
+        parts = [resource_kind, required_relationship("device"), required_attribute("name")]
+    elif resource_kind == "module":
+        parts = [resource_kind, required_relationship("module_bay")]
+    elif resource_kind == "module_bay":
+        parts = [
+            resource_kind,
+            required_relationship("device"),
+            relationships.get("module", "device-root"),
+            required_attribute("name"),
+        ]
+    elif resource_kind in {
+        "device_bay",
+        "console_port",
+        "console_server_port",
+        "power_port",
+        "power_outlet",
+        "interface",
+        "front_port",
+        "rear_port",
+    }:
+        parts = [resource_kind, required_relationship("device"), required_attribute("name")]
+    elif resource_kind == "inventory_item":
+        parts = [
+            resource_kind,
+            required_relationship("device"),
+            relationships.get("parent", "root"),
+            required_attribute("name"),
+        ]
+    elif resource_kind == "mac_address":
+        if attributes.get("/assigned_object_type") and not any(
+            name.startswith("assigned_") for name in relationships
+        ):
+            raise ValueError(
+                "The MAC address assignment targets a model outside the supported DCIM dependency graph."
+            )
+        assigned = sorted((name, value) for name, value in relationships.items() if name.startswith("assigned_"))
+        parts = [resource_kind, required_attribute("mac_address"), assigned or "unassigned"]
+    elif resource_kind == "rack_reservation":
+        units = required_attribute("units")
+        if not isinstance(units, list):
+            raise ValueError("Rack reservation units must be a list.")
+        parts = [resource_kind, required_relationship("rack"), sorted(units), required_attribute("user")]
+    elif resource_kind == "power_panel":
+        parts = [resource_kind, required_relationship("site"), required_attribute("name")]
+    elif resource_kind == "power_feed":
+        parts = [resource_kind, required_relationship("power_panel"), required_attribute("name")]
+    elif resource_kind == "cable":
+        unsupported_terminations = attributes.get("/unsupported_termination_types")
+        if unsupported_terminations:
+            raise ValueError(
+                "The cable includes terminations outside the supported DCIM dependency graph: "
+                + ", ".join(str(value) for value in unsupported_terminations)
+                + "."
+            )
+        terminations = sorted(
+            (name, sorted(value) if isinstance(value, list) else [value])
+            for name, value in relationships.items()
+            if name.startswith(("termination_a_", "termination_b_"))
+        )
+        if not terminations:
+            raise ValueError("A cable requires at least one supported DCIM termination for portable identity.")
+        parts = [resource_kind, terminations]
     else:
         raise ValueError(f"Resource kind {resource_kind!r} is not supported by the comparison target.")
     return json.dumps(parts, ensure_ascii=False, separators=(",", ":"))

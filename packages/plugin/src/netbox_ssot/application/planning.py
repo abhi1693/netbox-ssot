@@ -3,6 +3,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from ..planning.comparison import MULTI_RELATIONSHIPS
+from ..planning.dcim import (
+    RELATIONSHIP_FIELDS,
+    TAGGED_KINDS,
+    is_multi_relationship,
+    relationship_target,
+)
+from ..planning.dcim import (
+    REQUIRED_RELATIONSHIPS as DCIM_REQUIRED_RELATIONSHIPS,
+)
+
 RELATIONSHIP_TARGETS: dict[str, dict[str, str]] = {
     "tag": {"owner": "owner"},
     "owner_group": {},
@@ -22,18 +33,43 @@ RELATIONSHIP_TARGETS: dict[str, dict[str, str]] = {
         "tag": "tag",
     },
     "location": {"site": "site", "parent": "location", "tenant": "tenant", "owner": "owner", "tag": "tag"},
+    "manufacturer": {"owner": "owner", "tag": "tag"},
+    "device_role": {"parent": "device_role", "owner": "owner", "tag": "tag"},
+    "platform": {"parent": "platform", "manufacturer": "manufacturer", "owner": "owner", "tag": "tag"},
+    "device_type": {
+        "manufacturer": "manufacturer",
+        "default_platform": "platform",
+        "owner": "owner",
+        "tag": "tag",
+    },
+    "rack_group": {"owner": "owner", "tag": "tag"},
+    "rack_role": {"owner": "owner", "tag": "tag"},
+    "rack_type": {"manufacturer": "manufacturer", "owner": "owner", "tag": "tag"},
+    "rack": {
+        "site": "site",
+        "location": "location",
+        "group": "rack_group",
+        "tenant": "tenant",
+        "role": "rack_role",
+        "rack_type": "rack_type",
+        "owner": "owner",
+        "tag": "tag",
+    },
 }
-REQUIRED_RELATIONSHIPS = {"asn": frozenset({"rir"}), "location": frozenset({"site"})}
-MULTI_RELATIONSHIPS = {
-    "tenant_group": frozenset({"tag"}),
-    "tenant": frozenset({"tag"}),
-    "site_group": frozenset({"tag"}),
-    "rir": frozenset({"tag"}),
-    "asn": frozenset({"tag"}),
-    "region": frozenset({"tag"}),
-    "site": frozenset({"asn", "tag"}),
-    "location": frozenset({"tag"}),
+for _kind, _fields in RELATIONSHIP_FIELDS.items():
+    RELATIONSHIP_TARGETS[_kind] = {name: target_kind for name, (target_kind, _) in _fields.items()}
+for _kind in TAGGED_KINDS:
+    RELATIONSHIP_TARGETS.setdefault(_kind, {})["tag"] = "tag"
+RELATIONSHIP_TARGETS["interface"]["vdc"] = "virtual_device_context"
+
+REQUIRED_RELATIONSHIPS = {
+    "asn": frozenset({"rir"}),
+    "location": frozenset({"site"}),
+    "device_type": frozenset({"manufacturer"}),
+    "rack_type": frozenset({"manufacturer"}),
+    "rack": frozenset({"site"}),
 }
+REQUIRED_RELATIONSHIPS.update(DCIM_REQUIRED_RELATIONSHIPS)
 
 
 class ApplicationPlanError(ValueError):
@@ -66,7 +102,9 @@ def dependency_order(records: list[ApplicationRecord]) -> list[ApplicationRecord
 
     dependencies: dict[tuple[str, str], set[tuple[str, str]]] = {}
     for record in records:
-        record_dependencies = {key for key in relationship_dependencies(record) if key in records_by_key}
+        record_dependencies = {
+            key for key in relationship_dependencies(record, include_deferred=False) if key in records_by_key
+        }
         dependencies[record.key] = record_dependencies
 
     ordered: list[ApplicationRecord] = []
@@ -91,29 +129,48 @@ def external_reference_requirements(records: list[ApplicationRecord]) -> tuple[R
             raise ApplicationPlanError(f"Resource kind {record.resource_kind!r} cannot be applied.")
         if record.resource_kind == "asn":
             _add_scalar(requirements, attributes, "/role", "ipam.role", "slug")
+        if record.resource_kind in {"device_role", "platform"}:
+            _add_scalar(requirements, attributes, "/config_template", "extras.configtemplate", "name")
+        if record.resource_kind == "device":
+            _add_scalar(requirements, attributes, "/config_template", "extras.configtemplate", "name")
+        if record.resource_kind == "rack_reservation":
+            _add_scalar(requirements, attributes, "/user", "users.user", "username")
     return tuple(sorted(requirements))
 
 
-def relationship_dependencies(record: ApplicationRecord) -> tuple[tuple[str, str], ...]:
-    target_kinds = RELATIONSHIP_TARGETS.get(record.resource_kind)
-    if target_kinds is None:
+def relationship_dependencies(
+    record: ApplicationRecord,
+    *,
+    include_deferred: bool = True,
+) -> tuple[tuple[str, str], ...]:
+    configured_targets = RELATIONSHIP_TARGETS.get(record.resource_kind)
+    if configured_targets is None:
         raise ApplicationPlanError(f"Resource kind {record.resource_kind!r} cannot be applied.")
     dependencies: list[tuple[str, str]] = []
     required = REQUIRED_RELATIONSHIPS.get(record.resource_kind, frozenset())
-    multi_value = MULTI_RELATIONSHIPS.get(record.resource_kind, frozenset())
-    for relationship_name, target_kind in target_kinds.items():
-        value = record.relationships.get(relationship_name)
+    for relationship_name in required:
+        if record.relationships.get(relationship_name) in (None, "", []):
+            raise ApplicationPlanError(
+                f"{record.resource_kind} {record.identity_key} requires relationship {relationship_name}."
+            )
+    for relationship_name, value in record.relationships.items():
+        target_kind = configured_targets.get(relationship_name) or relationship_target(
+            record.resource_kind, relationship_name
+        )
+        if target_kind is None:
+            raise ApplicationPlanError(
+                f"Relationship {relationship_name} on {record.resource_kind} is not supported by this provider."
+            )
         if value in (None, "", []):
-            if relationship_name in required:
-                raise ApplicationPlanError(
-                    f"{record.resource_kind} {record.identity_key} requires relationship {relationship_name}."
-                )
             continue
-        if relationship_name in multi_value and not isinstance(value, list):
+        multi_value = is_multi_relationship(record.resource_kind, relationship_name) or relationship_name in (
+            MULTI_RELATIONSHIPS.get(record.resource_kind, frozenset())
+        )
+        if multi_value and not isinstance(value, list):
             raise ApplicationPlanError(
                 f"Relationship {relationship_name} on {record.resource_kind} must contain an identity list."
             )
-        if relationship_name not in multi_value and isinstance(value, list):
+        if not multi_value and isinstance(value, list):
             raise ApplicationPlanError(
                 f"Relationship {relationship_name} on {record.resource_kind} must contain one identity string."
             )
@@ -123,8 +180,17 @@ def relationship_dependencies(record: ApplicationRecord) -> tuple[tuple[str, str
                 raise ApplicationPlanError(
                     f"Relationship {relationship_name} on {record.resource_kind} must contain identity strings."
                 )
-            dependencies.append((target_kind, identity))
+            if include_deferred or not _deferred_relationship(record.resource_kind, relationship_name):
+                dependencies.append((target_kind, identity))
     return tuple(dependencies)
+
+
+def _deferred_relationship(resource_kind: str, relationship_name: str) -> bool:
+    return (
+        (resource_kind == "virtual_chassis" and relationship_name == "master")
+        or (resource_kind == "interface" and relationship_name == "primary_mac_address")
+        or relationship_name.startswith("mapping_")
+    )
 
 
 def _add_scalar(

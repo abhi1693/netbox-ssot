@@ -64,6 +64,63 @@ var datasetEndpoints = map[string][]endpoint{
 	"regions":   {{Path: "dcim/regions/", Kind: "region"}},
 	"sites":     {{Path: "dcim/sites/", Kind: "site"}},
 	"locations": {{Path: "dcim/locations/", Kind: "location"}},
+	"device_catalog": {
+		{Path: "dcim/manufacturers/", Kind: "manufacturer"},
+		{Path: "dcim/device-roles/", Kind: "device_role"},
+		{Path: "dcim/platforms/", Kind: "platform"},
+		{Path: "dcim/device-types/", Kind: "device_type"},
+	},
+	"racks": {
+		{Path: "dcim/rack-groups/", Kind: "rack_group"},
+		{Path: "dcim/rack-roles/", Kind: "rack_role"},
+		{Path: "dcim/rack-types/", Kind: "rack_type"},
+		{Path: "dcim/racks/", Kind: "rack"},
+	},
+	"module_catalog": {
+		{Path: "dcim/module-type-profiles/", Kind: "module_type_profile"},
+		{Path: "dcim/module-types/", Kind: "module_type"},
+		{Path: "dcim/inventory-item-roles/", Kind: "inventory_item_role"},
+	},
+	"component_templates": {
+		{Path: "dcim/console-port-templates/", Kind: "console_port_template"},
+		{Path: "dcim/console-server-port-templates/", Kind: "console_server_port_template"},
+		{Path: "dcim/power-port-templates/", Kind: "power_port_template"},
+		{Path: "dcim/power-outlet-templates/", Kind: "power_outlet_template"},
+		{Path: "dcim/interface-templates/", Kind: "interface_template"},
+		{Path: "dcim/rear-port-templates/", Kind: "rear_port_template"},
+		{Path: "dcim/front-port-templates/", Kind: "front_port_template"},
+		{Path: "dcim/module-bay-templates/", Kind: "module_bay_template"},
+		{Path: "dcim/device-bay-templates/", Kind: "device_bay_template"},
+		{Path: "dcim/inventory-item-templates/", Kind: "inventory_item_template"},
+	},
+	"devices": {
+		{Path: "dcim/virtual-chassis/", Kind: "virtual_chassis"},
+		{Path: "dcim/devices/", Kind: "device"},
+	},
+	"device_components": {
+		{Path: "dcim/virtual-device-contexts/", Kind: "virtual_device_context"},
+		{Path: "dcim/module-bays/", Kind: "module_bay"},
+		{Path: "dcim/device-bays/", Kind: "device_bay"},
+		{Path: "dcim/modules/", Kind: "module"},
+		{Path: "dcim/console-ports/", Kind: "console_port"},
+		{Path: "dcim/console-server-ports/", Kind: "console_server_port"},
+		{Path: "dcim/power-ports/", Kind: "power_port"},
+		{Path: "dcim/power-outlets/", Kind: "power_outlet"},
+		{Path: "dcim/interfaces/", Kind: "interface"},
+		{Path: "dcim/rear-ports/", Kind: "rear_port"},
+		{Path: "dcim/front-ports/", Kind: "front_port"},
+		{Path: "dcim/inventory-items/", Kind: "inventory_item"},
+		{Path: "dcim/mac-addresses/", Kind: "mac_address"},
+	},
+	"rack_reservations": {{Path: "dcim/rack-reservations/", Kind: "rack_reservation"}},
+	"power": {
+		{Path: "dcim/power-panels/", Kind: "power_panel"},
+		{Path: "dcim/power-feeds/", Kind: "power_feed"},
+	},
+	"cabling": {
+		{Path: "dcim/cable-bundles/", Kind: "cable_bundle"},
+		{Path: "dcim/cables/", Kind: "cable"},
+	},
 }
 
 var errInvalidTokenFormat = errors.New("invalid NetBox token format")
@@ -455,14 +512,30 @@ func mapObservation(request contracts.CollectionRequest, kind string, record map
 }
 
 func attributesFor(kind string, record map[string]any) []contracts.ObservationAttribute {
-	attributes := make([]contracts.ObservationAttribute, 0, 12)
+	attributes := make([]contracts.ObservationAttribute, 0, 24)
 	add := func(path string, value any) {
 		if value != nil && value != "" {
 			attributes = append(attributes, contracts.ObservationAttribute{Path: path, Value: value})
 		}
 	}
 	addDirect := func(path string, key string) { add(path, record[key]) }
-	addChoice := func(path string, key string) { add(path, nestedValue(record[key], "value")) }
+	addChoice := func(path string, key string) { add(path, choiceValue(record[key])) }
+	addDecimal := func(path string, key string) { add(path, decimalValue(record[key])) }
+	addFields := func(keys ...string) {
+		for _, key := range keys {
+			addDirect("/"+key, key)
+		}
+	}
+	addChoices := func(keys ...string) {
+		for _, key := range keys {
+			addChoice("/"+key, key)
+		}
+	}
+	addDecimals := func(keys ...string) {
+		for _, key := range keys {
+			addDecimal("/"+key, key)
+		}
+	}
 
 	switch kind {
 	case "tag":
@@ -515,8 +588,8 @@ func attributesFor(kind string, record map[string]any) []contracts.ObservationAt
 		addDirect("/description", "description")
 		addDirect("/physical_address", "physical_address")
 		addDirect("/shipping_address", "shipping_address")
-		addDirect("/latitude", "latitude")
-		addDirect("/longitude", "longitude")
+		addDecimal("/latitude", "latitude")
+		addDecimal("/longitude", "longitude")
 		addDirect("/comments", "comments")
 	case "location":
 		addDirect("/name", "name")
@@ -525,6 +598,179 @@ func attributesFor(kind string, record map[string]any) []contracts.ObservationAt
 		addDirect("/facility", "facility")
 		addDirect("/description", "description")
 		addDirect("/comments", "comments")
+	case "manufacturer", "rack_group":
+		addDirect("/name", "name")
+		addDirect("/slug", "slug")
+		addDirect("/description", "description")
+		addDirect("/comments", "comments")
+	case "rack_role":
+		addDirect("/name", "name")
+		addDirect("/slug", "slug")
+		addDirect("/color", "color")
+		addDirect("/description", "description")
+		addDirect("/comments", "comments")
+	case "device_role":
+		addDirect("/name", "name")
+		addDirect("/slug", "slug")
+		addDirect("/color", "color")
+		addDirect("/vm_role", "vm_role")
+		add("/config_template", nestedValue(record["config_template"], "name"))
+		addDirect("/description", "description")
+		addDirect("/comments", "comments")
+	case "platform":
+		addDirect("/name", "name")
+		addDirect("/slug", "slug")
+		add("/config_template", nestedValue(record["config_template"], "name"))
+		addDirect("/description", "description")
+		addDirect("/comments", "comments")
+	case "device_type":
+		addDirect("/model", "model")
+		addDirect("/slug", "slug")
+		addDirect("/part_number", "part_number")
+		addDecimal("/u_height", "u_height")
+		addDirect("/exclude_from_utilization", "exclude_from_utilization")
+		addDirect("/is_full_depth", "is_full_depth")
+		addChoice("/subdevice_role", "subdevice_role")
+		addChoice("/airflow", "airflow")
+		addDecimal("/weight", "weight")
+		addChoice("/weight_unit", "weight_unit")
+		addDirect("/description", "description")
+		addDirect("/comments", "comments")
+	case "rack_type":
+		addDirect("/model", "model")
+		addDirect("/slug", "slug")
+		addChoice("/form_factor", "form_factor")
+		addChoice("/width", "width")
+		addDirect("/u_height", "u_height")
+		addDirect("/starting_unit", "starting_unit")
+		addDirect("/desc_units", "desc_units")
+		addDirect("/outer_width", "outer_width")
+		addDirect("/outer_height", "outer_height")
+		addDirect("/outer_depth", "outer_depth")
+		addChoice("/outer_unit", "outer_unit")
+		addDecimal("/weight", "weight")
+		addDirect("/max_weight", "max_weight")
+		addChoice("/weight_unit", "weight_unit")
+		addDirect("/mounting_depth", "mounting_depth")
+		addDirect("/description", "description")
+		addDirect("/comments", "comments")
+	case "rack":
+		addDirect("/name", "name")
+		addDirect("/facility_id", "facility_id")
+		addChoice("/status", "status")
+		addDirect("/serial", "serial")
+		addDirect("/asset_tag", "asset_tag")
+		addChoice("/form_factor", "form_factor")
+		addChoice("/width", "width")
+		addDirect("/u_height", "u_height")
+		addDirect("/starting_unit", "starting_unit")
+		addDirect("/desc_units", "desc_units")
+		addDirect("/outer_width", "outer_width")
+		addDirect("/outer_height", "outer_height")
+		addDirect("/outer_depth", "outer_depth")
+		addChoice("/outer_unit", "outer_unit")
+		addDirect("/mounting_depth", "mounting_depth")
+		addChoice("/airflow", "airflow")
+		addDecimal("/weight", "weight")
+		addDirect("/max_weight", "max_weight")
+		addChoice("/weight_unit", "weight_unit")
+		addDirect("/description", "description")
+		addDirect("/comments", "comments")
+	case "module_type_profile":
+		addFields("name", "description", "schema", "comments")
+	case "module_type":
+		addFields("model", "part_number", "attributes", "description", "comments")
+		addChoices("airflow", "weight_unit")
+		addDecimals("weight")
+	case "inventory_item_role":
+		addFields("name", "slug", "color", "description", "comments")
+	case "console_port_template", "console_server_port_template":
+		addFields("name", "label", "description")
+		addChoices("type")
+	case "power_port_template":
+		addFields("name", "label", "maximum_draw", "allocated_draw", "description")
+		addChoices("type")
+	case "power_outlet_template":
+		addFields("name", "label", "color", "description")
+		addChoices("type", "feed_leg")
+	case "interface_template":
+		addFields("name", "label", "enabled", "mgmt_only", "description")
+		addChoices("type", "poe_mode", "poe_type", "rf_role")
+	case "front_port_template", "rear_port_template":
+		addFields("name", "label", "color", "positions", "description")
+		addChoices("type")
+	case "module_bay_template":
+		addFields("name", "label", "position", "enabled", "description")
+	case "device_bay_template":
+		addFields("name", "label", "enabled", "description")
+	case "inventory_item_template":
+		addFields("name", "label", "part_id", "description")
+		add("/component_type", contentTypeValue(record["component_type"]))
+	case "virtual_chassis":
+		addFields("name", "domain", "description", "comments")
+	case "device":
+		addFields(
+			"name", "serial", "asset_tag", "vc_position", "vc_priority", "description", "comments",
+			"local_context_data",
+		)
+		addChoices("face", "status", "airflow")
+		addDecimals("position", "latitude", "longitude")
+		add("/config_template", nestedValue(record["config_template"], "name"))
+	case "virtual_device_context":
+		addFields("name", "identifier", "description", "comments")
+		addChoices("status")
+	case "module":
+		addFields("serial", "asset_tag", "description", "comments")
+		addChoices("status")
+	case "console_port", "console_server_port":
+		addFields("name", "label", "description", "mark_connected")
+		addChoices("type", "speed")
+	case "power_port":
+		addFields("name", "label", "maximum_draw", "allocated_draw", "description", "mark_connected")
+		addChoices("type")
+	case "power_outlet":
+		addFields("name", "label", "color", "description", "mark_connected")
+		addChoices("type", "status", "feed_leg")
+	case "interface":
+		addFields(
+			"name", "label", "enabled", "mtu", "speed", "wwn", "mgmt_only", "description", "mark_connected",
+			"rf_channel_frequency", "rf_channel_width", "tx_power",
+		)
+		addChoices("type", "duplex", "mode", "rf_role", "rf_channel", "poe_mode", "poe_type")
+	case "front_port", "rear_port":
+		addFields("name", "label", "color", "positions", "description", "mark_connected")
+		addChoices("type")
+	case "module_bay":
+		addFields("name", "label", "position", "enabled", "description")
+	case "device_bay":
+		addFields("name", "label", "enabled", "description")
+	case "inventory_item":
+		addFields(
+			"name", "label", "part_id", "serial", "asset_tag", "discovered", "description",
+		)
+		addChoices("status")
+		add("/component_type", contentTypeValue(record["component_type"]))
+	case "mac_address":
+		addFields("mac_address", "description", "comments")
+		add("/assigned_object_type", contentTypeValue(record["assigned_object_type"]))
+	case "rack_reservation":
+		addFields("units", "description", "comments")
+		addChoices("status")
+		add("/user", nestedValue(record["user"], "username"))
+	case "power_panel":
+		addFields("name", "description", "comments")
+	case "power_feed":
+		addFields("name", "voltage", "amperage", "max_utilization", "mark_connected", "description", "comments")
+		addChoices("status", "type", "supply", "phase")
+	case "cable_bundle":
+		addFields("name", "description", "comments")
+	case "cable":
+		addFields("label", "color", "description", "comments")
+		addChoices("type", "status", "profile", "length_unit")
+		addDecimals("length")
+		if values := unsupportedTerminationTypes(record); len(values) > 0 {
+			add("/unsupported_termination_types", values)
+		}
 	}
 	return attributes
 }
@@ -547,6 +793,57 @@ func relationshipsFor(kind string, record map[string]any) []contracts.Relationsh
 		}
 		for _, item := range items {
 			add(relationshipKind, targetKind, item)
+		}
+	}
+	addID := func(relationshipKind string, targetKind string, value any) {
+		if id, ok := objectID(value); ok {
+			relationships = append(relationships, contracts.Relationship{
+				Kind:             relationshipKind,
+				TargetKind:       targetKind,
+				TargetExternalID: externalID(targetKind, id),
+			})
+		}
+	}
+	addGeneric := func(prefix string, objectType any, objectIDValue any) {
+		objectTypeName, ok := contentTypeValue(objectType).(string)
+		if !ok {
+			return
+		}
+		targetKind, ok := resourceKindForObjectType(objectTypeName)
+		if !ok {
+			return
+		}
+		addID(prefix+"_"+targetKind, targetKind, objectIDValue)
+	}
+	addMappings := func(value any, targetField string, targetKind string) {
+		items, ok := value.([]any)
+		if !ok {
+			return
+		}
+		for _, item := range items {
+			mapping, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			frontPosition, frontOK := objectID(mapping["position"])
+			rearPosition, rearOK := objectID(mapping[targetField+"_position"])
+			if !frontOK || !rearOK {
+				continue
+			}
+			addID("mapping_"+frontPosition+"_"+rearPosition, targetKind, mapping[targetField])
+		}
+	}
+	addTerminations := func(side string, value any) {
+		items, ok := value.([]any)
+		if !ok {
+			return
+		}
+		for _, item := range items {
+			termination, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			addGeneric("termination_"+side, termination["object_type"], termination["object_id"])
 		}
 	}
 
@@ -592,8 +889,208 @@ func relationshipsFor(kind string, record map[string]any) []contracts.Relationsh
 		add("tenant", "tenant", record["tenant"])
 		add("owner", "owner", record["owner"])
 		addMany("tag", "tag", record["tags"])
+	case "manufacturer", "rack_group", "rack_role":
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "device_role":
+		add("parent", "device_role", record["parent"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "platform":
+		add("parent", "platform", record["parent"])
+		add("manufacturer", "manufacturer", record["manufacturer"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "device_type":
+		add("manufacturer", "manufacturer", record["manufacturer"])
+		add("default_platform", "platform", record["default_platform"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "rack_type":
+		add("manufacturer", "manufacturer", record["manufacturer"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "rack":
+		add("site", "site", record["site"])
+		add("location", "location", record["location"])
+		add("group", "rack_group", record["group"])
+		add("tenant", "tenant", record["tenant"])
+		add("role", "rack_role", record["role"])
+		add("rack_type", "rack_type", record["rack_type"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "module_type_profile", "inventory_item_role", "cable_bundle":
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "module_type":
+		add("profile", "module_type_profile", record["profile"])
+		add("manufacturer", "manufacturer", record["manufacturer"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "console_port_template", "console_server_port_template", "power_port_template",
+		"power_outlet_template", "interface_template", "rear_port_template", "front_port_template",
+		"module_bay_template":
+		add("device_type", "device_type", record["device_type"])
+		add("module_type", "module_type", record["module_type"])
+		if kind == "power_outlet_template" {
+			add("power_port", "power_port_template", record["power_port"])
+		}
+		if kind == "interface_template" {
+			add("bridge", "interface_template", record["bridge"])
+		}
+		if kind == "front_port_template" {
+			addMappings(record["rear_ports"], "rear_port", "rear_port_template")
+		}
+	case "device_bay_template":
+		add("device_type", "device_type", record["device_type"])
+	case "inventory_item_template":
+		add("device_type", "device_type", record["device_type"])
+		addID("parent", "inventory_item_template", record["parent"])
+		add("role", "inventory_item_role", record["role"])
+		add("manufacturer", "manufacturer", record["manufacturer"])
+		addGeneric("component", record["component_type"], record["component_id"])
+	case "virtual_chassis":
+		add("master", "device", record["master"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "device":
+		add("device_type", "device_type", record["device_type"])
+		add("role", "device_role", record["role"])
+		add("tenant", "tenant", record["tenant"])
+		add("platform", "platform", record["platform"])
+		add("site", "site", record["site"])
+		add("location", "location", record["location"])
+		add("rack", "rack", record["rack"])
+		add("virtual_chassis", "virtual_chassis", record["virtual_chassis"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "virtual_device_context":
+		add("device", "device", record["device"])
+		add("tenant", "tenant", record["tenant"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "module":
+		add("device", "device", record["device"])
+		add("module_bay", "module_bay", record["module_bay"])
+		add("module_type", "module_type", record["module_type"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "module_bay":
+		add("device", "device", record["device"])
+		add("module", "module", record["module"])
+		add("parent", "module_bay", record["parent"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "device_bay":
+		add("device", "device", record["device"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "console_port", "console_server_port", "power_port", "power_outlet", "interface", "rear_port", "front_port":
+		add("device", "device", record["device"])
+		add("module", "module", record["module"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+		if kind == "power_outlet" {
+			add("power_port", "power_port", record["power_port"])
+		}
+		if kind == "interface" {
+			add("parent", "interface", record["parent"])
+			add("bridge", "interface", record["bridge"])
+			add("lag", "interface", record["lag"])
+			add("primary_mac_address", "mac_address", record["primary_mac_address"])
+			addMany("vdc", "virtual_device_context", record["vdcs"])
+		}
+		if kind == "front_port" {
+			addMappings(record["rear_ports"], "rear_port", "rear_port")
+		}
+	case "inventory_item":
+		add("device", "device", record["device"])
+		addID("parent", "inventory_item", record["parent"])
+		add("role", "inventory_item_role", record["role"])
+		add("manufacturer", "manufacturer", record["manufacturer"])
+		addGeneric("component", record["component_type"], record["component_id"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "mac_address":
+		addGeneric("assigned", record["assigned_object_type"], record["assigned_object_id"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "rack_reservation":
+		add("rack", "rack", record["rack"])
+		add("tenant", "tenant", record["tenant"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "power_panel":
+		add("site", "site", record["site"])
+		add("location", "location", record["location"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "power_feed":
+		add("power_panel", "power_panel", record["power_panel"])
+		add("rack", "rack", record["rack"])
+		add("tenant", "tenant", record["tenant"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "cable":
+		add("tenant", "tenant", record["tenant"])
+		add("bundle", "cable_bundle", record["bundle"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+		addTerminations("a", record["a_terminations"])
+		addTerminations("b", record["b_terminations"])
 	}
 	return relationships
+}
+
+func resourceKindForObjectType(objectType string) (string, bool) {
+	kind, ok := map[string]string{
+		"dcim.consoleporttemplate":       "console_port_template",
+		"dcim.consoleserverporttemplate": "console_server_port_template",
+		"dcim.powerporttemplate":         "power_port_template",
+		"dcim.poweroutlettemplate":       "power_outlet_template",
+		"dcim.interfacetemplate":         "interface_template",
+		"dcim.rearporttemplate":          "rear_port_template",
+		"dcim.frontporttemplate":         "front_port_template",
+		"dcim.consoleport":               "console_port",
+		"dcim.consoleserverport":         "console_server_port",
+		"dcim.powerport":                 "power_port",
+		"dcim.poweroutlet":               "power_outlet",
+		"dcim.interface":                 "interface",
+		"dcim.rearport":                  "rear_port",
+		"dcim.frontport":                 "front_port",
+		"dcim.powerfeed":                 "power_feed",
+	}[objectType]
+	return kind, ok
+}
+
+func unsupportedTerminationTypes(record map[string]any) []string {
+	unsupported := make(map[string]struct{})
+	for _, side := range []string{"a_terminations", "b_terminations"} {
+		terminations, ok := record[side].([]any)
+		if !ok {
+			continue
+		}
+		for _, value := range terminations {
+			termination, ok := value.(map[string]any)
+			if !ok {
+				continue
+			}
+			objectType, ok := contentTypeValue(termination["object_type"]).(string)
+			if !ok || objectType == "" {
+				unsupported["unknown"] = struct{}{}
+				continue
+			}
+			if _, ok := resourceKindForObjectType(objectType); !ok {
+				unsupported[objectType] = struct{}{}
+			}
+		}
+	}
+	values := make([]string, 0, len(unsupported))
+	for value := range unsupported {
+		values = append(values, value)
+	}
+	sort.Strings(values)
+	return values
 }
 
 func nestedValue(value any, key string) any {
@@ -602,6 +1099,43 @@ func nestedValue(value any, key string) any {
 		return nil
 	}
 	return object[key]
+}
+
+func choiceValue(value any) any {
+	if object, ok := value.(map[string]any); ok {
+		return object["value"]
+	}
+	return value
+}
+
+func contentTypeValue(value any) any {
+	if object, ok := value.(map[string]any); ok {
+		appLabel, appOK := object["app_label"].(string)
+		model, modelOK := object["model"].(string)
+		if appOK && modelOK && appLabel != "" && model != "" {
+			return appLabel + "." + model
+		}
+	}
+	if value, ok := value.(string); ok {
+		return value
+	}
+	return nil
+}
+
+func decimalValue(value any) any {
+	switch typed := value.(type) {
+	case json.Number:
+		parsed, err := typed.Float64()
+		if err == nil {
+			return parsed
+		}
+	case string:
+		parsed, err := strconv.ParseFloat(typed, 64)
+		if err == nil {
+			return parsed
+		}
+	}
+	return value
 }
 
 func stringValues(value any) []string {

@@ -13,6 +13,7 @@ from netbox_ssot.planning.comparison import (
     ComparisonAction,
     compare_canonical_records,
     natural_identity,
+    normalize_relationship_cardinality,
 )
 from netbox_ssot_contracts import (
     ChangeAction,
@@ -129,6 +130,54 @@ def test_supporting_model_identities_preserve_hierarchy_and_scope() -> None:
     assert natural_identity("owner", {"/name": "Network Team"}, {})
     assert natural_identity("rir", {"/slug": "private"}, {})
     assert natural_identity("asn", {"/asn": 64512}, {})
+
+
+def test_dcim_catalog_and_rack_identities_follow_netbox_uniqueness_context() -> None:
+    manufacturer = natural_identity("manufacturer", {"/slug": "acme"}, {})
+    platform = natural_identity("platform", {"/slug": "network-os"}, {"manufacturer": manufacturer})
+    root_role = natural_identity("device_role", {"/slug": "network"}, {})
+    child_role = natural_identity("device_role", {"/slug": "leaf"}, {"parent": root_role})
+    device_type = natural_identity(
+        "device_type",
+        {"/model": "Switch 48"},
+        {"manufacturer": manufacturer},
+    )
+    site = natural_identity("site", {"/slug": "dc1"}, {})
+    location = natural_identity("location", {"/slug": "room"}, {"site": site})
+    rack_type = natural_identity("rack_type", {"/model": "R42"}, {"manufacturer": manufacturer})
+    rack = natural_identity("rack", {"/name": "A01"}, {"site": site, "location": location})
+
+    assert platform != natural_identity("platform", {"/slug": "network-os"}, {})
+    assert child_role != natural_identity("device_role", {"/slug": "leaf"}, {})
+    assert device_type
+    assert rack_type
+    assert rack != natural_identity("rack", {"/name": "A01"}, {"site": site})
+
+
+def test_cross_app_generic_assignments_and_cable_terminations_fail_closed() -> None:
+    with pytest.raises(ValueError, match="MAC address assignment"):
+        natural_identity(
+            "mac_address",
+            {"/mac_address": "00:11:22:33:44:55", "/assigned_object_type": "virtualization.vminterface"},
+            {},
+        )
+
+    with pytest.raises(ValueError, match=r"circuits\.circuittermination"):
+        natural_identity(
+            "cable",
+            {"/unsupported_termination_types": ["circuits.circuittermination"]},
+            {"termination_a_interface": ["interface"]},
+        )
+
+
+def test_relationship_cardinality_preserves_single_many_to_many_values() -> None:
+    assert normalize_relationship_cardinality("rack", {"tag": ["managed"], "site": ["dc1"]}) == {
+        "site": "dc1",
+        "tag": ["managed"],
+    }
+
+    with pytest.raises(ValueError, match="Scalar relationship"):
+        normalize_relationship_cardinality("rack", {"site": ["dc1", "dc2"]})
 
 
 @pytest.mark.parametrize(

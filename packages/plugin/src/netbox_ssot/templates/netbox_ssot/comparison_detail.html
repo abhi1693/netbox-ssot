@@ -15,7 +15,11 @@
   {% elif review_state == 'approved' %}
     <div class="alert alert-success"><strong>Review approved.</strong> The immutable approval is ready for a separately permissioned apply.</div>
   {% elif comparison.conflict_count or comparison.skipped_count %}
-    <div class="alert alert-warning"><strong>Review required.</strong> Some records could not be safely matched or applied.</div>
+    <div class="alert alert-warning">
+      <strong>Apply unavailable.</strong>
+      This comparison contains {{ comparison.conflict_count }} conflict{{ comparison.conflict_count|pluralize }} and {{ comparison.skipped_count }} skipped record{{ comparison.skipped_count|pluralize }}. Approving proposed changes does not resolve these records; create a fresh comparison after correcting the causes below.
+      <a class="alert-link" href="?action={% if comparison.skipped_count %}skipped{% else %}conflict{% endif %}">Show blocked records</a>.
+    </div>
   {% elif has_changes %}
     <div class="alert alert-info"><strong>{{ comparison.create_count|add:comparison.update_count }} changes are ready.</strong> Review them below before applying.</div>
   {% else %}
@@ -31,6 +35,27 @@
     <div class="col"><div class="card h-100"><div class="card-body"><div class="text-secondary">Skipped</div><div class="fs-3">{{ comparison.skipped_count }}</div></div></div></div>
   </div>
 
+  {% if not application and blocked_item_reasons %}
+    <div class="card border-warning mb-3"><div class="card-body">
+      <h2 class="h5">Why apply is unavailable</h2>
+      <p class="text-secondary">Every actionable record must form one complete, dependency-safe plan. The largest blocked groups are:</p>
+      <ul class="mb-2">
+        {% for group in blocked_item_reasons %}
+          <li><strong>{{ group.count }} {{ group.resource_kind }}</strong> {{ group.action }} record{{ group.count|pluralize }}: {{ group.reason }}</li>
+        {% endfor %}
+      </ul>
+      <a class="btn btn-outline-warning" href="?action={% if comparison.skipped_count %}skipped{% else %}conflict{% endif %}">Review blocked records</a>
+    </div></div>
+  {% endif %}
+
+  {% if not application and not final_review and preapproval_blockers %}
+    <div class="card border-danger mb-3"><div class="card-body">
+      <h2 class="h5">Apply will remain blocked after approval</h2>
+      <p class="text-secondary">Approval records your review decision, but it cannot bypass these destination requirements:</p>
+      <ul class="mb-0">{% for reason in preapproval_blockers %}<li>{{ reason }}</li>{% endfor %}</ul>
+    </div></div>
+  {% endif %}
+
   {% if not application and final_review %}
     <div class="card mb-3"><div class="card-body">
       <h2 class="h5">Final review</h2>
@@ -45,7 +70,7 @@
         {% if has_changes %}<div class="d-flex flex-wrap gap-2 mb-3">
           <form method="post" action="{% url 'plugins:netbox_ssot:comparison_review' pk=comparison.pk %}">
             {% csrf_token %}<input name="action" type="hidden" value="approve_all">
-            <button class="btn btn-outline-primary" type="submit">Approve all proposed changes</button>
+            <button class="btn btn-outline-primary" type="submit">Approve all proposed changes{% if comparison.conflict_count or comparison.skipped_count %} (apply remains blocked){% endif %}</button>
           </form>
           {% if not comparison.conflict_count and not comparison.skipped_count %}
             <form method="post" action="{% url 'plugins:netbox_ssot:comparison_review' pk=comparison.pk %}">

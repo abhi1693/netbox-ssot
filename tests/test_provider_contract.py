@@ -24,7 +24,7 @@ def test_dataset_selection_adds_dependencies_in_manifest_order() -> None:
 
 
 def test_netbox_provider_is_agent_read_only() -> None:
-    assert MANIFEST.implementation_version == "0.0.4"
+    assert MANIFEST.implementation_version == "0.0.7"
     assert MANIFEST.execution_modes == (ExecutionMode.AGENT,)
     assert MANIFEST.capabilities == (ProviderCapability.SOURCE_READ,)
     assert MANIFEST.agent_compatibility.collector_id == "netbox"
@@ -60,6 +60,15 @@ def test_installed_netbox_provider_is_discovered_by_entry_point() -> None:
         "regions",
         "sites",
         "locations",
+        "device_catalog",
+        "racks",
+        "module_catalog",
+        "component_templates",
+        "devices",
+        "device_components",
+        "rack_reservations",
+        "power",
+        "cabling",
     )
     assert MANIFEST.datasets[0].id == "references"
     assert MANIFEST.datasets[0].selectable is False
@@ -72,6 +81,47 @@ def test_installed_netbox_provider_is_discovered_by_entry_point() -> None:
         ("dcim.Region", "region"),
         ("dcim.Site", "site"),
         ("dcim.Location", "location"),
+        ("dcim.Manufacturer", "manufacturer"),
+        ("dcim.DeviceRole", "device_role"),
+        ("dcim.Platform", "platform"),
+        ("dcim.DeviceType", "device_type"),
+        ("dcim.RackGroup", "rack_group"),
+        ("dcim.RackRole", "rack_role"),
+        ("dcim.RackType", "rack_type"),
+        ("dcim.Rack", "rack"),
+        ("dcim.ModuleTypeProfile", "module_type_profile"),
+        ("dcim.ModuleType", "module_type"),
+        ("dcim.InventoryItemRole", "inventory_item_role"),
+        ("dcim.ConsolePortTemplate", "console_port_template"),
+        ("dcim.ConsoleServerPortTemplate", "console_server_port_template"),
+        ("dcim.PowerPortTemplate", "power_port_template"),
+        ("dcim.PowerOutletTemplate", "power_outlet_template"),
+        ("dcim.InterfaceTemplate", "interface_template"),
+        ("dcim.RearPortTemplate", "rear_port_template"),
+        ("dcim.FrontPortTemplate", "front_port_template"),
+        ("dcim.ModuleBayTemplate", "module_bay_template"),
+        ("dcim.DeviceBayTemplate", "device_bay_template"),
+        ("dcim.InventoryItemTemplate", "inventory_item_template"),
+        ("dcim.VirtualChassis", "virtual_chassis"),
+        ("dcim.Device", "device"),
+        ("dcim.VirtualDeviceContext", "virtual_device_context"),
+        ("dcim.ModuleBay", "module_bay"),
+        ("dcim.DeviceBay", "device_bay"),
+        ("dcim.Module", "module"),
+        ("dcim.ConsolePort", "console_port"),
+        ("dcim.ConsoleServerPort", "console_server_port"),
+        ("dcim.PowerPort", "power_port"),
+        ("dcim.PowerOutlet", "power_outlet"),
+        ("dcim.Interface", "interface"),
+        ("dcim.RearPort", "rear_port"),
+        ("dcim.FrontPort", "front_port"),
+        ("dcim.InventoryItem", "inventory_item"),
+        ("dcim.MACAddress", "mac_address"),
+        ("dcim.RackReservation", "rack_reservation"),
+        ("dcim.PowerPanel", "power_panel"),
+        ("dcim.PowerFeed", "power_feed"),
+        ("dcim.CableBundle", "cable_bundle"),
+        ("dcim.Cable", "cable"),
     )
 
 

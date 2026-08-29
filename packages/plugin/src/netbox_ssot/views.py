@@ -52,6 +52,7 @@ from .models import (
     DiscoverySource,
     StoredObservation,
 )
+from .planning.netbox_target import MODEL_BY_KIND
 from .planning.service import ComparisonRejectedError, create_comparison
 from .providers import ProviderNotFoundError, ProviderRegistry, build_provider_card, build_provider_wizard
 from .record_links import RecordLinkResolver, RecordLinks, source_object_id
@@ -903,7 +904,19 @@ class ComparisonDetailView(PermissionRequiredMixin, View):
         for item in page.object_list:
             item.current_review_decision = latest_decisions.get(item.pk)
         progress = review_progress(comparison)
+        blocked_item_reasons = tuple(
+            comparison.items.filter(action__in=(ComparisonItem.Action.CONFLICT, ComparisonItem.Action.SKIPPED))
+            .values("action", "resource_kind", "reason")
+            .annotate(count=models.Count("pk"))
+            .order_by("-count", "resource_kind", "reason")[:10]
+        )
         readiness = None if application else inspect_application(comparison, request.user)
+        expected_review_reason = "This comparison must be approved in a finalized review before it can be applied."
+        preapproval_blockers = (
+            tuple(reason for reason in readiness.reasons if reason != expected_review_reason)
+            if readiness is not None and final_review is None
+            else ()
+        )
         if application:
             review_state = "applied"
         elif final_review is not None and final_review.decision == ComparisonReview.Decision.REJECTED:
@@ -931,7 +944,9 @@ class ComparisonDetailView(PermissionRequiredMixin, View):
                 "review_progress": progress,
                 "review_state": review_state,
                 "readiness": readiness,
+                "preapproval_blockers": preapproval_blockers,
                 "has_changes": bool(comparison.create_count or comparison.update_count),
+                "blocked_item_reasons": blocked_item_reasons,
             },
         )
 
@@ -1287,26 +1302,12 @@ def _record_links(
 
 def _required_target_permissions(comparison: ComparisonRun) -> tuple[str, ...]:
     permissions: set[str] = set()
-    model_permissions = {
-        "tag": ("extras", "tag"),
-        "owner_group": ("users", "ownergroup"),
-        "owner": ("users", "owner"),
-        "tenant_group": ("tenancy", "tenantgroup"),
-        "tenant": ("tenancy", "tenant"),
-        "site_group": ("dcim", "sitegroup"),
-        "rir": ("ipam", "rir"),
-        "asn": ("ipam", "asn"),
-        "region": ("dcim", "region"),
-        "site": ("dcim", "site"),
-        "location": ("dcim", "location"),
-    }
     for item in comparison.items.filter(action__in=(ComparisonItem.Action.CREATE, ComparisonItem.Action.UPDATE)):
-        permission_target = model_permissions.get(item.resource_kind)
-        if permission_target is None:
+        model = MODEL_BY_KIND.get(item.resource_kind)
+        if model is None:
             raise PermissionDenied("The comparison contains a target model outside the supported apply scope.")
-        app_label, model_name = permission_target
         operation = "add" if item.action == ComparisonItem.Action.CREATE else "change"
-        permissions.add(f"{app_label}.{operation}_{model_name}")
+        permissions.add(f"{model._meta.app_label}.{operation}_{model._meta.model_name}")
     return tuple(sorted(permissions))
 
 
@@ -1361,8 +1362,7 @@ def _activity_events(request: HttpRequest, *, limit: int) -> tuple[dict[str, Any
                 "kind": "Review decision",
                 "state": "complete" if review.decision == ComparisonReview.Decision.APPROVED else "attention",
                 "title": (
-                    f"{review.comparison.collection_run.source.name} review "
-                    f"{review.get_decision_display().lower()}"
+                    f"{review.comparison.collection_run.source.name} review {review.get_decision_display().lower()}"
                 ),
                 "detail": f"Reviewed by {review.reviewed_by}",
                 "url": reverse("plugins:netbox_ssot:comparison_detail", kwargs={"pk": review.comparison_id}),

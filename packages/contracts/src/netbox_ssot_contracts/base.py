@@ -11,7 +11,8 @@ type Identifier = Annotated[
 ]
 type JsonPointer = Annotated[str, StringConstraints(pattern=r"^(?:/[^/~]*(?:~[01][^/~]*)*)*$", max_length=512)]
 type ScalarValue = str | int | float | bool | None
-type AttributeValue = ScalarValue | tuple[ScalarValue, ...]
+type JsonValue = ScalarValue | tuple["JsonValue", ...] | dict[str, "JsonValue"]
+type AttributeValue = JsonValue
 
 
 class ContractModel(BaseModel):

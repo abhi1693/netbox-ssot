@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -72,6 +73,30 @@ func TestSubmitRejectsInsecureHTTPByDefault(t *testing.T) {
 		Timeout:    5 * time.Second,
 	}, []byte(`{"run_id":"run","source_id":"source","provider_id":"netbox","datasets":["sites"]}`))
 	if result.Succeeded || len(result.Details) != 1 || result.Details[0].Code != "invalid_submission_configuration" {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestSubmitReportsSafeJSONRejectionReason(t *testing.T) {
+	keyPair, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair() error = %v", err)
+	}
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		response.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(response).Encode(map[string]string{
+			"code": "invalid_batch", "message": "Request body does not conform to the observation contract.",
+		})
+	}))
+	defer server.Close()
+	body := []byte(`{"run_id":"00000000-0000-4000-8000-000000000002","source_id":"00000000-0000-4000-8000-000000000003","provider_id":"netbox","provider_version":"0.1.0","contract_version":"1.0","state":"complete","started_at":"2026-08-28T00:00:00Z","completed_at":"2026-08-28T00:00:01Z","datasets":["sites"],"scope":[],"observations":[],"messages":[],"completeness_token":"complete"}`)
+
+	result := Submit(context.Background(), Options{
+		Endpoint: server.URL + "/", AgentID: "00000000-0000-4000-8000-000000000001",
+		PrivateKey: keyPair.PrivateKey, VerifyTLS: false, Timeout: 5 * time.Second,
+	}, body)
+	if result.Succeeded || !strings.Contains(result.Summary, "does not conform") {
 		t.Fatalf("result = %+v", result)
 	}
 }

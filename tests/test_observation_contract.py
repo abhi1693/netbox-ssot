@@ -78,6 +78,26 @@ def test_duplicate_attribute_paths_are_rejected() -> None:
         Observation.model_validate(data)
 
 
+def test_attributes_accept_recursive_json_values() -> None:
+    schema = {
+        "type": "object",
+        "properties": {"serial": {"type": "string"}},
+        "required": ["serial"],
+    }
+    observation = Observation.from_mapping(
+        resource_kind=ResourceKind.MODULE_TYPE_PROFILE,
+        external_id="netbox:module_type_profile:1",
+        source_id=uuid4(),
+        provider_id="netbox",
+        scope=(),
+        collected_at=datetime.now(UTC),
+        attributes={"/schema": schema},
+        evidence=evidence(datetime.now(UTC)),
+    )
+
+    assert observation.model_dump(mode="json")["attributes"][0]["value"] == schema
+
+
 def test_complete_batch_requires_scope_completeness_token() -> None:
     now = datetime.now(UTC)
 

@@ -11,9 +11,11 @@ from netbox.plugins import get_plugin_config
 
 from ..models import ApplyItem, ApplyRun, ComparisonItem, ComparisonReview, ComparisonRun, ObjectBinding
 from ..planning.comparison import ENGINE_VERSION, SUPPORTED_RESOURCE_KINDS, CanonicalRecord, snapshot_digest
+from ..planning.dcim import ATTRIBUTE_FIELDS, RELATIONSHIP_FIELDS, TAGGED_KINDS, relationship_target
 from ..planning.netbox_target import MODEL_BY_KIND, load_netbox_target_records
 from ..review import review_integrity_issue
 from .planning import (
+    REQUIRED_RELATIONSHIPS,
     ApplicationPlanError,
     ApplicationRecord,
     ReferenceRequirement,
@@ -175,11 +177,7 @@ def _readiness_reasons(
             integrity_issue = review_integrity_issue(review)
             if integrity_issue:
                 reasons.append(integrity_issue)
-            if (
-                applied_by is not None
-                and _separate_reviewer_required()
-                and review.reviewed_by_id == applied_by.pk
-            ):
+            if applied_by is not None and _separate_reviewer_required() and review.reviewed_by_id == applied_by.pk:
                 reasons.append("A different operator must apply this approved comparison.")
         else:
             reasons.append("This comparison has an unsupported final review state and cannot be applied.")
@@ -202,8 +200,6 @@ def _readiness_reasons(
     if comparison.target_snapshot_digest != current_digest:
         reasons.append("The local NetBox target changed after this comparison; create and review a fresh comparison.")
 
-    if reasons:
-        return reasons
     try:
         records_by_item = _records_by_item(items)
         records = list(records_by_item.values())
@@ -276,17 +272,23 @@ def _resolve_external_references(
 
 
 def _reference_problem_message(problems: tuple[tuple[ReferenceRequirement, int], ...]) -> str:
-    examples = ", ".join(
-        f"{requirement.model_label}.{requirement.lookup_field}={requirement.value!r}"
-        f" ({'missing' if count == 0 else 'ambiguous'})"
-        for requirement, count in problems[:10]
-    )
-    remaining = len(problems) - 10
+    examples = "; ".join(_reference_problem_example(requirement, count) for requirement, count in problems[:10])
+    remaining = max(0, len(problems) - 10)
     suffix = f", plus {remaining} more" if remaining else ""
     return (
-        f"Resolve {len(problems)} external references before applying: {examples}{suffix}. "
-        "References outside the installed compatibility bundle are never created implicitly."
+        f"Create or uniquely match {len(problems)} local objects required by the source before applying: "
+        f"{examples}{suffix}. Cross-app references are never created implicitly."
     )
+
+
+def _reference_problem_example(requirement: ReferenceRequirement, count: int) -> str:
+    model_name = {
+        "users.user": "User",
+        "extras.configtemplate": "Config Template",
+        "ipam.role": "ASN Role",
+    }.get(requirement.model_label, requirement.model_label)
+    state = "missing" if count == 0 else f"ambiguous ({count} matches)"
+    return f"{model_name} with {requirement.lookup_field} {requirement.value!r} ({state})"
 
 
 def _content_type_problems(records: list[ApplicationRecord]) -> list[str]:
@@ -351,6 +353,12 @@ def _apply_items(
         _write_object(obj, record, target_by_key, object_cache, reference_objects)
         object_cache[record.key] = obj
         objects_by_item[item.pk] = obj
+
+    _write_deferred_relationships(
+        [record for record in ordered_records if record.key in mutable_items_by_key],
+        target_by_key,
+        object_cache,
+    )
 
     for item in items:
         if item.action != ComparisonItem.Action.NO_CHANGE:
@@ -480,17 +488,222 @@ def _write_object(
         obj.tenant = _relationship_object("tenant", relationships.get("tenant"), target_by_key, object_cache)
         obj.owner = _relationship_object("owner", relationships.get("owner"), target_by_key, object_cache)
         obj.facility = attributes.get("/facility", "")
+    elif kind in {"manufacturer", "rack_group"}:
+        obj.name = _required(attributes, "/name")
+        obj.slug = _required(attributes, "/slug")
+        obj.description = attributes.get("/description", "")
+        obj.comments = attributes.get("/comments", "")
+        obj.owner = _relationship_object("owner", relationships.get("owner"), target_by_key, object_cache)
+    elif kind == "rack_role":
+        obj.name = _required(attributes, "/name")
+        obj.slug = _required(attributes, "/slug")
+        obj.color = _required(attributes, "/color")
+        obj.description = attributes.get("/description", "")
+        obj.comments = attributes.get("/comments", "")
+        obj.owner = _relationship_object("owner", relationships.get("owner"), target_by_key, object_cache)
+    elif kind == "device_role":
+        obj.name = _required(attributes, "/name")
+        obj.slug = _required(attributes, "/slug")
+        obj.color = _required(attributes, "/color")
+        obj.vm_role = _required(attributes, "/vm_role")
+        obj.config_template = _scalar_reference(
+            references,
+            "extras.configtemplate",
+            "name",
+            attributes.get("/config_template"),
+        )
+        obj.parent = _relationship_object(
+            "device_role",
+            relationships.get("parent"),
+            target_by_key,
+            object_cache,
+        )
+        obj.description = attributes.get("/description", "")
+        obj.comments = attributes.get("/comments", "")
+        obj.owner = _relationship_object("owner", relationships.get("owner"), target_by_key, object_cache)
+    elif kind == "platform":
+        obj.name = _required(attributes, "/name")
+        obj.slug = _required(attributes, "/slug")
+        obj.config_template = _scalar_reference(
+            references,
+            "extras.configtemplate",
+            "name",
+            attributes.get("/config_template"),
+        )
+        obj.parent = _relationship_object("platform", relationships.get("parent"), target_by_key, object_cache)
+        obj.manufacturer = _relationship_object(
+            "manufacturer",
+            relationships.get("manufacturer"),
+            target_by_key,
+            object_cache,
+        )
+        obj.description = attributes.get("/description", "")
+        obj.comments = attributes.get("/comments", "")
+        obj.owner = _relationship_object("owner", relationships.get("owner"), target_by_key, object_cache)
+    elif kind == "device_type":
+        obj.manufacturer = _relationship_object(
+            "manufacturer",
+            relationships.get("manufacturer"),
+            target_by_key,
+            object_cache,
+            required=True,
+        )
+        obj.default_platform = _relationship_object(
+            "platform",
+            relationships.get("default_platform"),
+            target_by_key,
+            object_cache,
+        )
+        obj.model = _required(attributes, "/model")
+        obj.slug = _required(attributes, "/slug")
+        obj.part_number = attributes.get("/part_number", "")
+        obj.u_height = _required(attributes, "/u_height")
+        obj.exclude_from_utilization = _required(attributes, "/exclude_from_utilization")
+        obj.is_full_depth = _required(attributes, "/is_full_depth")
+        obj.subdevice_role = attributes.get("/subdevice_role")
+        obj.airflow = attributes.get("/airflow")
+        obj.weight = attributes.get("/weight")
+        obj.weight_unit = attributes.get("/weight_unit")
+        obj.description = attributes.get("/description", "")
+        obj.comments = attributes.get("/comments", "")
+        obj.owner = _relationship_object("owner", relationships.get("owner"), target_by_key, object_cache)
+    elif kind == "rack_type":
+        obj.manufacturer = _relationship_object(
+            "manufacturer",
+            relationships.get("manufacturer"),
+            target_by_key,
+            object_cache,
+            required=True,
+        )
+        obj.model = _required(attributes, "/model")
+        obj.slug = _required(attributes, "/slug")
+        _write_rack_physical_fields(obj, attributes, require_form_factor=True)
+        obj.description = attributes.get("/description", "")
+        obj.comments = attributes.get("/comments", "")
+        obj.owner = _relationship_object("owner", relationships.get("owner"), target_by_key, object_cache)
+    elif kind == "rack":
+        obj.name = _required(attributes, "/name")
+        obj.facility_id = attributes.get("/facility_id")
+        obj.status = _required(attributes, "/status")
+        obj.serial = attributes.get("/serial", "")
+        obj.asset_tag = attributes.get("/asset_tag")
+        obj.site = _relationship_object(
+            "site",
+            relationships.get("site"),
+            target_by_key,
+            object_cache,
+            required=True,
+        )
+        obj.location = _relationship_object("location", relationships.get("location"), target_by_key, object_cache)
+        obj.group = _relationship_object("rack_group", relationships.get("group"), target_by_key, object_cache)
+        obj.tenant = _relationship_object("tenant", relationships.get("tenant"), target_by_key, object_cache)
+        obj.role = _relationship_object("rack_role", relationships.get("role"), target_by_key, object_cache)
+        obj.rack_type = _relationship_object(
+            "rack_type",
+            relationships.get("rack_type"),
+            target_by_key,
+            object_cache,
+        )
+        obj.airflow = attributes.get("/airflow")
+        _write_rack_physical_fields(obj, attributes, require_form_factor=False)
+        obj.description = attributes.get("/description", "")
+        obj.comments = attributes.get("/comments", "")
+        obj.owner = _relationship_object("owner", relationships.get("owner"), target_by_key, object_cache)
+    elif kind in ATTRIBUTE_FIELDS:
+        _write_dcim_fields(obj, kind, attributes)
+        for relationship_name, (target_kind, field_name) in RELATIONSHIP_FIELDS.get(kind, {}).items():
+            if (kind, relationship_name) in {
+                ("virtual_chassis", "master"),
+                ("interface", "primary_mac_address"),
+            }:
+                continue
+            setattr(
+                obj,
+                field_name,
+                _relationship_object(
+                    target_kind,
+                    relationships.get(relationship_name),
+                    target_by_key,
+                    object_cache,
+                    required=relationship_name in REQUIRED_RELATIONSHIPS.get(kind, frozenset()),
+                ),
+            )
+        if kind == "module_type":
+            obj.attribute_data = attributes.get("/attributes")
+        elif kind == "device":
+            obj.config_template = _scalar_reference(
+                references,
+                "extras.configtemplate",
+                "name",
+                attributes.get("/config_template"),
+            )
+        elif kind == "rack_reservation":
+            obj.user = _scalar_reference(references, "users.user", "username", attributes.get("/user"))
+        elif kind in {"inventory_item", "inventory_item_template"}:
+            obj.component = _generic_relationship_object(
+                kind,
+                "component_",
+                relationships,
+                target_by_key,
+                object_cache,
+            )
+        elif kind == "mac_address":
+            obj.assigned_object = _generic_relationship_object(
+                kind,
+                "assigned_",
+                relationships,
+                target_by_key,
+                object_cache,
+            )
+        elif kind == "cable":
+            obj.a_terminations = _cable_termination_objects("a", relationships, target_by_key, object_cache)
+            obj.b_terminations = _cable_termination_objects("b", relationships, target_by_key, object_cache)
     else:
         raise ApplicationPlanError(f"Resource kind {record.resource_kind!r} cannot be written.")
 
     obj.full_clean()
-    obj.save()
+    if obj._state.adding and kind in {"device", "module"}:
+        super(obj.__class__, obj).save()
+    else:
+        obj.save()
+    if hasattr(obj, "_original_device"):
+        obj._original_device = obj.device_id
+    if hasattr(obj, "_original_device_type"):
+        obj._original_device_type = obj.device_type_id
     if kind == "tag":
         obj.object_types.set(_content_types(attributes.get("/object_types", [])))
-    if kind in {"tenant_group", "tenant", "site_group", "rir", "asn", "region", "site", "location"}:
+    if kind in {
+        "tenant_group",
+        "tenant",
+        "site_group",
+        "rir",
+        "asn",
+        "region",
+        "site",
+        "location",
+        "manufacturer",
+        "device_role",
+        "platform",
+        "device_type",
+        "rack_group",
+        "rack_role",
+        "rack_type",
+        "rack",
+    }:
         obj.tags.set(_relationship_objects("tag", relationships.get("tag"), target_by_key, object_cache))
     if kind == "site":
         obj.asns.set(_relationship_objects("asn", relationships.get("asn"), target_by_key, object_cache))
+    if kind in TAGGED_KINDS:
+        obj.tags.set(_relationship_objects("tag", relationships.get("tag"), target_by_key, object_cache))
+    if kind == "interface":
+        obj.vdcs.set(
+            _relationship_objects(
+                "virtual_device_context",
+                relationships.get("vdc"),
+                target_by_key,
+                object_cache,
+            )
+        )
 
 
 def _relationship_object(
@@ -516,6 +729,133 @@ def _relationship_object(
     obj = _load_target_object(target_record)
     object_cache[key] = obj
     return obj
+
+
+def _write_dcim_fields(obj: Any, resource_kind: str, attributes: dict[str, Any]) -> None:
+    for field_name in ATTRIBUTE_FIELDS[resource_kind]:
+        path = f"/{field_name}"
+        if path in attributes:
+            setattr(obj, field_name, attributes[path])
+            continue
+        field = obj._meta.get_field(field_name)
+        if field.has_default():
+            setattr(obj, field_name, field.get_default())
+        elif field.null:
+            setattr(obj, field_name, None)
+        elif field.get_internal_type() in {"CharField", "TextField"}:
+            setattr(obj, field_name, "")
+
+
+def _generic_relationship_object(
+    resource_kind: str,
+    prefix: str,
+    relationships: dict[str, Any],
+    target_by_key: dict[tuple[str, str], CanonicalRecord],
+    object_cache: dict[tuple[str, str], Any],
+) -> Any | None:
+    matches = [(name, value) for name, value in relationships.items() if name.startswith(prefix)]
+    if not matches:
+        return None
+    if len(matches) != 1:
+        raise ApplicationPlanError(f"{resource_kind} must contain at most one {prefix.rstrip('_')} relationship.")
+    name, value = matches[0]
+    target_kind = relationship_target(resource_kind, name)
+    if target_kind is None:
+        raise ApplicationPlanError(f"Relationship {name} on {resource_kind} is unsupported.")
+    return _relationship_object(target_kind, value, target_by_key, object_cache, required=True)
+
+
+def _cable_termination_objects(
+    side: str,
+    relationships: dict[str, Any],
+    target_by_key: dict[tuple[str, str], CanonicalRecord],
+    object_cache: dict[tuple[str, str], Any],
+) -> list[Any]:
+    objects: list[Any] = []
+    prefix = f"termination_{side}_"
+    for name, identities in sorted(relationships.items()):
+        if not name.startswith(prefix):
+            continue
+        target_kind = relationship_target("cable", name)
+        if target_kind is None:
+            raise ApplicationPlanError(f"Cable relationship {name} is unsupported.")
+        objects.extend(_relationship_objects(target_kind, identities, target_by_key, object_cache))
+    return objects
+
+
+def _write_deferred_relationships(
+    records: list[ApplicationRecord],
+    target_by_key: dict[tuple[str, str], CanonicalRecord],
+    object_cache: dict[tuple[str, str], Any],
+) -> None:
+    for record in records:
+        obj = object_cache[record.key]
+        if record.resource_kind == "virtual_chassis":
+            obj.master = _relationship_object(
+                "device",
+                record.relationships.get("master"),
+                target_by_key,
+                object_cache,
+            )
+            obj.full_clean()
+            obj.save()
+        elif record.resource_kind == "interface":
+            obj.primary_mac_address = _relationship_object(
+                "mac_address",
+                record.relationships.get("primary_mac_address"),
+                target_by_key,
+                object_cache,
+            )
+            obj.full_clean()
+            obj.save()
+        elif record.resource_kind in {"front_port", "front_port_template"}:
+            mapping_model = apps.get_model(
+                "dcim.porttemplatemapping" if record.resource_kind.endswith("_template") else "dcim.portmapping"
+            )
+            target_kind = "rear_port_template" if record.resource_kind.endswith("_template") else "rear_port"
+            obj.mappings.all().delete()
+            for name, identity in sorted(record.relationships.items()):
+                if not name.startswith("mapping_"):
+                    continue
+                try:
+                    front_position, rear_position = (int(value) for value in name.removeprefix("mapping_").split("_"))
+                except (TypeError, ValueError) as exc:
+                    raise ApplicationPlanError(f"Invalid port mapping relationship {name!r}.") from exc
+                mapping = mapping_model(
+                    front_port=obj,
+                    rear_port=_relationship_object(
+                        target_kind,
+                        identity,
+                        target_by_key,
+                        object_cache,
+                        required=True,
+                    ),
+                    front_port_position=front_position,
+                    rear_port_position=rear_position,
+                )
+                if record.resource_kind.endswith("_template"):
+                    mapping.device_type = obj.device_type
+                    mapping.module_type = obj.module_type
+                else:
+                    mapping.device = obj.device
+                mapping.full_clean()
+                mapping.save()
+
+
+def _write_rack_physical_fields(obj: Any, attributes: dict[str, Any], *, require_form_factor: bool) -> None:
+    obj.form_factor = _required(attributes, "/form_factor") if require_form_factor else attributes.get("/form_factor")
+    obj.width = _required(attributes, "/width")
+    obj.u_height = _required(attributes, "/u_height")
+    obj.starting_unit = _required(attributes, "/starting_unit")
+    obj.desc_units = _required(attributes, "/desc_units")
+    obj.outer_width = attributes.get("/outer_width")
+    obj.outer_height = attributes.get("/outer_height")
+    obj.outer_depth = attributes.get("/outer_depth")
+    obj.outer_unit = attributes.get("/outer_unit")
+    obj.mounting_depth = attributes.get("/mounting_depth")
+    obj.weight = attributes.get("/weight")
+    obj.max_weight = attributes.get("/max_weight")
+    obj.weight_unit = attributes.get("/weight_unit")
 
 
 def _relationship_objects(
