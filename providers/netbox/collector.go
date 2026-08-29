@@ -70,6 +70,19 @@ var datasetEndpoints = map[string][]endpoint{
 	"tenancy_contact_assignments": {
 		{Path: "tenancy/contact-assignments/", Kind: "contact_assignment"},
 	},
+	"virtualization_clusters": {
+		{Path: "virtualization/cluster-types/", Kind: "cluster_type"},
+		{Path: "virtualization/cluster-groups/", Kind: "cluster_group"},
+		{Path: "virtualization/clusters/", Kind: "cluster"},
+	},
+	"virtualization_machines": {
+		{Path: "virtualization/virtual-machine-types/", Kind: "virtual_machine_type"},
+		{Path: "virtualization/virtual-machines/", Kind: "virtual_machine"},
+	},
+	"virtualization_components": {
+		{Path: "virtualization/interfaces/", Kind: "vm_interface"},
+		{Path: "virtualization/virtual-disks/", Kind: "virtual_disk"},
+	},
 	"ipam_registries": {
 		{Path: "ipam/asn-ranges/", Kind: "asn_range"},
 		{Path: "ipam/aggregates/", Kind: "aggregate"},
@@ -702,9 +715,6 @@ func attributesFor(kind string, record map[string]any) []contracts.ObservationAt
 		addFields("name", "description", "schema", "comments")
 	case "config_context":
 		addFields("name", "weight", "description", "is_active", "data")
-		if values := unsupportedConfigContextAssignments(record); len(values) > 0 {
-			add("/unsupported_assignment_types", values)
-		}
 	case "config_template":
 		addFields(
 			"name", "description", "environment_params", "template_code", "mime_type", "file_name",
@@ -739,6 +749,24 @@ func attributesFor(kind string, record map[string]any) []contracts.ObservationAt
 	case "contact_assignment":
 		addChoice("/priority", "priority")
 		add("/object_type", contentTypeValue(record["object_type"]))
+	case "cluster_type", "cluster_group":
+		addFields("name", "slug", "description", "comments")
+	case "cluster":
+		addFields("name", "description", "comments")
+		addChoice("/status", "status")
+		add("/scope_type", contentTypeValue(record["scope_type"]))
+	case "virtual_machine_type":
+		addFields("name", "slug", "default_memory", "description", "comments")
+		addDecimal("/default_vcpus", "default_vcpus")
+	case "virtual_machine":
+		addFields("name", "memory", "disk", "description", "serial", "comments", "local_context_data")
+		addChoices("status", "start_on_boot")
+		addDecimal("/vcpus", "vcpus")
+	case "vm_interface":
+		addFields("name", "enabled", "mtu", "description")
+		addChoice("/mode", "mode")
+	case "virtual_disk":
+		addFields("name", "description", "size")
 	case "rir":
 		addDirect("/name", "name")
 		addDirect("/slug", "slug")
@@ -1126,6 +1154,9 @@ func relationshipsFor(kind string, record map[string]any) []contracts.Relationsh
 		addMany("platform", "platform", record["platforms"])
 		addMany("tenant_group", "tenant_group", record["tenant_groups"])
 		addMany("tenant", "tenant", record["tenants"])
+		addMany("cluster_type", "cluster_type", record["cluster_types"])
+		addMany("cluster_group", "cluster_group", record["cluster_groups"])
+		addMany("cluster", "cluster", record["clusters"])
 	case "notification_group":
 		addMany("group", "user_group", record["groups"])
 		addMany("user", "user", record["users"])
@@ -1156,6 +1187,46 @@ func relationshipsFor(kind string, record map[string]any) []contracts.Relationsh
 		add("contact", "contact", record["contact"])
 		add("role", "contact_role", record["role"])
 		addGeneric("object", record["object_type"], record["object_id"])
+		addMany("tag", "tag", record["tags"])
+	case "cluster_type", "cluster_group":
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "cluster":
+		add("type", "cluster_type", record["type"])
+		add("group", "cluster_group", record["group"])
+		add("tenant", "tenant", record["tenant"])
+		addGeneric("scope", record["scope_type"], record["scope_id"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "virtual_machine_type":
+		add("default_platform", "platform", record["default_platform"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "virtual_machine":
+		add("virtual_machine_type", "virtual_machine_type", record["virtual_machine_type"])
+		add("site", "site", record["site"])
+		add("cluster", "cluster", record["cluster"])
+		add("device", "device", record["device"])
+		add("tenant", "tenant", record["tenant"])
+		add("platform", "platform", record["platform"])
+		add("role", "device_role", record["role"])
+		add("config_template", "config_template", record["config_template"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "vm_interface":
+		add("virtual_machine", "virtual_machine", record["virtual_machine"])
+		add("parent", "vm_interface", record["parent"])
+		add("bridge", "vm_interface", record["bridge"])
+		add("untagged_vlan", "vlan", record["untagged_vlan"])
+		addMany("tagged_vlan", "vlan", record["tagged_vlans"])
+		add("qinq_svlan", "vlan", record["qinq_svlan"])
+		add("vlan_translation_policy", "vlan_translation_policy", record["vlan_translation_policy"])
+		add("vrf", "vrf", record["vrf"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "virtual_disk":
+		add("virtual_machine", "virtual_machine", record["virtual_machine"])
+		add("owner", "owner", record["owner"])
 		addMany("tag", "tag", record["tags"])
 	case "site_group":
 		add("parent", "site_group", record["parent"])
@@ -1523,20 +1594,14 @@ func resourceKindForObjectType(objectType string) (string, bool) {
 		"circuits.circuit":               "circuit",
 		"circuits.circuittermination":    "circuit_termination",
 		"circuits.virtualcircuit":        "virtual_circuit",
+		"virtualization.clustergroup":    "cluster_group",
+		"virtualization.cluster":         "cluster",
+		"virtualization.virtualmachine":  "virtual_machine",
+		"virtualization.vminterface":     "vm_interface",
 		"extras.webhook":                 "webhook",
 		"extras.notificationgroup":       "notification_group",
 	}[objectType]
 	return kind, ok
-}
-
-func unsupportedConfigContextAssignments(record map[string]any) []string {
-	values := make([]string, 0, 3)
-	for _, field := range []string{"cluster_types", "cluster_groups", "clusters"} {
-		if items, ok := record[field].([]any); ok && len(items) > 0 {
-			values = append(values, field)
-		}
-	}
-	return values
 }
 
 func unsupportedTerminationTypes(record map[string]any) []string {

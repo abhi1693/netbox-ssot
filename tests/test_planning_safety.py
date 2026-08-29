@@ -295,19 +295,18 @@ def test_extras_identities_are_portable_and_fail_closed_for_unsupported_actions(
             {"/name": "Run script", "/action_type": "script"},
             {},
         )
-    with pytest.raises(ValueError, match="outside the supported provider graph"):
-        natural_identity(
-            "config_context",
-            {"/name": "Clusters", "/unsupported_assignment_types": ["clusters"]},
-            {},
-        )
+    assert natural_identity("config_context", {"/name": "Clusters"}, {"cluster": ["production"]})
 
 
 def test_extras_many_to_many_relationships_preserve_cardinality() -> None:
     assert normalize_relationship_cardinality(
         "config_context",
-        {"site": ["site-a"], "tenant": ["tenant-a", "tenant-b"]},
-    ) == {"site": ["site-a"], "tenant": ["tenant-a", "tenant-b"]}
+        {"site": ["site-a"], "tenant": ["tenant-a", "tenant-b"], "cluster": ["cluster-a"]},
+    ) == {
+        "site": ["site-a"],
+        "tenant": ["tenant-a", "tenant-b"],
+        "cluster": ["cluster-a"],
+    }
     assert normalize_relationship_cardinality(
         "notification_group",
         {"group": ["operators"], "user": ["alice"]},

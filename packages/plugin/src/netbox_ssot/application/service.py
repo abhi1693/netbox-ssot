@@ -573,7 +573,11 @@ def _write_object(
             and obj.type != attributes["/type"]
         ):
             raise ApplicationPlanError("Changing the type of an existing custom field is not supported.")
-        _write_declared_fields(obj, kind, attributes)
+        declared_attributes = attributes
+        if kind == "virtual_machine" and not obj._state.adding and obj.virtualdisks.exists():
+            # VirtualDisk signals own the aggregate once component disks exist.
+            declared_attributes = {path: value for path, value in attributes.items() if path != "/disk"}
+        _write_declared_fields(obj, kind, declared_attributes)
         for relationship_name, (target_kind, field_name) in RELATIONSHIP_FIELDS[kind].items():
             if (kind, relationship_name) in {
                 ("virtual_chassis", "master"),
@@ -623,7 +627,7 @@ def _write_object(
                 target_by_key,
                 object_cache,
             )
-        elif kind in {"vlan_group", "prefix"}:
+        elif kind in {"vlan_group", "prefix", "cluster"}:
             obj.scope = _generic_relationship_object(
                 kind,
                 "scope_",
@@ -745,6 +749,10 @@ def _write_object(
     if kind == "contact":
         obj.groups.set(
             _relationship_objects("contact_group", relationships.get("group"), target_by_key, object_cache)
+        )
+    if kind == "vm_interface":
+        obj.tagged_vlans.set(
+            _relationship_objects("vlan", relationships.get("tagged_vlan"), target_by_key, object_cache)
         )
     if kind == "config_context":
         for name, target_kind in CONFIG_CONTEXT_MULTI_RELATIONSHIPS.items():

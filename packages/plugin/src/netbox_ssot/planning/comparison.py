@@ -10,7 +10,7 @@ from .adapters import build_adapter_pair
 from .diffsync_engine import ComparisonOnlyDiffSyncEngine
 from .resource_registry import ATTRIBUTE_FIELDS, is_multi_relationship
 
-ENGINE_VERSION = "12.0"
+ENGINE_VERSION = "13.0"
 SUPPORTED_RESOURCE_KINDS = frozenset(ATTRIBUTE_FIELDS)
 MULTI_RELATIONSHIPS = {
     "tenant_group": frozenset({"tag"}),
@@ -176,7 +176,14 @@ def natural_identity(
         parts = [resource_kind, "username", str(required_attribute("username")).casefold()]
     elif resource_kind == "asn":
         parts = [resource_kind, "asn", required_attribute("asn")]
-    elif resource_kind in {"role", "asn_range", "contact_role"}:
+    elif resource_kind in {
+        "role",
+        "asn_range",
+        "contact_role",
+        "cluster_type",
+        "cluster_group",
+        "virtual_machine_type",
+    }:
         parts = [resource_kind, "slug", required_attribute("slug")]
     elif resource_kind == "contact":
         parts = [resource_kind, "name", str(required_attribute("name")).casefold()]
@@ -192,6 +199,28 @@ def natural_identity(
             required_relationship("contact"),
             required_relationship("role"),
         ]
+    elif resource_kind == "cluster":
+        scopes = sorted((name, value) for name, value in relationships.items() if name.startswith("scope_"))
+        if attributes.get("/scope_type") and len(scopes) != 1:
+            raise ValueError("The cluster scope targets a model outside the supported DCIM graph.")
+        parts = [
+            resource_kind,
+            relationships.get("group", "no-group"),
+            scopes or "global",
+            str(required_attribute("name")).casefold(),
+        ]
+    elif resource_kind == "virtual_machine":
+        placement = relationships.get("cluster") or relationships.get("device") or relationships.get("site")
+        if not isinstance(placement, str) or not placement:
+            raise ValueError("A virtual machine requires a cluster, device, or site for portable identity.")
+        parts = [
+            resource_kind,
+            placement,
+            relationships.get("tenant", "no-tenant"),
+            str(required_attribute("name")).casefold(),
+        ]
+    elif resource_kind in {"vm_interface", "virtual_disk"}:
+        parts = [resource_kind, required_relationship("virtual_machine"), required_attribute("name")]
     elif resource_kind in {"route_target", "vlan_translation_policy", "service_template"}:
         parts = [resource_kind, "name", required_attribute("name")]
     elif resource_kind == "vrf":

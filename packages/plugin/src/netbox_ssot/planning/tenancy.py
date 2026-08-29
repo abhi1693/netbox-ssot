@@ -71,6 +71,9 @@ TENANCY_CONTACT_TARGET_KINDS: Final = frozenset(
         "ip_range",
         "ip_address",
         "service",
+        "cluster_group",
+        "cluster",
+        "virtual_machine",
     }
 )
 

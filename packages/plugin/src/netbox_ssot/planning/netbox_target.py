@@ -102,11 +102,21 @@ from ipam.models import (
 )
 from tenancy.models import Contact, ContactAssignment, ContactGroup, ContactRole, Tenant, TenantGroup
 from users.models import Group, ObjectPermission, Owner, OwnerGroup, User
+from virtualization.models import (
+    Cluster,
+    ClusterGroup,
+    ClusterType,
+    VirtualDisk,
+    VirtualMachine,
+    VirtualMachineType,
+    VMInterface,
+)
 
 from .comparison import CanonicalRecord, natural_identity, normalize_value
 from .core import portable_data_source_parameters
 from .resource_registry import ATTRIBUTE_FIELDS, RELATIONSHIP_FIELDS, TAGGED_KINDS
 from .tenancy import TENANCY_CONTACT_TARGET_KINDS
+from .virtualization import VIRTUALIZATION_SCOPE_TARGET_KINDS
 
 MODEL_BY_KIND = {
     "tag": Tag,
@@ -134,6 +144,13 @@ MODEL_BY_KIND = {
     "contact_role": ContactRole,
     "contact": Contact,
     "contact_assignment": ContactAssignment,
+    "cluster_type": ClusterType,
+    "cluster_group": ClusterGroup,
+    "cluster": Cluster,
+    "virtual_machine_type": VirtualMachineType,
+    "virtual_machine": VirtualMachine,
+    "vm_interface": VMInterface,
+    "virtual_disk": VirtualDisk,
     "site_group": SiteGroup,
     "rir": RIR,
     "role": Role,
@@ -226,23 +243,46 @@ def _queryset(resource_kind: str) -> Iterable[Any]:
         queryset = queryset.filter(action_type__in=("webhook", "notification"))
     elif resource_kind in {"vlan_group", "prefix"}:
         supported = ("region", "sitegroup", "site", "location")
+        scope_filter = Q(scope_type__isnull=True) | Q(scope_type__app_label="dcim", scope_type__model__in=supported)
         if resource_kind == "vlan_group":
-            supported += ("rackgroup", "rack")
-        queryset = queryset.filter(
-            Q(scope_type__isnull=True) | Q(scope_type__app_label="dcim", scope_type__model__in=supported)
-        )
+            supported += ("rackgroup", "rack", "clustergroup", "cluster")
+            scope_filter = (
+                Q(scope_type__isnull=True)
+                | Q(scope_type__app_label="dcim", scope_type__model__in=supported)
+                | Q(
+                    scope_type__app_label="virtualization",
+                    scope_type__model__in=("clustergroup", "cluster"),
+                )
+            )
+        queryset = queryset.filter(scope_filter)
     elif resource_kind == "ip_address":
         queryset = queryset.filter(
             Q(assigned_object_type__isnull=True)
             | Q(assigned_object_type__app_label="dcim", assigned_object_type__model="interface")
+            | Q(assigned_object_type__app_label="virtualization", assigned_object_type__model="vminterface")
             | Q(assigned_object_type__app_label="ipam", assigned_object_type__model="fhrpgroup")
         )
     elif resource_kind == "fhrp_group_assignment":
-        queryset = queryset.filter(interface_type__app_label="dcim", interface_type__model="interface")
+        queryset = queryset.filter(
+            Q(interface_type__app_label="dcim", interface_type__model="interface")
+            | Q(interface_type__app_label="virtualization", interface_type__model="vminterface")
+        )
     elif resource_kind == "service":
         queryset = queryset.filter(
             Q(parent_object_type__app_label="dcim", parent_object_type__model="device")
+            | Q(parent_object_type__app_label="virtualization", parent_object_type__model="virtualmachine")
             | Q(parent_object_type__app_label="ipam", parent_object_type__model="fhrpgroup")
+        )
+    elif resource_kind == "mac_address":
+        queryset = queryset.filter(
+            Q(assigned_object_type__isnull=True)
+            | Q(assigned_object_type__app_label="dcim", assigned_object_type__model="interface")
+            | Q(assigned_object_type__app_label="virtualization", assigned_object_type__model="vminterface")
+        )
+    elif resource_kind == "cluster":
+        queryset = queryset.filter(
+            Q(scope_type__isnull=True)
+            | Q(scope_type__app_label="dcim", scope_type__model__in=("region", "sitegroup", "site", "location"))
         )
     elif resource_kind == "contact_assignment":
         supported = Q(pk__in=[])
@@ -271,6 +311,7 @@ def _queryset(resource_kind: str) -> Iterable[Any]:
         "fhrp_group_assignment": ("interface_type",),
         "service": ("parent_object_type",),
         "contact_assignment": ("object_type",),
+        "cluster": ("scope_type",),
     }.get(resource_kind, ())
     if extra_related:
         queryset = queryset.select_related(*extra_related)
@@ -297,6 +338,9 @@ def _queryset(resource_kind: str) -> Iterable[Any]:
                 "platforms",
                 "tenant_groups",
                 "tenants",
+                "cluster_types",
+                "cluster_groups",
+                "clusters",
             )
         )
     if resource_kind == "notification_group":
@@ -317,6 +361,10 @@ def _queryset(resource_kind: str) -> Iterable[Any]:
         prefetch.append("groups")
     if resource_kind == "contact_assignment":
         prefetch.append("object")
+    if resource_kind == "cluster":
+        prefetch.append("scope")
+    if resource_kind == "vm_interface":
+        prefetch.append("tagged_vlans")
     if resource_kind in {"vlan_group", "prefix"}:
         prefetch.append("scope")
     if resource_kind == "ip_address":
@@ -386,13 +434,21 @@ def _attributes(resource_kind: str, obj: Any) -> dict[str, Any]:
             "/scope_type",
             f"{obj.scope_type.app_label}.{obj.scope_type.model}" if obj.scope_type else None,
         )
-    elif resource_kind in {"prefix", "ip_address", "fhrp_group_assignment", "service", "contact_assignment"}:
+    elif resource_kind in {
+        "prefix",
+        "ip_address",
+        "fhrp_group_assignment",
+        "service",
+        "contact_assignment",
+        "cluster",
+    }:
         field_name = {
             "prefix": "scope_type",
             "ip_address": "assigned_object_type",
             "fhrp_group_assignment": "interface_type",
             "service": "parent_object_type",
             "contact_assignment": "object_type",
+            "cluster": "scope_type",
         }[resource_kind]
         content_type = getattr(obj, field_name)
         add(f"/{field_name}", f"{content_type.app_label}.{content_type.model}" if content_type else None)
@@ -461,6 +517,12 @@ def _relationships(resource_kind: str, obj: Any) -> dict[str, Any]:
         target_kind = _kind_for_model(obj.object)
         if target_kind in TENANCY_CONTACT_TARGET_KINDS:
             add(f"object_{target_kind}", target_kind, obj.object)
+    elif resource_kind == "cluster" and obj.scope is not None:
+        target_kind = _kind_for_model(obj.scope)
+        if target_kind in VIRTUALIZATION_SCOPE_TARGET_KINDS:
+            add(f"scope_{target_kind}", target_kind, obj.scope)
+    elif resource_kind == "vm_interface":
+        add_many("tagged_vlan", "vlan", obj.tagged_vlans.all())
     elif resource_kind == "vrf":
         add_many("import_target", "route_target", obj.import_targets.all())
         add_many("export_target", "route_target", obj.export_targets.all())
@@ -470,15 +532,15 @@ def _relationships(resource_kind: str, obj: Any) -> dict[str, Any]:
             add(f"scope_{target_kind}", target_kind, obj.scope)
     elif resource_kind == "ip_address" and obj.assigned_object is not None:
         target_kind = _kind_for_model(obj.assigned_object)
-        if target_kind in {"interface", "fhrp_group"}:
+        if target_kind in {"interface", "vm_interface", "fhrp_group"}:
             add(f"assigned_{target_kind}", target_kind, obj.assigned_object)
     elif resource_kind == "fhrp_group_assignment" and obj.interface is not None:
         target_kind = _kind_for_model(obj.interface)
-        if target_kind == "interface":
-            add("interface_interface", target_kind, obj.interface)
+        if target_kind in {"interface", "vm_interface"}:
+            add(f"interface_{target_kind}", target_kind, obj.interface)
     elif resource_kind == "service" and obj.parent is not None:
         target_kind = _kind_for_model(obj.parent)
-        if target_kind in {"device", "fhrp_group"}:
+        if target_kind in {"device", "virtual_machine", "fhrp_group"}:
             add(f"parent_{target_kind}", target_kind, obj.parent)
         add_many("ip_address", "ip_address", obj.ipaddresses.all())
     elif resource_kind == "event_rule" and obj.action_object is not None:
@@ -500,8 +562,8 @@ def _relationships(resource_kind: str, obj: Any) -> dict[str, Any]:
             add(f"component_{target_kind}", target_kind, obj.component)
     elif resource_kind == "mac_address" and obj.assigned_object is not None:
         target_kind = _kind_for_model(obj.assigned_object)
-        if target_kind == "interface":
-            add("assigned_interface", target_kind, obj.assigned_object)
+        if target_kind in {"interface", "vm_interface"}:
+            add(f"assigned_{target_kind}", target_kind, obj.assigned_object)
     elif resource_kind == "circuit_termination" and obj.termination is not None:
         target_kind = _kind_for_model(obj.termination)
         if target_kind:
@@ -537,6 +599,9 @@ def _target_identity(resource_kind: str, obj: Any) -> str:
         "tenant",
         "contact_group",
         "contact_role",
+        "cluster_type",
+        "cluster_group",
+        "virtual_machine_type",
         "site_group",
         "rir",
         "region",
@@ -627,7 +692,7 @@ def _target_identity(resource_kind: str, obj: Any) -> str:
             relationships["vrf"] = _target_identity("vrf", obj.vrf)
         if obj.assigned_object is not None:
             target_kind = _kind_for_model(obj.assigned_object)
-            if target_kind in {"interface", "fhrp_group"}:
+            if target_kind in {"interface", "vm_interface", "fhrp_group"}:
                 relationships[f"assigned_{target_kind}"] = _target_identity(target_kind, obj.assigned_object)
                 attributes["/assigned_object_type"] = obj.assigned_object_type.model
     elif resource_kind == "fhrp_group":
@@ -636,16 +701,18 @@ def _target_identity(resource_kind: str, obj: Any) -> str:
         attributes["/name"] = obj.name
     elif resource_kind == "fhrp_group_assignment":
         relationships["group"] = _target_identity("fhrp_group", obj.group)
-        if obj.interface is not None and _kind_for_model(obj.interface) == "interface":
-            relationships["interface_interface"] = _target_identity("interface", obj.interface)
-            attributes["/interface_type"] = "dcim.interface"
+        if obj.interface is not None:
+            target_kind = _kind_for_model(obj.interface)
+            if target_kind in {"interface", "vm_interface"}:
+                relationships[f"interface_{target_kind}"] = _target_identity(target_kind, obj.interface)
+                attributes["/interface_type"] = obj.interface_type.model
     elif resource_kind == "service":
         attributes["/name"] = obj.name
         attributes["/protocol"] = obj.protocol
         attributes["/ports"] = list(obj.ports)
         if obj.parent is not None:
             target_kind = _kind_for_model(obj.parent)
-            if target_kind in {"device", "fhrp_group"}:
+            if target_kind in {"device", "virtual_machine", "fhrp_group"}:
                 relationships[f"parent_{target_kind}"] = _target_identity(target_kind, obj.parent)
                 attributes["/parent_object_type"] = obj.parent_object_type.model
     elif resource_kind == "contact_assignment":
@@ -656,6 +723,29 @@ def _target_identity(resource_kind: str, obj: Any) -> str:
             if target_kind in TENANCY_CONTACT_TARGET_KINDS:
                 relationships[f"object_{target_kind}"] = _target_identity(target_kind, obj.object)
                 attributes["/object_type"] = obj.object_type.model
+    elif resource_kind == "cluster":
+        attributes["/name"] = obj.name
+        if obj.group:
+            relationships["group"] = _target_identity("cluster_group", obj.group)
+        if obj.scope is not None:
+            target_kind = _kind_for_model(obj.scope)
+            if target_kind in VIRTUALIZATION_SCOPE_TARGET_KINDS:
+                relationships[f"scope_{target_kind}"] = _target_identity(target_kind, obj.scope)
+                attributes["/scope_type"] = obj.scope_type.model
+    elif resource_kind == "virtual_machine":
+        attributes["/name"] = obj.name
+        for name, target_kind in (
+            ("site", "site"),
+            ("cluster", "cluster"),
+            ("device", "device"),
+            ("tenant", "tenant"),
+        ):
+            target = getattr(obj, name)
+            if target is not None:
+                relationships[name] = _target_identity(target_kind, target)
+    elif resource_kind in {"vm_interface", "virtual_disk"}:
+        attributes["/name"] = obj.name
+        relationships["virtual_machine"] = _target_identity("virtual_machine", obj.virtual_machine)
 
     if resource_kind in {"region", "site_group", "tenant_group", "device_role", "contact_group"} and obj.parent:
         relationships["parent"] = _target_identity(resource_kind, obj.parent)
@@ -749,8 +839,8 @@ def _target_identity(resource_kind: str, obj: Any) -> str:
         attributes["/mac_address"] = str(obj.mac_address)
         if obj.assigned_object is not None:
             target_kind = _kind_for_model(obj.assigned_object)
-            if target_kind == "interface":
-                relationships["assigned_interface"] = _target_identity(target_kind, obj.assigned_object)
+            if target_kind in {"interface", "vm_interface"}:
+                relationships[f"assigned_{target_kind}"] = _target_identity(target_kind, obj.assigned_object)
     elif resource_kind == "rack_reservation":
         attributes["/units"] = list(obj.units)
         attributes["/user"] = obj.user.username

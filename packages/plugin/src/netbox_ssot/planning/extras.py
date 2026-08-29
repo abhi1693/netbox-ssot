@@ -124,7 +124,6 @@ EXTRAS_EXTRA_ATTRIBUTE_FIELDS: Final[dict[str, tuple[str, ...]]] = {
     "export_template": ("object_types",),
     "saved_filter": ("object_types",),
     "table_config": ("object_type",),
-    "config_context": ("unsupported_assignment_types",),
     "event_rule": ("object_types",),
 }
 
@@ -166,6 +165,9 @@ CONFIG_CONTEXT_MULTI_RELATIONSHIPS: Final[dict[str, str]] = {
     "platform": "platform",
     "tenant_group": "tenant_group",
     "tenant": "tenant",
+    "cluster_type": "cluster_type",
+    "cluster_group": "cluster_group",
+    "cluster": "cluster",
 }
 
 CONTENT_TYPE_LIST_KINDS: Final = frozenset(

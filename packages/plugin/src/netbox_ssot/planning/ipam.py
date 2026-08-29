@@ -143,9 +143,12 @@ IPAM_IDENTITY_RELATIONSHIPS.update(
     }
 )
 
-IPAM_SCOPE_TARGET_KINDS: Final = frozenset({"region", "site_group", "site", "location", "rack_group", "rack"})
-IPAM_ASSIGNMENT_TARGET_KINDS: Final = frozenset({"interface", "fhrp_group"})
-IPAM_SERVICE_PARENT_KINDS: Final = frozenset({"device", "fhrp_group"})
+IPAM_PREFIX_SCOPE_TARGET_KINDS: Final = frozenset({"region", "site_group", "site", "location"})
+IPAM_VLAN_SCOPE_TARGET_KINDS: Final = IPAM_PREFIX_SCOPE_TARGET_KINDS | frozenset(
+    {"rack_group", "rack", "cluster_group", "cluster"}
+)
+IPAM_ASSIGNMENT_TARGET_KINDS: Final = frozenset({"interface", "vm_interface", "fhrp_group"})
+IPAM_SERVICE_PARENT_KINDS: Final = frozenset({"device", "virtual_machine", "fhrp_group"})
 
 
 def ipam_relationship_target(resource_kind: str, name: str) -> str | None:
@@ -155,13 +158,14 @@ def ipam_relationship_target(resource_kind: str, name: str) -> str | None:
         return "ip_address"
     if resource_kind in {"vlan_group", "prefix"} and name.startswith("scope_"):
         target = name.removeprefix("scope_")
-        return target if target in IPAM_SCOPE_TARGET_KINDS else None
+        allowed = IPAM_VLAN_SCOPE_TARGET_KINDS if resource_kind == "vlan_group" else IPAM_PREFIX_SCOPE_TARGET_KINDS
+        return target if target in allowed else None
     if resource_kind == "ip_address" and name.startswith("assigned_"):
         target = name.removeprefix("assigned_")
         return target if target in IPAM_ASSIGNMENT_TARGET_KINDS else None
     if resource_kind == "fhrp_group_assignment" and name.startswith("interface_"):
         target = name.removeprefix("interface_")
-        return target if target == "interface" else None
+        return target if target in {"interface", "vm_interface"} else None
     if resource_kind == "service" and name.startswith("parent_"):
         target = name.removeprefix("parent_")
         return target if target in IPAM_SERVICE_PARENT_KINDS else None

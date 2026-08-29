@@ -4,7 +4,7 @@
   "icon_class": "mdi mdi-cube-outline",
   "description": "Collects portable configuration and infrastructure data from a remote NetBox REST API.",
   "instance_url_field": "base_url",
-  "implementation_version": "0.0.13",
+  "implementation_version": "0.0.14",
   "contract_version": "1.0",
   "documentation_url": "https://github.com/abhi1693/netbox-ssot",
   "execution_modes": [
@@ -146,7 +146,8 @@
         "power",
         "circuit_catalog",
         "circuits",
-        "virtual_circuits"
+        "virtual_circuits",
+        "virtualization_machines"
       ],
       "data_mappings": [
         {"source_name": "Contact assignment", "source_model": "tenancy.ContactAssignment", "source_path": "tenancy/contact-assignments/", "destination_kind": "contact_assignment"}
@@ -181,11 +182,11 @@
     {
       "id": "ipam_vlans",
       "title": "IPAM VLANs",
-      "description": "VLAN groups, VLANs, and translation policies. Virtualization-backed scopes and VPN terminations remain outside this provider graph.",
+      "description": "VLAN groups, VLANs, and translation policies, including cluster-backed scopes. VPN terminations remain outside this provider graph.",
       "resource_kinds": ["vlan_group", "vlan", "vlan_translation_policy", "vlan_translation_rule"],
       "default_enabled": true,
       "completeness": "declared_scope",
-      "depends_on": ["locations", "racks"],
+      "depends_on": ["locations", "racks", "virtualization_clusters"],
       "data_mappings": [
         {"source_name": "VLAN group", "source_model": "ipam.VLANGroup", "source_path": "ipam/vlan-groups/", "destination_kind": "vlan_group"},
         {"source_name": "VLAN", "source_model": "ipam.VLAN", "source_path": "ipam/vlans/", "destination_kind": "vlan"},
@@ -209,7 +210,7 @@
     {
       "id": "ipam_addresses",
       "title": "IPAM addresses and FHRP",
-      "description": "IP addresses, FHRP groups, and physical-interface assignments. FHRP authentication keys remain destination-local; virtual interfaces are not copied.",
+      "description": "IP addresses, FHRP groups, and physical or virtual interface assignments. FHRP authentication keys remain destination-local.",
       "resource_kinds": ["fhrp_group", "ip_address", "fhrp_group_assignment"],
       "default_enabled": true,
       "completeness": "declared_scope",
@@ -387,11 +388,11 @@
     {
       "id": "extras_contexts",
       "title": "Configuration contexts",
-      "description": "Configuration context profiles and contexts for supported DCIM and tenancy qualifiers. Virtualization qualifiers and Data Source file bindings remain local.",
+      "description": "Configuration context profiles and contexts for supported DCIM, tenancy, and virtualization qualifiers. Data Source file bindings remain local.",
       "resource_kinds": ["config_context_profile", "config_context"],
       "default_enabled": true,
       "completeness": "declared_scope",
-      "depends_on": ["locations", "device_catalog"],
+      "depends_on": ["locations", "device_catalog", "virtualization_clusters"],
       "data_mappings": [
         {"source_name": "Config context profile", "source_model": "extras.ConfigContextProfile", "source_path": "extras/config-context-profiles/", "destination_kind": "config_context_profile"},
         {"source_name": "Config context", "source_model": "extras.ConfigContext", "source_path": "extras/config-contexts/", "destination_kind": "config_context"}
@@ -475,14 +476,14 @@
     {
       "id": "device_components",
       "title": "Device components",
-      "description": "Modules, virtual contexts, installed ports, interfaces, bays, inventory, and MAC addresses.",
+      "description": "Modules, virtual contexts, installed ports, interfaces, bays, inventory, and MAC addresses including VM interface assignments.",
       "resource_kinds": [
         "virtual_device_context", "module_bay", "device_bay", "module", "console_port", "console_server_port",
         "power_port", "power_outlet", "interface", "rear_port", "front_port", "inventory_item", "mac_address"
       ],
       "default_enabled": true,
       "completeness": "declared_scope",
-      "depends_on": ["devices"],
+      "depends_on": ["devices", "virtualization_components"],
       "data_mappings": [
         {"source_name": "Virtual device context", "source_model": "dcim.VirtualDeviceContext", "source_path": "dcim/virtual-device-contexts/", "destination_kind": "virtual_device_context"},
         {"source_name": "Module bay", "source_model": "dcim.ModuleBay", "source_path": "dcim/module-bays/", "destination_kind": "module_bay"},
@@ -497,6 +498,46 @@
         {"source_name": "Front port", "source_model": "dcim.FrontPort", "source_path": "dcim/front-ports/", "destination_kind": "front_port"},
         {"source_name": "Inventory item", "source_model": "dcim.InventoryItem", "source_path": "dcim/inventory-items/", "destination_kind": "inventory_item"},
         {"source_name": "MAC address", "source_model": "dcim.MACAddress", "source_path": "dcim/mac-addresses/", "destination_kind": "mac_address"}
+      ]
+    },
+    {
+      "id": "virtualization_clusters",
+      "title": "Virtualization clusters",
+      "description": "Cluster types, groups, and clusters with DCIM scope, tenancy, ownership, contacts, and tags.",
+      "resource_kinds": ["cluster_type", "cluster_group", "cluster"],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": ["locations"],
+      "data_mappings": [
+        {"source_name": "Cluster type", "source_model": "virtualization.ClusterType", "source_path": "virtualization/cluster-types/", "destination_kind": "cluster_type"},
+        {"source_name": "Cluster group", "source_model": "virtualization.ClusterGroup", "source_path": "virtualization/cluster-groups/", "destination_kind": "cluster_group"},
+        {"source_name": "Cluster", "source_model": "virtualization.Cluster", "source_path": "virtualization/clusters/", "destination_kind": "cluster"}
+      ]
+    },
+    {
+      "id": "virtualization_machines",
+      "title": "Virtual machines",
+      "description": "Virtual machine types and VMs with cluster, standalone device, site, platform, role, tenancy, and configuration relationships. Primary IPs remain IPAM-owned.",
+      "resource_kinds": ["virtual_machine_type", "virtual_machine"],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": ["virtualization_clusters", "devices", "extras_templates"],
+      "data_mappings": [
+        {"source_name": "Virtual machine type", "source_model": "virtualization.VirtualMachineType", "source_path": "virtualization/virtual-machine-types/", "destination_kind": "virtual_machine_type"},
+        {"source_name": "Virtual machine", "source_model": "virtualization.VirtualMachine", "source_path": "virtualization/virtual-machines/", "destination_kind": "virtual_machine"}
+      ]
+    },
+    {
+      "id": "virtualization_components",
+      "title": "Virtual machine components",
+      "description": "VM interfaces and virtual disks with VLAN, VRF, ownership, and tagging relationships. Primary MAC addresses remain assignment-owned.",
+      "resource_kinds": ["vm_interface", "virtual_disk"],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": ["virtualization_machines", "ipam_routing", "ipam_vlans"],
+      "data_mappings": [
+        {"source_name": "VM interface", "source_model": "virtualization.VMInterface", "source_path": "virtualization/interfaces/", "destination_kind": "vm_interface"},
+        {"source_name": "Virtual disk", "source_model": "virtualization.VirtualDisk", "source_path": "virtualization/virtual-disks/", "destination_kind": "virtual_disk"}
       ]
     },
     {

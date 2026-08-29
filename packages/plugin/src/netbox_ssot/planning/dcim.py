@@ -569,6 +569,7 @@ COMPONENT_KINDS: Final = frozenset(
 )
 COMPONENT_TEMPLATE_KINDS: Final = frozenset(f"{kind}_template" for kind in COMPONENT_KINDS)
 CABLE_TERMINATION_KINDS: Final = COMPONENT_KINDS | {"power_feed"}
+MAC_ADDRESS_ASSIGNMENT_KINDS: Final = frozenset({"interface", "vm_interface"})
 
 
 def relationship_target(resource_kind: str, name: str) -> str | None:
@@ -587,7 +588,7 @@ def relationship_target(resource_kind: str, name: str) -> str | None:
         return target if target in allowed else None
     if resource_kind == "mac_address" and name.startswith("assigned_"):
         target = name.removeprefix("assigned_")
-        return target if target == "interface" else None
+        return target if target in MAC_ADDRESS_ASSIGNMENT_KINDS else None
     if resource_kind == "cable" and name.startswith(("termination_a_", "termination_b_")):
         target = name.split("_", 2)[2]
         return target if target in CABLE_TERMINATION_KINDS else None

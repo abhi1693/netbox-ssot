@@ -221,7 +221,7 @@ func TestTenancyContactRecordsPreservePortableAssignments(t *testing.T) {
 	}
 
 	unsupported := relationshipsFor("contact_assignment", map[string]any{
-		"object_type": "virtualization.virtualmachine", "object_id": json.Number("5"),
+		"object_type": "vpn.tunnel", "object_id": json.Number("5"),
 	})
 	if len(unsupported) != 0 {
 		t.Fatalf("unsupported contact assignment relationships = %#v", unsupported)
@@ -554,7 +554,7 @@ func TestWebhookEvidenceNeverHashesDestinationLocalCredentials(t *testing.T) {
 	}
 }
 
-func TestConfigContextMarksUnsupportedVirtualizationQualifiers(t *testing.T) {
+func TestConfigContextPreservesVirtualizationQualifiers(t *testing.T) {
 	observation, err := mapObservation(collectionRequest("https://netbox.example.com"), "config_context", map[string]any{
 		"id": json.Number("90"), "name": "Virtualization", "data": map[string]any{},
 		"cluster_types": []any{map[string]any{"id": json.Number("1")}}, "clusters": []any{map[string]any{"id": json.Number("2")}},
@@ -562,11 +562,51 @@ func TestConfigContextMarksUnsupportedVirtualizationQualifiers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("mapObservation() error = %v", err)
 	}
-	if got := attributeValue(observation, "/unsupported_assignment_types"); !reflect.DeepEqual(
-		got,
-		[]string{"cluster_types", "clusters"},
-	) {
-		t.Fatalf("unsupported assignments = %#v", got)
+	got := map[string]string{}
+	for _, relationship := range observation.Relationships {
+		got[relationship.Kind] = relationship.TargetKind
+	}
+	want := map[string]string{"cluster_type": "cluster_type", "cluster": "cluster"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("virtualization qualifiers = %#v, want %#v", got, want)
+	}
+}
+
+func TestVirtualizationRecordsPreserveComponentsAndGenericScope(t *testing.T) {
+	vmAttributes := attributesFor("virtual_machine", map[string]any{
+		"name": "app-01", "status": map[string]any{"value": "active"},
+		"start_on_boot": map[string]any{"value": "on"}, "vcpus": json.Number("4.00"),
+		"memory": json.Number("8192"), "disk": json.Number("100"), "serial": "vm-serial",
+	})
+	values := make(map[string]any, len(vmAttributes))
+	for _, attribute := range vmAttributes {
+		values[attribute.Path] = attribute.Value
+	}
+	if values["/status"] != "active" || values["/vcpus"] != 4.0 || values["/memory"] != json.Number("8192") {
+		t.Fatalf("virtual machine attributes = %#v", values)
+	}
+
+	clusterRelationships := relationshipsFor("cluster", map[string]any{
+		"type": map[string]any{"id": json.Number("1")}, "scope_type": "dcim.site", "scope_id": json.Number("2"),
+	})
+	if len(clusterRelationships) != 2 || clusterRelationships[1].Kind != "scope_site" {
+		t.Fatalf("cluster relationships = %#v", clusterRelationships)
+	}
+
+	interfaceRelationships := relationshipsFor("vm_interface", map[string]any{
+		"virtual_machine": map[string]any{"id": json.Number("3")},
+		"tagged_vlans": []any{
+			map[string]any{"id": json.Number("4")}, map[string]any{"id": json.Number("5")},
+		},
+		"vrf":  map[string]any{"id": json.Number("6")},
+		"tags": []any{map[string]any{"id": json.Number("7")}},
+	})
+	got := map[string]int{}
+	for _, relationship := range interfaceRelationships {
+		got[relationship.Kind]++
+	}
+	if got["virtual_machine"] != 1 || got["tagged_vlan"] != 2 || got["vrf"] != 1 || got["tag"] != 1 {
+		t.Fatalf("VM interface relationships = %#v", interfaceRelationships)
 	}
 }
 

@@ -117,6 +117,17 @@ def relationship_dependencies(
         targets = [name for name in record.relationships if name.startswith("object_")]
         if len(targets) != 1:
             raise ApplicationPlanError("A contact assignment must contain exactly one supported target object.")
+    if record.resource_kind == "cluster":
+        scopes = [name for name in record.relationships if name.startswith("scope_")]
+        expected = record.attributes.get("/scope_type") not in (None, "")
+        if len(scopes) > 1 or (expected and len(scopes) != 1):
+            raise ApplicationPlanError("A cluster can contain at most one supported DCIM scope.")
+    if record.resource_kind == "virtual_machine" and not any(
+        record.relationships.get(name) for name in ("site", "cluster", "device")
+    ):
+        raise ApplicationPlanError(
+            f"virtual_machine {record.identity_key} requires a site, cluster, or device placement."
+        )
     generic_requirements = {
         "fhrp_group_assignment": "interface_",
         "service": "parent_",

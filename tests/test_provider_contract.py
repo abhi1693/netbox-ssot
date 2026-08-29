@@ -37,6 +37,9 @@ def test_ipam_services_selection_closes_over_routing_vlan_and_dcim_dependencies(
         "racks",
         "devices",
         "device_components",
+        "virtualization_clusters",
+        "virtualization_machines",
+        "virtualization_components",
     }
 
 
@@ -58,11 +61,31 @@ def test_contact_assignments_close_over_every_supported_target_dataset() -> None
         "circuit_catalog",
         "circuits",
         "virtual_circuits",
+        "virtualization_clusters",
+        "virtualization_machines",
+    } <= selected
+
+
+def test_virtualization_components_close_over_placement_vlan_and_routing_dependencies() -> None:
+    selected = set(selected_dataset_ids(MANIFEST, ("virtualization_components",)))
+
+    assert {
+        "references",
+        "ipam_routing",
+        "ipam_vlans",
+        "locations",
+        "racks",
+        "device_catalog",
+        "devices",
+        "extras_templates",
+        "virtualization_clusters",
+        "virtualization_machines",
+        "virtualization_components",
     } <= selected
 
 
 def test_netbox_provider_is_agent_read_only() -> None:
-    assert MANIFEST.implementation_version == "0.0.13"
+    assert MANIFEST.implementation_version == "0.0.14"
     assert MANIFEST.execution_modes == (ExecutionMode.AGENT,)
     assert MANIFEST.capabilities == (ProviderCapability.SOURCE_READ,)
     assert MANIFEST.agent_compatibility.collector_id == "netbox"
@@ -119,6 +142,9 @@ def test_installed_netbox_provider_is_discovered_by_entry_point() -> None:
         "component_templates",
         "devices",
         "device_components",
+        "virtualization_clusters",
+        "virtualization_machines",
+        "virtualization_components",
         "rack_reservations",
         "power",
         "circuit_catalog",
@@ -209,6 +235,13 @@ def test_installed_netbox_provider_is_discovered_by_entry_point() -> None:
         ("dcim.FrontPort", "front_port"),
         ("dcim.InventoryItem", "inventory_item"),
         ("dcim.MACAddress", "mac_address"),
+        ("virtualization.ClusterType", "cluster_type"),
+        ("virtualization.ClusterGroup", "cluster_group"),
+        ("virtualization.Cluster", "cluster"),
+        ("virtualization.VirtualMachineType", "virtual_machine_type"),
+        ("virtualization.VirtualMachine", "virtual_machine"),
+        ("virtualization.VMInterface", "vm_interface"),
+        ("virtualization.VirtualDisk", "virtual_disk"),
         ("dcim.RackReservation", "rack_reservation"),
         ("dcim.PowerPanel", "power_panel"),
         ("dcim.PowerFeed", "power_feed"),
