@@ -54,12 +54,20 @@ from netbox_ssot.application.service import (
     _write_deferred_relationships,
     _write_object,
 )
-from netbox_ssot.planning.dcim import DCIM_RESOURCE_KINDS
+from netbox_ssot.planning.comparison import SUPPORTED_RESOURCE_KINDS
+from netbox_ssot.planning.dcim import ATTRIBUTE_FIELDS, DCIM_RESOURCE_KINDS, RELATIONSHIP_FIELDS
 from netbox_ssot.planning.netbox_target import MODEL_BY_KIND, load_netbox_target_records
 
 
 class DCIMCompleteBundleTests(TestCase):
     available_apps: ClassVar[list[str]] = [app_config.name for app_config in apps.get_app_configs()]
+
+    def test_declarative_registry_covers_every_supported_target_model(self) -> None:
+        expected = set(SUPPORTED_RESOURCE_KINDS)
+
+        assert set(MODEL_BY_KIND) == expected
+        assert set(ATTRIBUTE_FIELDS) == expected
+        assert set(RELATIONSHIP_FIELDS) == expected
 
     def test_every_public_dcim_resource_round_trips_through_snapshot_and_writer(self) -> None:
         suffix = uuid4().hex[:8]

@@ -111,10 +111,11 @@ protection, removes their observations, and only then removes the unreferenced c
 
 ### Plan
 
-The planner builds two in-memory DiffSync adapters from canonical observations and a fresh target snapshot. It invokes
-comparison only, with destination-only records skipped. Exact natural identities are required; incomplete identities
-are skipped and ambiguous identities become conflicts. The current preview persists source facts, target facts, field
-changes, match basis, and snapshot digests. DiffSync synchronization remains disconnected from NetBox mutation.
+The planner compiles typed DiffSync models from the declarative resource registry, then loads canonical observations
+and a fresh target snapshot into source and target adapters. Preview invokes `source.diff_to(target)` with
+destination-only records skipped. Exact natural identities are required; incomplete identities are skipped and
+ambiguous identities become conflicts. The preview persists source facts, target facts, field changes, match basis,
+direction, and snapshot digests without mutating either system.
 
 ### Review and apply
 
@@ -126,9 +127,15 @@ Rejection resolves the snapshot but cannot produce a partial apply.
 
 Apply is a separate command path and accepts only a finalized approval whose decision digest still matches. It requires
 explicit confirmation, re-reads the complete target snapshot, verifies digests and permissions, rejects stale or
-ambiguous proposals, resolves the full supported dependency graph, and executes supported changes in dependency order
-within one transaction. A deployment may additionally require the reviewer and applier to be different users.
-Successful operations store an immutable run/item receipt and durable source bindings.
+ambiguous proposals, resolves the full supported dependency graph, and recalculates the typed DiffSync delta. Once the
+new delta is proven to match the reviewed actions, apply passes that exact object to `source.sync_to(target)`. The
+target adapter's model hooks execute changes in dependency order through its mutation backend. The local NetBox
+backend is atomic and does not support delete. A deployment may additionally require the reviewer and applier to be
+different users. Successful operations store an immutable run/item receipt and durable source bindings.
+
+Direction is durable on comparisons and apply receipts. Source-to-local-NetBox is enabled because the local adapter
+advertises write capability. The inverse direction is represented by the same adapter protocol and fails closed until
+the provider advertises and implements authenticated remote writes.
 
 ## Provider contract
 
@@ -157,8 +164,8 @@ constructs fail closed and make the provider unavailable instead of degrading to
 
 1. Contracts, provider registry, real NetBox descriptor, Go collector, and schema-driven UI.
 2. Persistence for sources, agents, runs, and observations, followed later by bindings, plans, decisions, and receipts.
-3. Compare-only DiffSync planner and plan review workflow.
-4. Guarded local NetBox apply service for complete dependency-closed compatibility bundles.
+3. Typed DiffSync planner and durable plan review workflow.
+4. Guarded `source.sync_to(target)` execution for complete dependency-closed compatibility bundles.
 5. Validate complete one-way NetBox collection from either a production or development instance.
 6. One-time enrollment, file-backed signing keys, rotation overlap, revocation, and unattended outbound operation.
 7. Read-only UniFi Network collector in the Go agent.

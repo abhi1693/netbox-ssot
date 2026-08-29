@@ -11,6 +11,11 @@ from django.utils import timezone
 from .ingestion.signing import SignatureError, decode_public_key, public_key_fingerprint
 
 
+class SynchronizationDirection(models.TextChoices):
+    SOURCE_TO_TARGET = "source_to_target", "Source to target"
+    TARGET_TO_SOURCE = "target_to_source", "Target to source"
+
+
 class DiscoverySource(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     name = models.CharField(max_length=100, unique=True)
@@ -336,6 +341,11 @@ class ComparisonRun(AppendOnlyModel):
     source_payload_digest = models.CharField(max_length=64)
     target_snapshot_digest = models.CharField(max_length=64)
     engine_version = models.CharField(max_length=32)
+    direction = models.CharField(
+        max_length=32,
+        choices=SynchronizationDirection.choices,
+        default=SynchronizationDirection.SOURCE_TO_TARGET,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     create_count = models.PositiveIntegerField(default=0)
     update_count = models.PositiveIntegerField(default=0)
@@ -347,7 +357,7 @@ class ComparisonRun(AppendOnlyModel):
         ordering = ("-created_at",)
         constraints = (
             models.UniqueConstraint(
-                fields=("collection_run", "target_snapshot_digest", "engine_version"),
+                fields=("collection_run", "target_snapshot_digest", "engine_version", "direction"),
                 name="ssot_comparison_run_target_uniq",
             ),
         )
@@ -464,6 +474,11 @@ class ApplyRun(AppendOnlyModel):
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     comparison = models.OneToOneField(ComparisonRun, on_delete=models.PROTECT, related_name="apply_run")
     applied_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    direction = models.CharField(
+        max_length=32,
+        choices=SynchronizationDirection.choices,
+        default=SynchronizationDirection.SOURCE_TO_TARGET,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     create_count = models.PositiveIntegerField(default=0)
     update_count = models.PositiveIntegerField(default=0)

@@ -14,52 +14,12 @@ from ..planning.dcim import (
     REQUIRED_RELATIONSHIPS as DCIM_REQUIRED_RELATIONSHIPS,
 )
 
-RELATIONSHIP_TARGETS: dict[str, dict[str, str]] = {
-    "tag": {"owner": "owner"},
-    "owner_group": {},
-    "owner": {"group": "owner_group"},
-    "tenant_group": {"parent": "tenant_group", "owner": "owner", "tag": "tag"},
-    "tenant": {"group": "tenant_group", "owner": "owner", "tag": "tag"},
-    "site_group": {"parent": "site_group", "owner": "owner", "tag": "tag"},
-    "rir": {"owner": "owner", "tag": "tag"},
-    "asn": {"rir": "rir", "tenant": "tenant", "owner": "owner", "tag": "tag"},
-    "region": {"parent": "region", "owner": "owner", "tag": "tag"},
-    "site": {
-        "region": "region",
-        "group": "site_group",
-        "tenant": "tenant",
-        "owner": "owner",
-        "asn": "asn",
-        "tag": "tag",
-    },
-    "location": {"site": "site", "parent": "location", "tenant": "tenant", "owner": "owner", "tag": "tag"},
-    "manufacturer": {"owner": "owner", "tag": "tag"},
-    "device_role": {"parent": "device_role", "owner": "owner", "tag": "tag"},
-    "platform": {"parent": "platform", "manufacturer": "manufacturer", "owner": "owner", "tag": "tag"},
-    "device_type": {
-        "manufacturer": "manufacturer",
-        "default_platform": "platform",
-        "owner": "owner",
-        "tag": "tag",
-    },
-    "rack_group": {"owner": "owner", "tag": "tag"},
-    "rack_role": {"owner": "owner", "tag": "tag"},
-    "rack_type": {"manufacturer": "manufacturer", "owner": "owner", "tag": "tag"},
-    "rack": {
-        "site": "site",
-        "location": "location",
-        "group": "rack_group",
-        "tenant": "tenant",
-        "role": "rack_role",
-        "rack_type": "rack_type",
-        "owner": "owner",
-        "tag": "tag",
-    },
-}
+RELATIONSHIP_TARGETS: dict[str, dict[str, str]] = {}
 for _kind, _fields in RELATIONSHIP_FIELDS.items():
     RELATIONSHIP_TARGETS[_kind] = {name: target_kind for name, (target_kind, _) in _fields.items()}
 for _kind in TAGGED_KINDS:
     RELATIONSHIP_TARGETS.setdefault(_kind, {})["tag"] = "tag"
+RELATIONSHIP_TARGETS["site"]["asn"] = "asn"
 RELATIONSHIP_TARGETS["interface"]["vdc"] = "virtual_device_context"
 
 REQUIRED_RELATIONSHIPS = {

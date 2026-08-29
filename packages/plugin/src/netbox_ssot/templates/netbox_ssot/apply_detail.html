@@ -4,7 +4,7 @@
 
 {% block content %}
   <h1>Changes applied</h1>
-  <p class="text-secondary">{{ apply_run.comparison.collection_run.source }} · {{ apply_run.created_at }} · {{ apply_run.applied_by }}</p>
+  <p class="text-secondary">{{ apply_run.comparison.collection_run.source }} · {{ apply_run.get_direction_display }} · {{ apply_run.created_at }} · {{ apply_run.applied_by }}</p>
 
   <div class="row row-cols-1 row-cols-md-3 g-3 mb-3">
     <div class="col"><div class="card h-100"><div class="card-body"><div class="text-secondary">Created</div><div class="fs-3">{{ apply_run.create_count }}</div></div></div></div>

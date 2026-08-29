@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 from core.models import ObjectType
+from dcim.models import Region
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
@@ -13,7 +14,7 @@ from django.utils import timezone
 from users.models import ObjectPermission
 
 from netbox_ssot.application.planning import ReferenceRequirement
-from netbox_ssot.application.service import _reference_problem_message, inspect_application
+from netbox_ssot.application.service import _reference_problem_message, apply_comparison, inspect_application
 from netbox_ssot.models import (
     CollectionRun,
     CollectorAgent,
@@ -22,6 +23,8 @@ from netbox_ssot.models import (
     ComparisonRun,
     DiscoverySource,
     ReviewDecision,
+    StoredObservation,
+    SynchronizationDirection,
 )
 from netbox_ssot.planning.comparison import ENGINE_VERSION, snapshot_digest
 from netbox_ssot.planning.netbox_target import load_netbox_target_records
@@ -101,6 +104,24 @@ class ReviewWorkflowTests(TestCase):
                 changes=[],
             )
             for sequence in range(2)
+        )
+        StoredObservation.objects.bulk_create(
+            [
+                StoredObservation(
+                    run=run,
+                    source=self.source,
+                    sequence=sequence,
+                    resource_kind="region",
+                    external_id=f"netbox:region:{sequence}",
+                    collected_at=timezone.now(),
+                    scope=[],
+                    attributes=[],
+                    relationships=[],
+                    evidence=[],
+                    fingerprint=str(sequence) * 64,
+                )
+                for sequence in range(2)
+            ]
         )
 
     def test_record_decisions_are_append_only_and_latest_wins(self) -> None:
@@ -203,6 +224,22 @@ class ReviewWorkflowTests(TestCase):
         assert "no longer matches" in review_integrity_issue(review)
         assert "no longer matches" in " ".join(inspect_application(self.comparison).reasons)
 
+    def test_final_review_digest_covers_synchronization_direction(self) -> None:
+        approve_all_review_items(self.comparison, self.reviewer)
+        review = finalize_review(
+            self.comparison,
+            ComparisonReview.Decision.APPROVED,
+            self.reviewer,
+        )
+
+        ComparisonRun.objects.filter(pk=self.comparison.pk).update(
+            direction=SynchronizationDirection.TARGET_TO_SOURCE
+        )
+        self.comparison.refresh_from_db()
+        review.refresh_from_db()
+
+        assert "no longer matches" in review_integrity_issue(review)
+
     def test_apply_readiness_requires_a_finalized_approval(self) -> None:
         pending = inspect_application(self.comparison, self.applier)
         assert "finalized review" in " ".join(pending.reasons)
@@ -220,6 +257,38 @@ class ReviewWorkflowTests(TestCase):
             readiness.current_target_digest,
             self.comparison.target_snapshot_digest,
         )
+
+    def test_approved_comparison_executes_and_records_its_direction(self) -> None:
+        approve_all_review_items(self.comparison, self.reviewer)
+        finalize_review(
+            self.comparison,
+            ComparisonReview.Decision.APPROVED,
+            self.reviewer,
+        )
+
+        # TestCase owns an outer transaction; production apply starts its own
+        # serializable transaction, which is covered by TransactionTestCase.
+        with patch("netbox_ssot.application.service._set_apply_transaction_isolation"):
+            outcome = apply_comparison(self.comparison, self.applier)
+
+        assert outcome.created
+        assert outcome.apply_run.direction == SynchronizationDirection.SOURCE_TO_TARGET
+        assert set(Region.objects.filter(slug__startswith="region-").values_list("slug", flat=True)) == {
+            "region-0",
+            "region-1",
+        }
+        assert outcome.apply_run.items.count() == 2
+
+    def test_reverse_direction_fails_closed_until_the_provider_can_write(self) -> None:
+        ComparisonRun.objects.filter(pk=self.comparison.pk).update(
+            direction=SynchronizationDirection.TARGET_TO_SOURCE
+        )
+        self.comparison.refresh_from_db()
+
+        readiness = inspect_application(self.comparison, self.applier)
+
+        assert not readiness.ready
+        assert "remote write capability" in " ".join(readiness.reasons)
 
     def test_external_reference_message_has_an_exact_non_negative_remainder(self) -> None:
         problems = (

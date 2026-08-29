@@ -212,9 +212,9 @@ idempotent, and reusing a run ID with different content is rejected.
 ## Comparison and apply workflow
 
 Open an accepted collection and select **Review changes**. The plugin projects the immutable source
-observations and a consistent local target snapshot into in-memory DiffSync adapters. It stores the resulting creates,
-updates, exact matches, conflicts, and skips as an immutable comparison preview. Destination-only objects are excluded,
-and no comparison path exposes DiffSync synchronization or NetBox model mutation.
+observations and a consistent local target snapshot into typed DiffSync adapters generated from the provider's
+declarative resource registry. It stores the resulting creates, updates, exact matches, conflicts, and skips as an
+immutable comparison preview. Destination-only objects are excluded and preview never mutates either system.
 
 Matching uses exact, kind-specific natural identities. Missing identities and ambiguous source or target identities are
 shown as skips or conflicts rather than guessed. Repeating a comparison against the same target snapshot and engine
@@ -229,10 +229,15 @@ Finalization stores an immutable review with the reviewer, outcome, counts, reas
 all comparison items, and the latest decision for every item. An operator with the separate plugin apply permission and
 the necessary NetBox model permissions can explicitly apply only a finalized approval. Apply rechecks the review
 digest, complete collection evidence, source digest, item counts, comparison engine, and current target snapshot. It
-orders the complete supported dependency graph and commits supporting references, geography, device-catalog, and rack
-objects in one database transaction. Every successful operation creates immutable apply/item receipts and updates
-durable source-object bindings. Repeating the same apply is idempotent. Destination-only objects are never changed,
-and there is no deletion path.
+recalculates the same typed diff, proves that its actions still match the reviewed plan, and passes that exact diff to
+`source.sync_to(target)`. The target adapter's CRUD hooks commit the complete dependency graph in one database
+transaction. Every successful operation creates immutable apply/item receipts and updates durable source-object
+bindings. Repeating the same apply is idempotent. Destination-only objects are never changed, and there is no deletion
+path.
+
+Comparison and apply records store their synchronization direction. The local NetBox adapter currently advertises
+atomic write capability, so source-to-target execution is enabled. Target-to-source uses the same adapter contract but
+fails closed until the selected provider supplies an authenticated remote mutation backend.
 
 The NetBox provider exposes dependency-closed datasets for the complete public writable DCIM model surface: geography,
 device and module catalogs, component templates, racks and reservations, devices and installed components, inventory,
@@ -253,9 +258,9 @@ PLUGINS_CONFIG = {
 
 ### Current NetBox compatibility scope
 
-The NetBox provider presents five selectable datasets: Regions, Sites, Locations, Device catalog, and Racks. A hidden
-supporting dataset is included automatically so the Go collector can emit complete, stable references rather than
-lossy embedded names. Selecting Racks closes the dependency graph through Locations and Device catalog automatically.
+The NetBox provider presents dependency-closed datasets spanning geography, catalogs, component templates, racks,
+devices, installed components, inventory, power, and cabling. Supporting resources are included automatically so the
+Go collector emits complete, stable references rather than lossy embedded names.
 
 Each dataset also declares its provider-native source model and canonical destination kind. The source detail UI joins
 that declaration with the installed destination model registry and presents an explicit source-to-destination mapping;
@@ -271,17 +276,20 @@ the shared UI never assumes that both systems use the same model names.
 - Device catalog includes Manufacturers, hierarchical Device Roles and Platforms, and Device Types with native core
   fields, ownership, Tags, manufacturer placement, and default-platform relationships. Config Templates are
   resolve-only and must already have one exact matching name in the target.
-- Racks includes Rack Groups, Rack Roles, Rack Types, and Racks with native core physical fields, ownership, tenancy,
-  type, role, Site/Location placement, and Tags.
+- Racks includes Rack Groups, Rack Roles, Rack Types, Racks, and reservations with native physical fields, ownership,
+  tenancy, type, role, Site/Location placement, and Tags.
+- DCIM includes module profiles and types, every public component-template model, Devices and installed components,
+  inventory items and MAC addresses, power panels and feeds, cable bundles, and cables. Helper rows such as port
+  mappings and cable terminations remain part of their owning aggregate.
 
-Custom fields, contact assignments, image attachments, device-type component templates, Devices, and rack reservations
-remain outside this compatibility boundary. They require their own complete dependency and ownership rules rather than
-shallow observation-only support.
+Custom fields, contacts, images, cross-app IPAM/wireless/circuit assignments, and provider-external cable endpoints
+remain outside this compatibility boundary. They require an explicit ownership contract rather than shallow support.
 
 ## Safety defaults
 
 - Sources are discovery-only unless a separately reviewed apply capability is enabled.
-- DiffSync is a compare engine; its model CRUD hooks will not mutate NetBox.
+- Preview uses DiffSync without mutation; apply passes the revalidated reviewed diff to typed adapter CRUD hooks.
+- Adapter write, delete, and atomicity capabilities are explicit; unsupported synchronization directions fail closed.
 - Destination-only records are skipped by default.
 - Hard deletion is disabled.
 - Secrets are represented by opaque references and are never stored in observations or plans.

@@ -247,21 +247,28 @@ def review_decision_digest(
 ) -> str:
     current = latest if latest is not None else latest_review_decisions(comparison)
     items = list(comparison.items.order_by("sequence", "pk"))
+    comparison_payload = {
+        "id": str(comparison.pk),
+        "collection_run_id": str(comparison.collection_run_id),
+        "source_payload_digest": comparison.source_payload_digest,
+        "target_snapshot_digest": comparison.target_snapshot_digest,
+        "engine_version": comparison.engine_version,
+        "counts": [
+            comparison.create_count,
+            comparison.update_count,
+            comparison.no_change_count,
+            comparison.conflict_count,
+            comparison.skipped_count,
+        ],
+    }
+    try:
+        direction_is_durable = int(comparison.engine_version.partition(".")[0]) >= 6
+    except ValueError:
+        direction_is_durable = True
+    if direction_is_durable:
+        comparison_payload["direction"] = comparison.direction
     payload = {
-        "comparison": {
-            "id": str(comparison.pk),
-            "collection_run_id": str(comparison.collection_run_id),
-            "source_payload_digest": comparison.source_payload_digest,
-            "target_snapshot_digest": comparison.target_snapshot_digest,
-            "engine_version": comparison.engine_version,
-            "counts": [
-                comparison.create_count,
-                comparison.update_count,
-                comparison.no_change_count,
-                comparison.conflict_count,
-                comparison.skipped_count,
-            ],
-        },
+        "comparison": comparison_payload,
         "items": [
             {
                 "id": item.pk,

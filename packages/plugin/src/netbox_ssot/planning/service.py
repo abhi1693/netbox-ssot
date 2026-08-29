@@ -6,7 +6,7 @@ from typing import Any
 
 from django.db import connection, transaction
 
-from ..models import CollectionRun, ComparisonItem, ComparisonRun
+from ..models import CollectionRun, ComparisonItem, ComparisonRun, SynchronizationDirection
 from .comparison import (
     ENGINE_VERSION,
     SUPPORTED_RESOURCE_KINDS,
@@ -49,11 +49,19 @@ class ItemDraft:
     changes: tuple[dict[str, Any], ...] = ()
 
 
-def create_comparison(collection_run: CollectionRun) -> ComparisonOutcome:
+def create_comparison(
+    collection_run: CollectionRun,
+    *,
+    direction: str = SynchronizationDirection.SOURCE_TO_TARGET,
+) -> ComparisonOutcome:
     if collection_run.state != "complete":
         raise ComparisonRejectedError("Only complete collection runs can be compared.")
     if not collection_run.completeness_token:
         raise ComparisonRejectedError("The collection run has no completeness token.")
+    if direction != SynchronizationDirection.SOURCE_TO_TARGET:
+        raise ComparisonRejectedError(
+            "This provider currently advertises read capability only; target-to-source synchronization is unavailable."
+        )
 
     with transaction.atomic():
         if connection.vendor == "postgresql" and len(connection.atomic_blocks) == 1:
@@ -67,6 +75,7 @@ def create_comparison(collection_run: CollectionRun) -> ComparisonOutcome:
             collection_run=collection_run,
             target_snapshot_digest=target_digest,
             engine_version=ENGINE_VERSION,
+            direction=direction,
         ).first()
         if existing is not None:
             return ComparisonOutcome(existing, False)
@@ -78,6 +87,7 @@ def create_comparison(collection_run: CollectionRun) -> ComparisonOutcome:
             source_payload_digest=collection_run.payload_digest,
             target_snapshot_digest=target_digest,
             engine_version=ENGINE_VERSION,
+            direction=direction,
             create_count=counts[ComparisonAction.CREATE.value],
             update_count=counts[ComparisonAction.UPDATE.value],
             no_change_count=counts[ComparisonAction.NO_CHANGE.value],

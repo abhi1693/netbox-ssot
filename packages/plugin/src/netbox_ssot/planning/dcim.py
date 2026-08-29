@@ -49,6 +49,90 @@ DCIM_RESOURCE_KINDS: Final = frozenset(
 )
 
 ATTRIBUTE_FIELDS: Final[dict[str, tuple[str, ...]]] = {
+    "tag": ("name", "slug", "color", "description", "weight"),
+    "owner_group": ("name", "description"),
+    "owner": ("name", "description"),
+    "tenant_group": ("name", "slug", "description", "comments"),
+    "tenant": ("name", "slug", "description", "comments"),
+    "site_group": ("name", "slug", "description", "comments"),
+    "rir": ("name", "slug", "is_private", "description", "comments"),
+    "asn": ("asn", "description", "comments"),
+    "region": ("name", "slug", "description", "comments"),
+    "site": (
+        "name",
+        "slug",
+        "status",
+        "facility",
+        "time_zone",
+        "description",
+        "physical_address",
+        "shipping_address",
+        "latitude",
+        "longitude",
+        "comments",
+    ),
+    "location": ("name", "slug", "status", "facility", "description", "comments"),
+    "manufacturer": ("name", "slug", "description", "comments"),
+    "device_role": ("name", "slug", "color", "vm_role", "description", "comments"),
+    "platform": ("name", "slug", "description", "comments"),
+    "device_type": (
+        "model",
+        "slug",
+        "part_number",
+        "u_height",
+        "exclude_from_utilization",
+        "is_full_depth",
+        "subdevice_role",
+        "airflow",
+        "weight",
+        "weight_unit",
+        "description",
+        "comments",
+    ),
+    "rack_group": ("name", "slug", "description", "comments"),
+    "rack_role": ("name", "slug", "color", "description", "comments"),
+    "rack_type": (
+        "model",
+        "slug",
+        "form_factor",
+        "width",
+        "u_height",
+        "starting_unit",
+        "desc_units",
+        "outer_width",
+        "outer_height",
+        "outer_depth",
+        "outer_unit",
+        "weight",
+        "max_weight",
+        "weight_unit",
+        "mounting_depth",
+        "description",
+        "comments",
+    ),
+    "rack": (
+        "name",
+        "facility_id",
+        "status",
+        "serial",
+        "asset_tag",
+        "form_factor",
+        "width",
+        "u_height",
+        "starting_unit",
+        "desc_units",
+        "outer_width",
+        "outer_height",
+        "outer_depth",
+        "outer_unit",
+        "mounting_depth",
+        "airflow",
+        "weight",
+        "max_weight",
+        "weight_unit",
+        "description",
+        "comments",
+    ),
     "module_type_profile": ("name", "description", "schema", "comments"),
     "module_type": ("model", "part_number", "airflow", "weight", "weight_unit", "description", "comments"),
     "inventory_item_role": ("name", "slug", "color", "description", "comments"),
@@ -167,8 +251,73 @@ ATTRIBUTE_FIELDS: Final[dict[str, tuple[str, ...]]] = {
     "cable": ("type", "status", "profile", "label", "color", "length", "length_unit", "description", "comments"),
 }
 
+# Canonical attributes that are represented outside ordinary model fields.
+# Keeping them beside ATTRIBUTE_FIELDS gives the typed DiffSync model compiler a
+# complete, stable schema without teaching it about NetBox ORM implementation details.
+EXTRA_ATTRIBUTE_FIELDS: Final[dict[str, tuple[str, ...]]] = {
+    "tag": ("object_types",),
+    "asn": ("role",),
+    "device_role": ("config_template",),
+    "platform": ("config_template",),
+    "device": ("config_template",),
+    "module_type": ("attributes",),
+    "rack_reservation": ("user",),
+    "inventory_item": ("component_type",),
+    "inventory_item_template": ("component_type",),
+    "mac_address": ("assigned_object_type",),
+}
+
 # relationship name -> (target resource kind, model attribute)
 RELATIONSHIP_FIELDS: Final[dict[str, dict[str, tuple[str, str]]]] = {
+    "tag": {"owner": ("owner", "owner")},
+    "owner_group": {},
+    "owner": {"group": ("owner_group", "group")},
+    "tenant_group": {"parent": ("tenant_group", "parent"), "owner": ("owner", "owner")},
+    "tenant": {"group": ("tenant_group", "group"), "owner": ("owner", "owner")},
+    "site_group": {"parent": ("site_group", "parent"), "owner": ("owner", "owner")},
+    "rir": {"owner": ("owner", "owner")},
+    "asn": {
+        "rir": ("rir", "rir"),
+        "tenant": ("tenant", "tenant"),
+        "owner": ("owner", "owner"),
+    },
+    "region": {"parent": ("region", "parent"), "owner": ("owner", "owner")},
+    "site": {
+        "region": ("region", "region"),
+        "group": ("site_group", "group"),
+        "tenant": ("tenant", "tenant"),
+        "owner": ("owner", "owner"),
+    },
+    "location": {
+        "site": ("site", "site"),
+        "parent": ("location", "parent"),
+        "tenant": ("tenant", "tenant"),
+        "owner": ("owner", "owner"),
+    },
+    "manufacturer": {"owner": ("owner", "owner")},
+    "device_role": {"parent": ("device_role", "parent"), "owner": ("owner", "owner")},
+    "platform": {
+        "parent": ("platform", "parent"),
+        "manufacturer": ("manufacturer", "manufacturer"),
+        "owner": ("owner", "owner"),
+    },
+    "device_type": {
+        "manufacturer": ("manufacturer", "manufacturer"),
+        "default_platform": ("platform", "default_platform"),
+        "owner": ("owner", "owner"),
+    },
+    "rack_group": {"owner": ("owner", "owner")},
+    "rack_role": {"owner": ("owner", "owner")},
+    "rack_type": {"manufacturer": ("manufacturer", "manufacturer"), "owner": ("owner", "owner")},
+    "rack": {
+        "site": ("site", "site"),
+        "location": ("location", "location"),
+        "group": ("rack_group", "group"),
+        "tenant": ("tenant", "tenant"),
+        "role": ("rack_role", "role"),
+        "rack_type": ("rack_type", "rack_type"),
+        "owner": ("owner", "owner"),
+    },
     "module_type_profile": {"owner": ("owner", "owner")},
     "module_type": {
         "profile": ("module_type_profile", "profile"),
@@ -299,22 +448,42 @@ RELATIONSHIP_FIELDS: Final[dict[str, dict[str, tuple[str, str]]]] = {
     },
 }
 
-TAGGED_KINDS: Final = frozenset(
-    kind
-    for kind in DCIM_RESOURCE_KINDS
-    if kind
-    not in {
-        "console_port_template",
-        "console_server_port_template",
-        "power_port_template",
-        "power_outlet_template",
-        "interface_template",
-        "front_port_template",
-        "rear_port_template",
-        "module_bay_template",
-        "device_bay_template",
-        "inventory_item_template",
-    }
+TAGGED_KINDS: Final = (
+    frozenset(
+        {
+            "tenant_group",
+            "tenant",
+            "site_group",
+            "rir",
+            "asn",
+            "region",
+            "site",
+            "location",
+            "manufacturer",
+            "device_role",
+            "platform",
+            "device_type",
+            "rack_group",
+            "rack_role",
+            "rack_type",
+            "rack",
+        }
+    )
+    | (
+        DCIM_RESOURCE_KINDS
+        - {
+            "console_port_template",
+            "console_server_port_template",
+            "power_port_template",
+            "power_outlet_template",
+            "interface_template",
+            "front_port_template",
+            "rear_port_template",
+            "module_bay_template",
+            "device_bay_template",
+            "inventory_item_template",
+        }
+    )
 )
 
 REQUIRED_RELATIONSHIPS: Final[dict[str, frozenset[str]]] = {

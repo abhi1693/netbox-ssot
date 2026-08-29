@@ -4,14 +4,13 @@ import json
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any, ClassVar
+from typing import Any
 
-from diffsync import Adapter, DiffSyncModel
-
+from .adapters import build_adapter_pair
 from .dcim import DCIM_RESOURCE_KINDS, is_multi_relationship
 from .diffsync_engine import ComparisonOnlyDiffSyncEngine
 
-ENGINE_VERSION = "5.0"
+ENGINE_VERSION = "6.0"
 SUPPORTED_RESOURCE_KINDS = (
     frozenset(
         {
@@ -94,21 +93,6 @@ class ComparisonResult:
     changes: tuple[dict[str, Any], ...] = field(default_factory=tuple)
     match_basis: str = "exact_natural_key"
     reason: str = ""
-
-
-class CanonicalDiffSyncModel(DiffSyncModel):
-    _modelname: ClassVar[str] = "resource"
-    _identifiers: ClassVar[tuple[str, ...]] = ("uid",)
-    _attributes: ClassVar[tuple[str, ...]] = ("attributes", "relationships")
-
-    uid: str
-    attributes: dict[str, Any]
-    relationships: dict[str, Any]
-
-
-class CanonicalAdapter(Adapter):
-    resource: ClassVar[type[CanonicalDiffSyncModel]] = CanonicalDiffSyncModel
-    top_level: ClassVar[list[str]] = ["resource"]
 
 
 def normalize_value(value: Any) -> Any:
@@ -315,48 +299,37 @@ def compare_canonical_records(
 ) -> list[ComparisonResult]:
     source_by_uid = {record.uid: record for record in source_records}
     target_by_uid = {record.uid: record for record in target_records}
-    source_adapter = CanonicalAdapter()
-    target_adapter = CanonicalAdapter()
-    for record in source_records:
-        source_adapter.add(
-            CanonicalDiffSyncModel(
-                uid=record.uid,
-                attributes=record.attributes,
-                relationships=record.relationships,
-            )
-        )
-    for record in target_records:
-        target_adapter.add(
-            CanonicalDiffSyncModel(
-                uid=record.uid,
-                attributes=record.attributes,
-                relationships=record.relationships,
-            )
-        )
+    source_adapter, target_adapter = build_adapter_pair(source_records, target_records)
 
     diff = ComparisonOnlyDiffSyncEngine().compare(source_adapter, target_adapter)
-    changed_uids = {str(element.keys["uid"]): str(element.action) for element in diff.get_children()}
+    diff_elements = {
+        f"{element.type}:{element.keys['identity_key']}": element
+        for element in diff.get_children()
+        if str(element.action) in {"create", "update"}
+    }
     results: list[ComparisonResult] = []
     for uid, source in source_by_uid.items():
         target = target_by_uid.get(uid)
         if target is None:
+            element = diff_elements[uid]
             results.append(
                 ComparisonResult(
                     action=ComparisonAction.CREATE,
                     source=source,
                     target=None,
-                    changes=field_changes(source, None),
+                    changes=_diffsync_field_changes(element, getattr(source_adapter, element.type)),
                     match_basis="no_target_match",
                     reason="No local NetBox object has the same exact natural identity.",
                 )
             )
-        elif changed_uids.get(uid) == "update":
+        elif uid in diff_elements:
+            element = diff_elements[uid]
             results.append(
                 ComparisonResult(
                     action=ComparisonAction.UPDATE,
                     source=source,
                     target=target,
-                    changes=field_changes(source, target),
+                    changes=_diffsync_field_changes(element, getattr(source_adapter, element.type)),
                     reason="The exact target object differs on one or more observed fields.",
                 )
             )
@@ -372,27 +345,32 @@ def compare_canonical_records(
     return results
 
 
-def field_changes(source: CanonicalRecord, target: CanonicalRecord | None) -> tuple[dict[str, Any], ...]:
+def _diffsync_field_changes(element: Any, model_class: Any) -> tuple[dict[str, Any], ...]:
+    """Translate a typed DiffSync element into the durable comparison field format."""
+
+    differences = element.get_attrs_diffs()
+    old_values = differences.get("-", {})
+    new_values = differences.get("+", {})
+    changed_fields = sorted(
+        set(old_values) | set(new_values),
+        key=lambda name: (0 if model_class._canonical_fields[name][0] == "attributes" else 1, name),
+    )
     changes: list[dict[str, Any]] = []
-    target_payload = target.payload if target is not None else {"attributes": {}, "relationships": {}}
-    for category, source_fields in source.payload.items():
-        target_fields = target_payload[category]
-        for name in sorted(set(source_fields) | set(target_fields)):
-            source_present = name in source_fields
-            target_present = name in target_fields
-            source_value = source_fields.get(name)
-            target_value = target_fields.get(name)
-            if source_present == target_present and source_value == target_value:
-                continue
-            changes.append(
-                {
-                    "field": f"{category}:{name}",
-                    "source_present": source_present,
-                    "source_value": source_value,
-                    "target_present": target_present,
-                    "target_value": target_value,
-                }
-            )
+    for field_name in changed_fields:
+        category, canonical_name = model_class._canonical_fields[field_name]
+        target_present, target_value = old_values.get(field_name, (False, None))
+        source_present, source_value = new_values.get(field_name, (False, None))
+        if not source_present and not target_present:
+            continue
+        changes.append(
+            {
+                "field": f"{category}:{canonical_name}",
+                "source_present": source_present,
+                "source_value": source_value,
+                "target_present": target_present,
+                "target_value": target_value,
+            }
+        )
     return tuple(changes)
 
 

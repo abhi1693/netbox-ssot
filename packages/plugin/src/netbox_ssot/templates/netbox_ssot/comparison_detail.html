@@ -4,7 +4,7 @@
 
 {% block content %}
   <h1>Review changes</h1>
-  <p class="text-secondary"><a href="{% url 'plugins:netbox_ssot:source_detail' pk=comparison.collection_run.source_id %}">{{ comparison.collection_run.source }}</a> · {{ comparison.created_at }}</p>
+  <p class="text-secondary"><a href="{% url 'plugins:netbox_ssot:source_detail' pk=comparison.collection_run.source_id %}">{{ comparison.collection_run.source }}</a> · {{ comparison.get_direction_display }} · {{ comparison.created_at }}</p>
 
   {% if application %}
     <div class="alert alert-success"><strong>Changes applied.</strong> <a class="alert-link" href="{% url 'plugins:netbox_ssot:apply_detail' pk=application.pk %}">View result</a></div>
@@ -141,7 +141,7 @@
   </ul></nav>{% endif %}
 
   <details class="card"><summary class="card-header"><strong>Technical details</strong></summary><div class="card-body small text-secondary">
-    <p>Collection: <a href="{% url 'plugins:netbox_ssot:run_detail' pk=comparison.collection_run_id %}"><code>{{ comparison.collection_run_id }}</code></a> · Engine {{ comparison.engine_version }}</p>
+    <p>Collection: <a href="{% url 'plugins:netbox_ssot:run_detail' pk=comparison.collection_run_id %}"><code>{{ comparison.collection_run_id }}</code></a> · Direction {{ comparison.get_direction_display }} · Engine {{ comparison.engine_version }}</p>
     Source digest <code>{{ comparison.source_payload_digest }}</code><br>Target snapshot digest <code>{{ comparison.target_snapshot_digest }}</code>
   </div></details>
 {% endblock %}

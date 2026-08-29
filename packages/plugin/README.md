@@ -3,7 +3,9 @@
 This package contains the NetBox integration, persistence, review UI, planning gateway, and guarded apply service. The
 current alpha exposes the provider catalog, schema-driven source creation, public-key agent enrollment, signed batch
 ingestion, immutable collection-run inspection, durable read-only DiffSync comparison previews, and a separately
-permissioned review and atomic apply service with immutable decisions, approvals, receipts, and source-object bindings.
+permissioned review and atomic typed-adapter apply service with immutable decisions, approvals, receipts, and
+source-object bindings. Apply recalculates the reviewed delta and executes that exact object through
+`source.sync_to(target)`; reverse direction remains disabled until a provider advertises remote write capability.
 
 Grant `netbox_ssot.add_comparisonreview` to operators who may record decisions and finalize approvals or rejections. Keep
 `netbox_ssot.add_applyrun` and the relevant NetBox model permissions limited to operators who may mutate the target.
