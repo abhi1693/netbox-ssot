@@ -9,8 +9,8 @@ The project is being rebuilt from first principles. The current alpha foundation
 - a NetBox plugin with schema-driven sources, one-time agent enrollment, signing-key rotation, immutable observation storage, durable
   comparison previews, guarded local application, receipts, source-object bindings, and agent health visibility;
 - a real NetBox provider descriptor and Go-based read-only collector;
-- end-to-end comparison and guarded apply support for portable Core, Extras, and Users configuration plus every public
-  writable NetBox 4.6 DCIM and Circuits resource;
+- end-to-end comparison and guarded apply support for portable Core, Extras, Users, IPAM, DCIM, and Circuits
+  configuration, including every public writable NetBox 4.6 model in the latter three apps;
 - timestamped Ed25519 batch signing with idempotent plugin ingestion; and
 - architecture decisions that make review, provenance, field ownership, and safe apply mandatory.
 
@@ -241,11 +241,11 @@ atomic write capability, so source-to-target execution is enabled. Target-to-sou
 fails closed until the selected provider supplies an authenticated remote mutation backend.
 
 The NetBox provider exposes dependency-closed datasets for portable Core, Extras, and Users configuration plus the
-complete public writable DCIM and Circuits model surfaces. Extras adds custom fields and choice sets, links, export and
-configuration templates, shared views, configuration contexts, webhooks, notification groups, and event rules.
+complete public writable IPAM, DCIM, and Circuits model surfaces. Extras adds custom fields and choice sets, links,
+export and configuration templates, shared views, configuration contexts, webhooks, notification groups, and event rules.
 Internal aggregate/helper rows such as cable terminations and port mappings travel with their owning DCIM object rather
 than as independent resources. Config Templates are first-class dependencies used by DCIM objects. References outside
-these owned graphs remain resolve-only or fail closed; ASN Roles and Rack Reservation users must match uniquely.
+these owned graphs remain resolve-only or fail closed; Rack Reservation users must match uniquely.
 
 Deployments that require four-eyes approval can prevent the final reviewer from also applying the comparison:
 
@@ -260,8 +260,8 @@ PLUGINS_CONFIG = {
 ### Current NetBox compatibility scope
 
 The NetBox provider presents dependency-closed datasets spanning Core Data Sources, portable Extras configuration,
-users and access control, geography, catalogs, component templates, racks, devices, installed components, inventory,
-power, physical and virtual circuits, circuit groups, and cabling. Supporting resources are included automatically so
+users and access control, IP registries, routing, VLANs, prefixes, addresses, FHRP, services, geography, catalogs,
+component templates, racks, devices, installed components, inventory, power, physical and virtual circuits, circuit groups, and cabling. Supporting resources are included automatically so
 the Go collector emits complete, stable references rather than lossy embedded names.
 
 Each dataset also declares its provider-native source model and canonical destination kind. The source detail UI joins
@@ -289,7 +289,11 @@ the shared UI never assumes that both systems use the same model names.
   Config Context virtualization qualifiers fail closed until the Virtualization app joins the provider graph; Config
   Context tag qualifiers also remain local because that API exposes only slugs rather than stable Tag references.
 - Tenant Groups, Tenants, and Site Groups include full hierarchy, native fields, Owner, and Tags.
-- RIRs and ASNs include native fields, ownership, tenancy, Tags, and required RIR placement. ASN Role is resolve-only.
+- IPAM includes RIRs, Roles, ASNs and ranges, Route Targets, VRFs, Aggregates, VLAN groups/VLANs and translation rules,
+  Prefixes, IP Ranges and Addresses, FHRP groups and assignments, and service templates/services. ASN Roles are
+  first-class dependencies. Supported DCIM scopes and physical Interface assignments are typed graph edges.
+- FHRP authentication keys remain destination-local and are excluded from evidence digests. Virtualization-backed
+  scopes, interfaces, and service parents fail closed until the Virtualization app joins the provider graph.
 - Regions, Sites, and Locations include native scalar fields, complete hierarchy, ownership, tenancy, groups, ASNs,
   and Tags.
 - Device catalog includes Manufacturers, hierarchical Device Roles and Platforms, and Device Types with native core
@@ -307,7 +311,7 @@ the shared UI never assumes that both systems use the same model names.
   reviewed apply cannot create a partial cross-app path.
 
 Contacts, image attachments, journal/history rows, generated notifications, subscriptions, bookmarks, dashboard and
-other private UI state, scripts and script modules, cross-app IPAM/wireless assignments, wireless cable endpoints,
+other private UI state, scripts and script modules, unsupported virtualization/wireless assignments, wireless cable endpoints,
 authentication secrets, and unknown Data Source backend parameters remain outside this compatibility boundary. They
 are personal, generated, binary, executable, credential-bearing, or owned by a future app graph.
 
@@ -329,4 +333,5 @@ are personal, generated, binary, executable, credential-bearing, or owned by a f
 - A plan must be revalidated against the current target immediately before apply.
 - Apply requires explicit confirmation plus plugin and model permissions, uses one transaction, and records receipts.
 - Apply requires an immutable finalized approval; optional four-eyes policy separates the reviewer and applier.
-- Unmodeled references such as ASN Roles are resolve-only; missing or ambiguous dependencies block the operation.
+- Remaining resolve-only references such as Rack Reservation users must match uniquely; missing or ambiguous
+  dependencies block the operation.

@@ -10,7 +10,7 @@ from .adapters import build_adapter_pair
 from .diffsync_engine import ComparisonOnlyDiffSyncEngine
 from .resource_registry import ATTRIBUTE_FIELDS, is_multi_relationship
 
-ENGINE_VERSION = "10.0"
+ENGINE_VERSION = "11.0"
 SUPPORTED_RESOURCE_KINDS = frozenset(ATTRIBUTE_FIELDS)
 MULTI_RELATIONSHIPS = {
     "tenant_group": frozenset({"tag"}),
@@ -176,6 +176,76 @@ def natural_identity(
         parts = [resource_kind, "username", str(required_attribute("username")).casefold()]
     elif resource_kind == "asn":
         parts = [resource_kind, "asn", required_attribute("asn")]
+    elif resource_kind in {"role", "asn_range"}:
+        parts = [resource_kind, "slug", required_attribute("slug")]
+    elif resource_kind in {"route_target", "vlan_translation_policy", "service_template"}:
+        parts = [resource_kind, "name", required_attribute("name")]
+    elif resource_kind == "vrf":
+        rd = attributes.get("/rd")
+        parts = (
+            [resource_kind, "rd", rd]
+            if rd
+            else [resource_kind, relationships.get("tenant", "global"), "name", required_attribute("name")]
+        )
+    elif resource_kind == "aggregate":
+        parts = [resource_kind, "prefix", required_attribute("prefix")]
+    elif resource_kind == "vlan_group":
+        scope = sorted((name, value) for name, value in relationships.items() if name.startswith("scope_"))
+        if attributes.get("/scope_type") and len(scope) != 1:
+            raise ValueError("The VLAN group scope targets a model outside the supported IPAM dependency graph.")
+        parts = [resource_kind, scope or "global", required_attribute("slug")]
+    elif resource_kind == "vlan":
+        container = relationships.get("group") or relationships.get("site") or "global"
+        parts = [resource_kind, container, required_attribute("vid"), required_attribute("name")]
+    elif resource_kind == "vlan_translation_rule":
+        parts = [resource_kind, required_relationship("policy"), required_attribute("local_vid")]
+    elif resource_kind == "prefix":
+        scope = sorted((name, value) for name, value in relationships.items() if name.startswith("scope_"))
+        if attributes.get("/scope_type") and len(scope) != 1:
+            raise ValueError("The prefix scope targets a model outside the supported IPAM dependency graph.")
+        parts = [resource_kind, relationships.get("vrf", "global"), required_attribute("prefix")]
+    elif resource_kind == "ip_range":
+        parts = [
+            resource_kind,
+            relationships.get("vrf", "global"),
+            required_attribute("start_address"),
+            required_attribute("end_address"),
+        ]
+    elif resource_kind == "ip_address":
+        assigned = sorted((name, value) for name, value in relationships.items() if name.startswith("assigned_"))
+        if attributes.get("/assigned_object_type") and len(assigned) != 1:
+            raise ValueError("The IP address assignment targets a model outside the supported provider graph.")
+        parts = [
+            resource_kind,
+            relationships.get("vrf", "global"),
+            required_attribute("address"),
+            attributes.get("/role", "no-role"),
+            assigned or "unassigned",
+        ]
+    elif resource_kind == "fhrp_group":
+        parts = [
+            resource_kind,
+            required_attribute("protocol"),
+            required_attribute("group_id"),
+            attributes.get("/name", ""),
+        ]
+    elif resource_kind == "fhrp_group_assignment":
+        interfaces = sorted((name, value) for name, value in relationships.items() if name.startswith("interface_"))
+        if attributes.get("/interface_type") and len(interfaces) != 1:
+            raise ValueError("The FHRP assignment targets an interface outside the supported DCIM graph.")
+        if len(interfaces) != 1:
+            raise ValueError("An FHRP assignment requires exactly one supported interface.")
+        parts = [resource_kind, required_relationship("group"), interfaces]
+    elif resource_kind == "service":
+        parents = sorted((name, value) for name, value in relationships.items() if name.startswith("parent_"))
+        if attributes.get("/parent_object_type") and len(parents) != 1:
+            raise ValueError("The service parent targets a model outside the supported provider graph.")
+        if len(parents) != 1:
+            raise ValueError("A service requires exactly one supported parent.")
+        ports = required_attribute("ports")
+        if not isinstance(ports, list):
+            raise ValueError("Service ports must be a list.")
+        parts = [resource_kind, parents, required_attribute("name"), required_attribute("protocol"), sorted(ports)]
     elif resource_kind == "location":
         parts = [
             resource_kind,

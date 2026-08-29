@@ -23,8 +23,25 @@ def test_dataset_selection_adds_dependencies_in_manifest_order() -> None:
     )
 
 
+def test_ipam_services_selection_closes_over_routing_vlan_and_dcim_dependencies() -> None:
+    selected = selected_dataset_ids(MANIFEST, ("ipam_services",))
+
+    assert set(selected) >= {
+        "references",
+        "ipam_routing",
+        "ipam_vlans",
+        "ipam_prefixes",
+        "ipam_addresses",
+        "ipam_services",
+        "locations",
+        "racks",
+        "devices",
+        "device_components",
+    }
+
+
 def test_netbox_provider_is_agent_read_only() -> None:
-    assert MANIFEST.implementation_version == "0.0.11"
+    assert MANIFEST.implementation_version == "0.0.12"
     assert MANIFEST.execution_modes == (ExecutionMode.AGENT,)
     assert MANIFEST.capabilities == (ProviderCapability.SOURCE_READ,)
     assert MANIFEST.agent_compatibility.collector_id == "netbox"
@@ -57,6 +74,12 @@ def test_installed_netbox_provider_is_discovered_by_entry_point() -> None:
     assert wizard.provider.display_name == "NetBox"
     assert wizard.provider.icon_class == "mdi mdi-cube-outline"
     assert wizard.default_datasets == (
+        "ipam_registries",
+        "ipam_routing",
+        "ipam_vlans",
+        "ipam_prefixes",
+        "ipam_addresses",
+        "ipam_services",
         "data_sources",
         "users",
         "extras_customization",
@@ -89,6 +112,21 @@ def test_installed_netbox_provider_is_discovered_by_entry_point() -> None:
         if dataset.selectable
         for mapping in dataset.data_mappings
     ) == (
+        ("ipam.ASNRange", "asn_range"),
+        ("ipam.Aggregate", "aggregate"),
+        ("ipam.RouteTarget", "route_target"),
+        ("ipam.VRF", "vrf"),
+        ("ipam.VLANGroup", "vlan_group"),
+        ("ipam.VLAN", "vlan"),
+        ("ipam.VLANTranslationPolicy", "vlan_translation_policy"),
+        ("ipam.VLANTranslationRule", "vlan_translation_rule"),
+        ("ipam.Prefix", "prefix"),
+        ("ipam.IPRange", "ip_range"),
+        ("ipam.FHRPGroup", "fhrp_group"),
+        ("ipam.IPAddress", "ip_address"),
+        ("ipam.FHRPGroupAssignment", "fhrp_group_assignment"),
+        ("ipam.ServiceTemplate", "service_template"),
+        ("ipam.Service", "service"),
         ("core.DataSource", "data_source"),
         ("users.ObjectPermission", "object_permission"),
         ("users.Group", "user_group"),

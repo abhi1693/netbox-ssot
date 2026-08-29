@@ -189,6 +189,98 @@ func TestCircuitRecordsPreserveTypedFieldsAndPortableRelationships(t *testing.T)
 	}
 }
 
+func TestIPAMRecordsPreserveTypedFieldsAndPortableRelationships(t *testing.T) {
+	attributes := attributesFor("ip_address", map[string]any{
+		"address":              "192.0.2.10/24",
+		"status":               map[string]any{"value": "active"},
+		"role":                 map[string]any{"value": "vrrp"},
+		"assigned_object_type": "ipam.fhrpgroup",
+		"dns_name":             "gateway.example.com",
+	})
+	values := make(map[string]any, len(attributes))
+	for _, attribute := range attributes {
+		values[attribute.Path] = attribute.Value
+	}
+	if values["/address"] != "192.0.2.10/24" || values["/status"] != "active" ||
+		values["/role"] != "vrrp" || values["/assigned_object_type"] != "ipam.fhrpgroup" {
+		t.Fatalf("IP address attributes = %#v", values)
+	}
+
+	tests := []struct {
+		kind   string
+		record map[string]any
+		want   map[string]string
+	}{
+		{
+			kind: "vrf",
+			record: map[string]any{
+				"import_targets": []any{map[string]any{"id": json.Number("1")}},
+				"export_targets": []any{map[string]any{"id": json.Number("2")}},
+			},
+			want: map[string]string{"import_target": "route_target", "export_target": "route_target"},
+		},
+		{
+			kind: "prefix",
+			record: map[string]any{
+				"scope_type": "dcim.site", "scope_id": json.Number("3"),
+				"vrf": map[string]any{"id": json.Number("4")}, "vlan": map[string]any{"id": json.Number("5")},
+			},
+			want: map[string]string{"scope_site": "site", "vrf": "vrf", "vlan": "vlan"},
+		},
+		{
+			kind: "ip_address",
+			record: map[string]any{
+				"assigned_object_type": "ipam.fhrpgroup", "assigned_object_id": json.Number("6"),
+				"nat_inside": map[string]any{"id": json.Number("7")},
+			},
+			want: map[string]string{"assigned_fhrp_group": "fhrp_group", "nat_inside": "ip_address"},
+		},
+		{
+			kind: "service",
+			record: map[string]any{
+				"parent_object_type": "dcim.device", "parent_object_id": json.Number("8"),
+				"ipaddresses": []any{map[string]any{"id": json.Number("9")}},
+			},
+			want: map[string]string{"parent_device": "device", "ip_address": "ip_address"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.kind, func(t *testing.T) {
+			got := map[string]string{}
+			for _, relationship := range relationshipsFor(test.kind, test.record) {
+				got[relationship.Kind] = relationship.TargetKind
+			}
+			if !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("relationships = %#v, want %#v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestFHRPAuthenticationKeyIsExcludedFromEvidenceDigest(t *testing.T) {
+	request := collectionRequest("https://netbox.example.test")
+	record := map[string]any{
+		"id": json.Number("1"), "protocol": map[string]any{"value": "vrrp3"}, "group_id": 10,
+		"auth_type": map[string]any{"value": "plaintext"}, "auth_key": "source-secret",
+	}
+	first, err := mapObservation(request, "fhrp_group", record)
+	if err != nil {
+		t.Fatalf("mapObservation() error = %v", err)
+	}
+	record["auth_key"] = "different-secret"
+	second, err := mapObservation(request, "fhrp_group", record)
+	if err != nil {
+		t.Fatalf("mapObservation() error = %v", err)
+	}
+	if first.Evidence[0].RawDigest != second.Evidence[0].RawDigest {
+		t.Fatal("FHRP authentication key affected the portable evidence digest")
+	}
+	encoded, _ := json.Marshal(first)
+	if strings.Contains(string(encoded), "source-secret") {
+		t.Fatalf("FHRP observation leaked the authentication key: %s", encoded)
+	}
+}
+
 func TestUserRecordsExcludeCredentialsAndPreserveAccessRelationships(t *testing.T) {
 	attributes := attributesFor("user", map[string]any{
 		"username": "alice", "first_name": "Alice", "last_name": "Admin", "email": "alice@example.com",
@@ -710,6 +802,8 @@ func TestCollectRegionsSitesAndLocationsWithFullCoreFieldCoverage(t *testing.T) 
 				"id": 50, "name": "Private", "slug": "private", "is_private": true,
 				"description": "Private ASN space", "tags": []any{map[string]any{"id": 10}},
 			}}
+		case "/api/ipam/roles/":
+			results = []any{}
 		case "/api/ipam/asns/":
 			results = []any{
 				map[string]any{
@@ -1008,6 +1102,7 @@ func isReferenceEndpoint(path string) bool {
 		"/api/tenancy/tenants/",
 		"/api/dcim/site-groups/",
 		"/api/ipam/rirs/",
+		"/api/ipam/roles/",
 		"/api/ipam/asns/",
 	} {
 		if path == candidate {

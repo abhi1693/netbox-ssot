@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 from django.apps import apps
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, OperationalError, connection, transaction
+from django.db.backends.postgresql.psycopg_any import NumericRange
 from netbox.plugins import get_plugin_config
 from netbox.registry import registry
 
@@ -590,9 +591,7 @@ def _write_object(
                     required=relationship_name in REQUIRED_RELATIONSHIPS.get(kind, frozenset()),
                 ),
             )
-        if kind == "asn":
-            obj.role = _scalar_reference(references, "ipam.role", "slug", attributes.get("/role"))
-        elif kind == "custom_field":
+        if kind == "custom_field":
             obj.related_object_type = _content_type(attributes.get("/related_object_type"))
         elif kind == "table_config":
             obj.object_type = _content_type(attributes.get("/object_type"), required=True)
@@ -620,6 +619,38 @@ def _write_object(
             obj.assigned_object = _generic_relationship_object(
                 kind,
                 "assigned_",
+                relationships,
+                target_by_key,
+                object_cache,
+            )
+        elif kind in {"vlan_group", "prefix"}:
+            obj.scope = _generic_relationship_object(
+                kind,
+                "scope_",
+                relationships,
+                target_by_key,
+                object_cache,
+            )
+        elif kind == "ip_address":
+            obj.assigned_object = _generic_relationship_object(
+                kind,
+                "assigned_",
+                relationships,
+                target_by_key,
+                object_cache,
+            )
+        elif kind == "fhrp_group_assignment":
+            obj.interface = _generic_relationship_object(
+                kind,
+                "interface_",
+                relationships,
+                target_by_key,
+                object_cache,
+            )
+        elif kind == "service":
+            obj.parent = _generic_relationship_object(
+                kind,
+                "parent_",
                 relationships,
                 target_by_key,
                 object_cache,
@@ -692,6 +723,17 @@ def _write_object(
         obj.asns.set(_relationship_objects("asn", relationships.get("asn"), target_by_key, object_cache))
     if kind == "provider":
         obj.asns.set(_relationship_objects("asn", relationships.get("asn"), target_by_key, object_cache))
+    if kind == "vrf":
+        obj.import_targets.set(
+            _relationship_objects("route_target", relationships.get("import_target"), target_by_key, object_cache)
+        )
+        obj.export_targets.set(
+            _relationship_objects("route_target", relationships.get("export_target"), target_by_key, object_cache)
+        )
+    if kind == "service":
+        obj.ipaddresses.set(
+            _relationship_objects("ip_address", relationships.get("ip_address"), target_by_key, object_cache)
+        )
     if kind == "config_context":
         for name, target_kind in CONFIG_CONTEXT_MULTI_RELATIONSHIPS.items():
             getattr(obj, f"{name}s").set(
@@ -742,7 +784,15 @@ def _write_declared_fields(obj: Any, resource_kind: str, attributes: dict[str, A
     for field_name in ATTRIBUTE_FIELDS[resource_kind]:
         path = f"/{field_name}"
         if path in attributes:
-            setattr(obj, field_name, attributes[path])
+            value = attributes[path]
+            if resource_kind == "vlan_group" and field_name == "vid_ranges":
+                if not isinstance(value, list) or not all(
+                    isinstance(item, dict) and isinstance(item.get("start"), int) and isinstance(item.get("end"), int)
+                    for item in value
+                ):
+                    raise ApplicationPlanError("VLAN group /vid_ranges must contain integer start/end objects.")
+                value = [NumericRange(item["start"], item["end"] + 1, bounds="[)") for item in value]
+            setattr(obj, field_name, value)
             continue
         field = obj._meta.get_field(field_name)
         if field.has_default():

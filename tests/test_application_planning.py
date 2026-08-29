@@ -5,7 +5,6 @@ import pytest
 from netbox_ssot.application.planning import (
     ApplicationPlanError,
     ApplicationRecord,
-    ReferenceRequirement,
     dependency_order,
     external_reference_requirements,
     relationship_dependencies,
@@ -202,15 +201,51 @@ def test_dependency_order_rejects_duplicate_identity_and_cycles() -> None:
         dependency_order(cycle)
 
 
-def test_only_unmodeled_role_references_remain_external() -> None:
+def test_ipam_roles_are_first_class_dependencies_not_external_references() -> None:
     records = [
-        record("asn", "64512", attributes={"/role": "edge"}, relationships={"rir": "private"}),
+        record("role", "edge"),
+        record("asn", "64512", relationships={"rir": "private", "role": "edge"}),
         record("asn", "64513", relationships={"rir": "private"}),
     ]
 
-    assert set(external_reference_requirements(records)) == {
-        ReferenceRequirement("ipam.role", "slug", "edge"),
-    }
+    assert external_reference_requirements(records) == ()
+    positions = {item.key: index for index, item in enumerate(dependency_order(records))}
+    assert positions[("role", "edge")] < positions[("asn", "64512")]
+
+
+def test_dependency_order_builds_complete_ipam_plan() -> None:
+    records = [
+        record(
+            "service",
+            "https",
+            relationships={"parent_fhrp_group": "gateway", "ip_address": ["vip"]},
+        ),
+        record(
+            "fhrp_group_assignment",
+            "gateway-interface",
+            relationships={"group": "gateway", "interface_interface": "eth0"},
+        ),
+        record(
+            "ip_address",
+            "vip",
+            relationships={"vrf": "production", "assigned_fhrp_group": "gateway"},
+        ),
+        record("fhrp_group", "gateway"),
+        record("prefix", "subnet", relationships={"vrf": "production", "vlan": "applications"}),
+        record("vlan", "applications", relationships={"group": "site-vlans", "role": "infrastructure"}),
+        record("vlan_group", "site-vlans", relationships={"scope_site": "dc1"}),
+        record("vrf", "production", relationships={"import_target": ["64512:100"]}),
+        record("route_target", "64512:100"),
+        record("role", "infrastructure"),
+        record("interface", "eth0", relationships={"device": "leaf"}),
+    ]
+
+    positions = {item.key: index for index, item in enumerate(dependency_order(records))}
+    assert positions[("route_target", "64512:100")] < positions[("vrf", "production")]
+    assert positions[("vlan_group", "site-vlans")] < positions[("vlan", "applications")]
+    assert positions[("fhrp_group", "gateway")] < positions[("ip_address", "vip")]
+    assert positions[("ip_address", "vip")] < positions[("service", "https")]
+    assert positions[("interface", "eth0")] < positions[("fhrp_group_assignment", "gateway-interface")]
 
 
 def test_config_templates_are_first_class_dependencies() -> None:

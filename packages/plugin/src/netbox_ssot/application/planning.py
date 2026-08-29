@@ -88,8 +88,6 @@ def external_reference_requirements(records: list[ApplicationRecord]) -> tuple[R
         attributes = record.attributes
         if record.resource_kind not in RELATIONSHIP_TARGETS:
             raise ApplicationPlanError(f"Resource kind {record.resource_kind!r} cannot be applied.")
-        if record.resource_kind == "asn":
-            _add_scalar(requirements, attributes, "/role", "ipam.role", "slug")
         if record.resource_kind == "rack_reservation":
             _add_scalar(requirements, attributes, "/user", "users.user", "username")
     return tuple(sorted(requirements))
@@ -115,6 +113,15 @@ def relationship_dependencies(
         actions = [name for name in record.relationships if name.startswith("action_")]
         if len(actions) != 1:
             raise ApplicationPlanError("An event rule must contain exactly one supported action target.")
+    generic_requirements = {
+        "fhrp_group_assignment": "interface_",
+        "service": "parent_",
+    }
+    prefix = generic_requirements.get(record.resource_kind)
+    if prefix is not None and len([name for name in record.relationships if name.startswith(prefix)]) != 1:
+        raise ApplicationPlanError(
+            f"{record.resource_kind} {record.identity_key} requires exactly one supported {prefix.rstrip('_')}."
+        )
     dependencies: list[tuple[str, str]] = []
     required = REQUIRED_RELATIONSHIPS.get(record.resource_kind, frozenset())
     for relationship_name in required:

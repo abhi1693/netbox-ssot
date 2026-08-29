@@ -64,6 +64,7 @@ from dcim.models import (
     VirtualChassis,
     VirtualDeviceContext,
 )
+from django.db.models import Q
 from extras.models import (
     ConfigContext,
     ConfigContextProfile,
@@ -79,7 +80,26 @@ from extras.models import (
     Tag,
     Webhook,
 )
-from ipam.models import ASN, RIR
+from ipam.models import (
+    ASN,
+    RIR,
+    VLAN,
+    VRF,
+    Aggregate,
+    ASNRange,
+    FHRPGroup,
+    FHRPGroupAssignment,
+    IPAddress,
+    IPRange,
+    Prefix,
+    Role,
+    RouteTarget,
+    Service,
+    ServiceTemplate,
+    VLANGroup,
+    VLANTranslationPolicy,
+    VLANTranslationRule,
+)
 from tenancy.models import Tenant, TenantGroup
 from users.models import Group, ObjectPermission, Owner, OwnerGroup, User
 
@@ -111,7 +131,23 @@ MODEL_BY_KIND = {
     "tenant": Tenant,
     "site_group": SiteGroup,
     "rir": RIR,
+    "role": Role,
     "asn": ASN,
+    "asn_range": ASNRange,
+    "route_target": RouteTarget,
+    "vrf": VRF,
+    "aggregate": Aggregate,
+    "vlan_group": VLANGroup,
+    "vlan": VLAN,
+    "vlan_translation_policy": VLANTranslationPolicy,
+    "vlan_translation_rule": VLANTranslationRule,
+    "prefix": Prefix,
+    "ip_range": IPRange,
+    "fhrp_group": FHRPGroup,
+    "ip_address": IPAddress,
+    "fhrp_group_assignment": FHRPGroupAssignment,
+    "service_template": ServiceTemplate,
+    "service": Service,
     "region": Region,
     "site": Site,
     "location": Location,
@@ -183,10 +219,29 @@ def _queryset(resource_kind: str) -> Iterable[Any]:
     queryset = model.objects.all()
     if resource_kind == "event_rule":
         queryset = queryset.filter(action_type__in=("webhook", "notification"))
+    elif resource_kind in {"vlan_group", "prefix"}:
+        supported = ("region", "sitegroup", "site", "location")
+        if resource_kind == "vlan_group":
+            supported += ("rackgroup", "rack")
+        queryset = queryset.filter(
+            Q(scope_type__isnull=True) | Q(scope_type__app_label="dcim", scope_type__model__in=supported)
+        )
+    elif resource_kind == "ip_address":
+        queryset = queryset.filter(
+            Q(assigned_object_type__isnull=True)
+            | Q(assigned_object_type__app_label="dcim", assigned_object_type__model="interface")
+            | Q(assigned_object_type__app_label="ipam", assigned_object_type__model="fhrpgroup")
+        )
+    elif resource_kind == "fhrp_group_assignment":
+        queryset = queryset.filter(interface_type__app_label="dcim", interface_type__model="interface")
+    elif resource_kind == "service":
+        queryset = queryset.filter(
+            Q(parent_object_type__app_label="dcim", parent_object_type__model="device")
+            | Q(parent_object_type__app_label="ipam", parent_object_type__model="fhrpgroup")
+        )
     if related:
         queryset = queryset.select_related(*sorted(related))
     extra_related = {
-        "asn": ("role",),
         "custom_field": ("related_object_type",),
         "table_config": ("object_type",),
         "event_rule": ("action_object_type",),
@@ -196,6 +251,11 @@ def _queryset(resource_kind: str) -> Iterable[Any]:
         "mac_address": ("assigned_object_type",),
         "circuit_termination": ("termination_type",),
         "circuit_group_assignment": ("member_type",),
+        "vlan_group": ("scope_type",),
+        "prefix": ("scope_type",),
+        "ip_address": ("assigned_object_type",),
+        "fhrp_group_assignment": ("interface_type",),
+        "service": ("parent_object_type",),
     }.get(resource_kind, ())
     if extra_related:
         queryset = queryset.select_related(*extra_related)
@@ -234,6 +294,16 @@ def _queryset(resource_kind: str) -> Iterable[Any]:
         prefetch.append("asns")
     if resource_kind == "provider":
         prefetch.append("asns")
+    if resource_kind == "vrf":
+        prefetch.extend(("import_targets", "export_targets"))
+    if resource_kind == "service":
+        prefetch.extend(("parent", "ipaddresses"))
+    if resource_kind in {"vlan_group", "prefix"}:
+        prefetch.append("scope")
+    if resource_kind == "ip_address":
+        prefetch.append("assigned_object")
+    if resource_kind == "fhrp_group_assignment":
+        prefetch.append("interface")
     if resource_kind in {"front_port", "front_port_template"}:
         prefetch.append("mappings__rear_port")
     if resource_kind == "cable":
@@ -288,8 +358,24 @@ def _attributes(resource_kind: str, obj: Any) -> dict[str, Any]:
         parameters = portable_data_source_parameters(obj.type, obj.parameters)
         if parameters:
             add("/parameters", parameters)
-    elif resource_kind == "asn":
-        add("/role", obj.role.slug if obj.role else None)
+    elif resource_kind == "vlan_group":
+        add(
+            "/vid_ranges",
+            [{"start": value.lower, "end": value.upper - 1} for value in obj.vid_ranges],
+        )
+        add(
+            "/scope_type",
+            f"{obj.scope_type.app_label}.{obj.scope_type.model}" if obj.scope_type else None,
+        )
+    elif resource_kind in {"prefix", "ip_address", "fhrp_group_assignment", "service"}:
+        field_name = {
+            "prefix": "scope_type",
+            "ip_address": "assigned_object_type",
+            "fhrp_group_assignment": "interface_type",
+            "service": "parent_object_type",
+        }[resource_kind]
+        content_type = getattr(obj, field_name)
+        add(f"/{field_name}", f"{content_type.app_label}.{content_type.model}" if content_type else None)
     elif resource_kind in {"custom_field", "custom_link", "export_template", "saved_filter", "event_rule"}:
         add("/object_types", sorted(f"{item.app_label}.{item.model}" for item in obj.object_types.all()))
         if resource_kind == "custom_field":
@@ -349,6 +435,26 @@ def _relationships(resource_kind: str, obj: Any) -> dict[str, Any]:
     elif resource_kind == "notification_group":
         add_many("group", "user_group", obj.groups.all())
         add_many("user", "user", obj.users.all())
+    elif resource_kind == "vrf":
+        add_many("import_target", "route_target", obj.import_targets.all())
+        add_many("export_target", "route_target", obj.export_targets.all())
+    elif resource_kind in {"vlan_group", "prefix"} and obj.scope is not None:
+        target_kind = _kind_for_model(obj.scope)
+        if target_kind:
+            add(f"scope_{target_kind}", target_kind, obj.scope)
+    elif resource_kind == "ip_address" and obj.assigned_object is not None:
+        target_kind = _kind_for_model(obj.assigned_object)
+        if target_kind in {"interface", "fhrp_group"}:
+            add(f"assigned_{target_kind}", target_kind, obj.assigned_object)
+    elif resource_kind == "fhrp_group_assignment" and obj.interface is not None:
+        target_kind = _kind_for_model(obj.interface)
+        if target_kind == "interface":
+            add("interface_interface", target_kind, obj.interface)
+    elif resource_kind == "service" and obj.parent is not None:
+        target_kind = _kind_for_model(obj.parent)
+        if target_kind in {"device", "fhrp_group"}:
+            add(f"parent_{target_kind}", target_kind, obj.parent)
+        add_many("ip_address", "ip_address", obj.ipaddresses.all())
     elif resource_kind == "event_rule" and obj.action_object is not None:
         target_kind = _kind_for_model(obj.action_object)
         if target_kind in {"webhook", "notification_group"}:
@@ -413,6 +519,8 @@ def _target_identity(resource_kind: str, obj: Any) -> str:
         "platform",
         "rack_group",
         "rack_role",
+        "role",
+        "asn_range",
     }
     if resource_kind in slug_kinds:
         attributes["/slug"] = obj.slug
@@ -432,6 +540,9 @@ def _target_identity(resource_kind: str, obj: Any) -> str:
         "webhook",
         "notification_group",
         "event_rule",
+        "route_target",
+        "vlan_translation_policy",
+        "service_template",
     }:
         attributes["/name"] = obj.name
     elif resource_kind == "saved_filter":
@@ -446,6 +557,68 @@ def _target_identity(resource_kind: str, obj: Any) -> str:
         attributes["/username"] = obj.username
     elif resource_kind == "asn":
         attributes["/asn"] = obj.asn
+    elif resource_kind == "vrf":
+        attributes["/name"] = obj.name
+        attributes["/rd"] = obj.rd
+        if obj.tenant:
+            relationships["tenant"] = _target_identity("tenant", obj.tenant)
+    elif resource_kind == "aggregate":
+        attributes["/prefix"] = str(obj.prefix)
+    elif resource_kind == "vlan_group":
+        attributes["/slug"] = obj.slug
+        if obj.scope is not None:
+            target_kind = _kind_for_model(obj.scope)
+            if target_kind:
+                relationships[f"scope_{target_kind}"] = _target_identity(target_kind, obj.scope)
+                attributes["/scope_type"] = obj.scope_type.model
+    elif resource_kind == "vlan":
+        attributes["/vid"] = obj.vid
+        attributes["/name"] = obj.name
+        if obj.group:
+            relationships["group"] = _target_identity("vlan_group", obj.group)
+        elif obj.site:
+            relationships["site"] = _target_identity("site", obj.site)
+    elif resource_kind == "vlan_translation_rule":
+        attributes["/local_vid"] = obj.local_vid
+        relationships["policy"] = _target_identity("vlan_translation_policy", obj.policy)
+    elif resource_kind == "prefix":
+        attributes["/prefix"] = str(obj.prefix)
+        if obj.vrf:
+            relationships["vrf"] = _target_identity("vrf", obj.vrf)
+    elif resource_kind == "ip_range":
+        attributes["/start_address"] = str(obj.start_address)
+        attributes["/end_address"] = str(obj.end_address)
+        if obj.vrf:
+            relationships["vrf"] = _target_identity("vrf", obj.vrf)
+    elif resource_kind == "ip_address":
+        attributes["/address"] = str(obj.address)
+        if obj.role:
+            attributes["/role"] = obj.role
+        if obj.vrf:
+            relationships["vrf"] = _target_identity("vrf", obj.vrf)
+        if obj.assigned_object is not None:
+            target_kind = _kind_for_model(obj.assigned_object)
+            if target_kind in {"interface", "fhrp_group"}:
+                relationships[f"assigned_{target_kind}"] = _target_identity(target_kind, obj.assigned_object)
+                attributes["/assigned_object_type"] = obj.assigned_object_type.model
+    elif resource_kind == "fhrp_group":
+        attributes["/protocol"] = obj.protocol
+        attributes["/group_id"] = obj.group_id
+        attributes["/name"] = obj.name
+    elif resource_kind == "fhrp_group_assignment":
+        relationships["group"] = _target_identity("fhrp_group", obj.group)
+        if obj.interface is not None and _kind_for_model(obj.interface) == "interface":
+            relationships["interface_interface"] = _target_identity("interface", obj.interface)
+            attributes["/interface_type"] = "dcim.interface"
+    elif resource_kind == "service":
+        attributes["/name"] = obj.name
+        attributes["/protocol"] = obj.protocol
+        attributes["/ports"] = list(obj.ports)
+        if obj.parent is not None:
+            target_kind = _kind_for_model(obj.parent)
+            if target_kind in {"device", "fhrp_group"}:
+                relationships[f"parent_{target_kind}"] = _target_identity(target_kind, obj.parent)
+                attributes["/parent_object_type"] = obj.parent_object_type.model
 
     if resource_kind in {"region", "site_group", "tenant_group", "device_role"} and obj.parent:
         relationships["parent"] = _target_identity(resource_kind, obj.parent)

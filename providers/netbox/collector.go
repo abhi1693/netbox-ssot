@@ -59,7 +59,35 @@ var datasetEndpoints = map[string][]endpoint{
 		{Path: "tenancy/tenants/", Kind: "tenant"},
 		{Path: "dcim/site-groups/", Kind: "site_group"},
 		{Path: "ipam/rirs/", Kind: "rir"},
+		{Path: "ipam/roles/", Kind: "role"},
 		{Path: "ipam/asns/", Kind: "asn"},
+	},
+	"ipam_registries": {
+		{Path: "ipam/asn-ranges/", Kind: "asn_range"},
+		{Path: "ipam/aggregates/", Kind: "aggregate"},
+	},
+	"ipam_routing": {
+		{Path: "ipam/route-targets/", Kind: "route_target"},
+		{Path: "ipam/vrfs/", Kind: "vrf"},
+	},
+	"ipam_vlans": {
+		{Path: "ipam/vlan-groups/", Kind: "vlan_group"},
+		{Path: "ipam/vlans/", Kind: "vlan"},
+		{Path: "ipam/vlan-translation-policies/", Kind: "vlan_translation_policy"},
+		{Path: "ipam/vlan-translation-rules/", Kind: "vlan_translation_rule"},
+	},
+	"ipam_prefixes": {
+		{Path: "ipam/prefixes/", Kind: "prefix"},
+		{Path: "ipam/ip-ranges/", Kind: "ip_range"},
+	},
+	"ipam_addresses": {
+		{Path: "ipam/fhrp-groups/", Kind: "fhrp_group"},
+		{Path: "ipam/ip-addresses/", Kind: "ip_address"},
+		{Path: "ipam/fhrp-group-assignments/", Kind: "fhrp_group_assignment"},
+	},
+	"ipam_services": {
+		{Path: "ipam/service-templates/", Kind: "service_template"},
+		{Path: "ipam/services/", Kind: "service"},
 	},
 	"users": {
 		{Path: "users/permissions/", Kind: "object_permission"},
@@ -543,7 +571,7 @@ func mapObservation(request contracts.CollectionRequest, kind string, record map
 		attributePaths = append(attributePaths, attribute.Path)
 	}
 	digestValue := any(record)
-	if kind == "data_source" || kind == "webhook" {
+	if kind == "data_source" || kind == "webhook" || kind == "fhrp_group" {
 		// Data Source and Webhook API records can contain credentials. Hash only
 		// the portable projection so secret material never enters evidence, even as a
 		// reusable offline-verification digest.
@@ -702,11 +730,56 @@ func attributesFor(kind string, record map[string]any) []contracts.ObservationAt
 		addDirect("/is_private", "is_private")
 		addDirect("/description", "description")
 		addDirect("/comments", "comments")
+	case "role":
+		addFields("name", "slug", "weight", "description", "comments")
 	case "asn":
 		addDirect("/asn", "asn")
 		addDirect("/description", "description")
 		addDirect("/comments", "comments")
-		add("/role", nestedValue(record["role"], "slug"))
+	case "asn_range":
+		addFields("name", "slug", "start", "end", "description", "comments")
+	case "route_target":
+		addFields("name", "description", "comments")
+	case "vrf":
+		addFields("name", "rd", "enforce_unique", "description", "comments")
+	case "aggregate":
+		addFields("prefix", "date_added", "description", "comments")
+	case "vlan_group":
+		addFields("name", "slug", "vid_ranges", "description", "comments")
+		add("/scope_type", contentTypeValue(record["scope_type"]))
+	case "vlan":
+		addFields("vid", "name", "description", "comments")
+		addChoices("status", "qinq_role")
+	case "vlan_translation_policy":
+		addFields("name", "description", "comments")
+	case "vlan_translation_rule":
+		addFields("local_vid", "remote_vid", "description")
+	case "prefix":
+		addFields("prefix", "is_pool", "mark_utilized", "description", "comments")
+		addChoices("status")
+		add("/scope_type", contentTypeValue(record["scope_type"]))
+	case "ip_range":
+		addFields(
+			"start_address", "end_address", "description", "comments", "mark_populated", "mark_utilized",
+		)
+		addChoices("status")
+	case "ip_address":
+		addFields("address", "dns_name", "description", "comments")
+		addChoices("status", "role")
+		add("/assigned_object_type", contentTypeValue(record["assigned_object_type"]))
+	case "fhrp_group":
+		addFields("group_id", "name", "description", "comments")
+		addChoices("protocol", "auth_type")
+	case "fhrp_group_assignment":
+		addFields("priority")
+		add("/interface_type", contentTypeValue(record["interface_type"]))
+	case "service_template":
+		addFields("name", "ports", "description", "comments")
+		addChoices("protocol")
+	case "service":
+		addFields("name", "ports", "description", "comments")
+		addChoices("protocol")
+		add("/parent_object_type", contentTypeValue(record["parent_object_type"]))
 	case "region":
 		addDirect("/name", "name")
 		addDirect("/slug", "slug")
@@ -1060,9 +1133,85 @@ func relationshipsFor(kind string, record map[string]any) []contracts.Relationsh
 	case "rir":
 		add("owner", "owner", record["owner"])
 		addMany("tag", "tag", record["tags"])
+	case "role":
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
 	case "asn":
 		add("rir", "rir", record["rir"])
+		add("role", "role", record["role"])
 		add("tenant", "tenant", record["tenant"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "asn_range":
+		add("rir", "rir", record["rir"])
+		add("tenant", "tenant", record["tenant"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "route_target":
+		add("tenant", "tenant", record["tenant"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "vrf":
+		add("tenant", "tenant", record["tenant"])
+		add("owner", "owner", record["owner"])
+		addMany("import_target", "route_target", record["import_targets"])
+		addMany("export_target", "route_target", record["export_targets"])
+		addMany("tag", "tag", record["tags"])
+	case "aggregate":
+		add("rir", "rir", record["rir"])
+		add("tenant", "tenant", record["tenant"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "vlan_group":
+		addGeneric("scope", record["scope_type"], record["scope_id"])
+		add("tenant", "tenant", record["tenant"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "vlan":
+		add("site", "site", record["site"])
+		add("group", "vlan_group", record["group"])
+		add("tenant", "tenant", record["tenant"])
+		add("role", "role", record["role"])
+		add("qinq_svlan", "vlan", record["qinq_svlan"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "vlan_translation_policy":
+		add("owner", "owner", record["owner"])
+	case "vlan_translation_rule":
+		add("policy", "vlan_translation_policy", record["policy"])
+	case "prefix":
+		add("vrf", "vrf", record["vrf"])
+		addGeneric("scope", record["scope_type"], record["scope_id"])
+		add("tenant", "tenant", record["tenant"])
+		add("vlan", "vlan", record["vlan"])
+		add("role", "role", record["role"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "ip_range":
+		add("vrf", "vrf", record["vrf"])
+		add("tenant", "tenant", record["tenant"])
+		add("role", "role", record["role"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "ip_address":
+		add("vrf", "vrf", record["vrf"])
+		add("tenant", "tenant", record["tenant"])
+		addGeneric("assigned", record["assigned_object_type"], record["assigned_object_id"])
+		add("nat_inside", "ip_address", record["nat_inside"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "fhrp_group":
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "fhrp_group_assignment":
+		add("group", "fhrp_group", record["group"])
+		addGeneric("interface", record["interface_type"], record["interface_id"])
+	case "service_template":
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "service":
+		addGeneric("parent", record["parent_object_type"], record["parent_object_id"])
+		addMany("ip_address", "ip_address", record["ipaddresses"])
 		add("owner", "owner", record["owner"])
 		addMany("tag", "tag", record["tags"])
 	case "region":
@@ -1324,6 +1473,10 @@ func resourceKindForObjectType(objectType string) (string, bool) {
 		"dcim.sitegroup":                 "site_group",
 		"dcim.site":                      "site",
 		"dcim.location":                  "location",
+		"dcim.device":                    "device",
+		"dcim.rackgroup":                 "rack_group",
+		"dcim.rack":                      "rack",
+		"ipam.fhrpgroup":                 "fhrp_group",
 		"circuits.provider":              "provider",
 		"circuits.providernetwork":       "provider_network",
 		"circuits.circuit":               "circuit",

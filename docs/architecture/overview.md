@@ -25,21 +25,21 @@ normal configured interval, preserving responsive administrator actions after re
 The current implementation includes durable comparison previews and a separately permissioned local NetBox apply
 boundary. Provider collectors and agents remain read-only and cannot reach the target write service.
 
-The selectable target boundary covers portable Core and Extras configuration, every public writable NetBox 4.6 DCIM
-and Circuits resource, and the portable Users access-control graph through dependency-closed datasets: Data Sources,
+The selectable target boundary covers portable Core and Extras configuration, every public writable NetBox 4.6 IPAM,
+DCIM, and Circuits resource, and the portable Users access-control graph through dependency-closed datasets: Data Sources,
 Users, Groups, Object Permissions, Extras configuration, geography; device, module, rack, and circuit catalogs;
 component templates; racks and reservations;
-devices and their installed components; inventory and MAC addresses; power; physical and virtual circuits; circuit
-groups; and cabling. The automatically collected support graph also includes Tags, Owner Groups, Owners, Tenant Groups,
+devices and their installed components; inventory and MAC addresses; IP registries, routing, VLANs, prefixes,
+addresses, FHRP, services; power; physical and virtual circuits; circuit groups; and cabling. The automatically collected support graph also includes Tags, Owner Groups, Owners, Tenant Groups,
 Tenants, RIRs, and ASNs. Internal aggregate/helper rows such as Cable Terminations, Cable Paths, Port Template Mappings,
 and Port Mappings are projected and written through their owning DCIM object rather than advertised as standalone
 resources.
 
 Passwords, superuser state, API Tokens, login activity, built-in Django permissions, private UserConfig preferences,
 Owner-to-user/group memberships, Data Source credentials and unknown backend parameters, generated Data Files,
-synchronization/job/audit/background-worker state, ASN Roles, Rack Reservation users, contact assignments, and images
-remain outside the owned graph or resolve-only. Cross-app device addressing/cluster fields, Interface IPAM and
-wireless-policy fields, VM-interface MAC assignments, and wireless cable endpoints are not inferred. Extras scripts,
+synchronization/job/audit/background-worker state, Rack Reservation users, contact assignments, and images
+remain outside the owned graph or resolve-only. Device primary-IP/cluster fields, Interface wireless-policy fields,
+VM-interface assignments, FHRP authentication keys, and wireless cable endpoints are not inferred. Extras scripts,
 personal UI state, generated notifications/history, subscriptions, image attachments, and explicit webhook credentials
 are excluded. Configuration templates are first-class DCIM dependencies; synced template/context content is
 materialized inline without copying Data File bindings. Unsupported event actions and virtualization context qualifiers

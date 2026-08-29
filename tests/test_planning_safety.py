@@ -314,6 +314,84 @@ def test_extras_many_to_many_relationships_preserve_cardinality() -> None:
     ) == {"group": ["operators"], "user": ["alice"]}
 
 
+def test_ipam_identities_cover_routing_addressing_and_generic_edges() -> None:
+    role = natural_identity("role", {"/slug": "infrastructure"}, {})
+    vrf = natural_identity("vrf", {"/name": "Production", "/rd": "64512:100"}, {})
+    vlan_group = natural_identity(
+        "vlan_group",
+        {"/slug": "site-vlans", "/scope_type": "dcim.site"},
+        {"scope_site": "dc1"},
+    )
+    vlan = natural_identity(
+        "vlan",
+        {"/vid": 100, "/name": "Applications"},
+        {"group": vlan_group, "role": role},
+    )
+    prefix = natural_identity("prefix", {"/prefix": "10.0.0.0/24"}, {"vrf": vrf, "vlan": vlan})
+    group = natural_identity(
+        "fhrp_group",
+        {"/protocol": "vrrp3", "/group_id": 100, "/name": "Gateway"},
+        {},
+    )
+    address = natural_identity(
+        "ip_address",
+        {"/address": "10.0.0.1/24", "/role": "vrrp", "/assigned_object_type": "ipam.fhrpgroup"},
+        {"vrf": vrf, "assigned_fhrp_group": group},
+    )
+    service = natural_identity(
+        "service",
+        {"/name": "HTTPS", "/protocol": "tcp", "/ports": [8443, 443], "/parent_object_type": "ipam.fhrpgroup"},
+        {"parent_fhrp_group": group, "ip_address": [address]},
+    )
+
+    assert prefix
+    assert service
+    assert normalize_relationship_cardinality("vrf", {"import_target": ["64512:1"], "export_target": ["64512:2"]}) == {
+        "export_target": ["64512:2"],
+        "import_target": ["64512:1"],
+    }
+    assert normalize_relationship_cardinality("service", {"ip_address": [address]}) == {"ip_address": [address]}
+
+
+@pytest.mark.parametrize(
+    ("kind", "attributes", "relationships", "message"),
+    [
+        ("prefix", {"/prefix": "10.0.0.0/24", "/scope_type": "virtualization.cluster"}, {}, "prefix scope"),
+        (
+            "ip_address",
+            {"/address": "10.0.0.1/24", "/assigned_object_type": "virtualization.vminterface"},
+            {},
+            "IP address assignment",
+        ),
+        (
+            "fhrp_group_assignment",
+            {"/interface_type": "virtualization.vminterface"},
+            {"group": "gateway"},
+            "FHRP assignment",
+        ),
+        (
+            "service",
+            {
+                "/name": "SSH",
+                "/protocol": "tcp",
+                "/ports": [22],
+                "/parent_object_type": "virtualization.virtualmachine",
+            },
+            {},
+            "service parent",
+        ),
+    ],
+)
+def test_ipam_generic_relationships_fail_closed_outside_owned_graph(
+    kind: str,
+    attributes: dict[str, object],
+    relationships: dict[str, object],
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        natural_identity(kind, attributes, relationships)
+
+
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [

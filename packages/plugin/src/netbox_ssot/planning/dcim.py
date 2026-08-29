@@ -256,7 +256,6 @@ ATTRIBUTE_FIELDS: Final[dict[str, tuple[str, ...]]] = {
 # complete, stable schema without teaching it about NetBox ORM implementation details.
 EXTRA_ATTRIBUTE_FIELDS: Final[dict[str, tuple[str, ...]]] = {
     "tag": ("object_types",),
-    "asn": ("role",),
     "module_type": ("attributes",),
     "rack_reservation": ("user",),
     "inventory_item": ("component_type",),
@@ -275,6 +274,7 @@ RELATIONSHIP_FIELDS: Final[dict[str, dict[str, tuple[str, str]]]] = {
     "rir": {"owner": ("owner", "owner")},
     "asn": {
         "rir": ("rir", "rir"),
+        "role": ("role", "role"),
         "tenant": ("tenant", "tenant"),
         "owner": ("owner", "owner"),
     },

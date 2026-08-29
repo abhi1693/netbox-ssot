@@ -4,7 +4,7 @@
   "icon_class": "mdi mdi-cube-outline",
   "description": "Collects portable configuration and infrastructure data from a remote NetBox REST API.",
   "instance_url_field": "base_url",
-  "implementation_version": "0.0.11",
+  "implementation_version": "0.0.12",
   "contract_version": "1.0",
   "documentation_url": "https://github.com/abhi1693/netbox-ssot",
   "execution_modes": [
@@ -91,6 +91,7 @@
         "tenant",
         "site_group",
         "rir",
+        "role",
         "asn"
       ],
       "default_enabled": false,
@@ -105,7 +106,89 @@
         {"source_name": "Tenant", "source_model": "tenancy.Tenant", "source_path": "tenancy/tenants/", "destination_kind": "tenant"},
         {"source_name": "Site group", "source_model": "dcim.SiteGroup", "source_path": "dcim/site-groups/", "destination_kind": "site_group"},
         {"source_name": "RIR", "source_model": "ipam.RIR", "source_path": "ipam/rirs/", "destination_kind": "rir"},
+        {"source_name": "Role", "source_model": "ipam.Role", "source_path": "ipam/roles/", "destination_kind": "role"},
         {"source_name": "ASN", "source_model": "ipam.ASN", "source_path": "ipam/asns/", "destination_kind": "asn"}
+      ]
+    },
+    {
+      "id": "ipam_registries",
+      "title": "IPAM registries",
+      "description": "ASN ranges and aggregate address space, with RIR, tenancy, ownership, and tagging relationships.",
+      "resource_kinds": ["asn_range", "aggregate"],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": ["references"],
+      "data_mappings": [
+        {"source_name": "ASN range", "source_model": "ipam.ASNRange", "source_path": "ipam/asn-ranges/", "destination_kind": "asn_range"},
+        {"source_name": "Aggregate", "source_model": "ipam.Aggregate", "source_path": "ipam/aggregates/", "destination_kind": "aggregate"}
+      ]
+    },
+    {
+      "id": "ipam_routing",
+      "title": "IPAM routing",
+      "description": "Route targets and VRFs, including import and export policy relationships.",
+      "resource_kinds": ["route_target", "vrf"],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": ["references"],
+      "data_mappings": [
+        {"source_name": "Route target", "source_model": "ipam.RouteTarget", "source_path": "ipam/route-targets/", "destination_kind": "route_target"},
+        {"source_name": "VRF", "source_model": "ipam.VRF", "source_path": "ipam/vrfs/", "destination_kind": "vrf"}
+      ]
+    },
+    {
+      "id": "ipam_vlans",
+      "title": "IPAM VLANs",
+      "description": "VLAN groups, VLANs, and translation policies. Virtualization-backed scopes and VPN terminations remain outside this provider graph.",
+      "resource_kinds": ["vlan_group", "vlan", "vlan_translation_policy", "vlan_translation_rule"],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": ["locations", "racks"],
+      "data_mappings": [
+        {"source_name": "VLAN group", "source_model": "ipam.VLANGroup", "source_path": "ipam/vlan-groups/", "destination_kind": "vlan_group"},
+        {"source_name": "VLAN", "source_model": "ipam.VLAN", "source_path": "ipam/vlans/", "destination_kind": "vlan"},
+        {"source_name": "VLAN translation policy", "source_model": "ipam.VLANTranslationPolicy", "source_path": "ipam/vlan-translation-policies/", "destination_kind": "vlan_translation_policy"},
+        {"source_name": "VLAN translation rule", "source_model": "ipam.VLANTranslationRule", "source_path": "ipam/vlan-translation-rules/", "destination_kind": "vlan_translation_rule"}
+      ]
+    },
+    {
+      "id": "ipam_prefixes",
+      "title": "IPAM prefixes and ranges",
+      "description": "Prefixes and IP ranges with supported DCIM scopes, VRFs, VLANs, roles, tenancy, ownership, and tags.",
+      "resource_kinds": ["prefix", "ip_range"],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": ["ipam_routing", "ipam_vlans"],
+      "data_mappings": [
+        {"source_name": "Prefix", "source_model": "ipam.Prefix", "source_path": "ipam/prefixes/", "destination_kind": "prefix"},
+        {"source_name": "IP range", "source_model": "ipam.IPRange", "source_path": "ipam/ip-ranges/", "destination_kind": "ip_range"}
+      ]
+    },
+    {
+      "id": "ipam_addresses",
+      "title": "IPAM addresses and FHRP",
+      "description": "IP addresses, FHRP groups, and physical-interface assignments. FHRP authentication keys remain destination-local; virtual interfaces are not copied.",
+      "resource_kinds": ["fhrp_group", "ip_address", "fhrp_group_assignment"],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": ["ipam_prefixes", "device_components"],
+      "data_mappings": [
+        {"source_name": "FHRP group", "source_model": "ipam.FHRPGroup", "source_path": "ipam/fhrp-groups/", "destination_kind": "fhrp_group"},
+        {"source_name": "IP address", "source_model": "ipam.IPAddress", "source_path": "ipam/ip-addresses/", "destination_kind": "ip_address"},
+        {"source_name": "FHRP group assignment", "source_model": "ipam.FHRPGroupAssignment", "source_path": "ipam/fhrp-group-assignments/", "destination_kind": "fhrp_group_assignment"}
+      ]
+    },
+    {
+      "id": "ipam_services",
+      "title": "IPAM services",
+      "description": "Service templates and services bound to supported devices or FHRP groups. Virtual-machine services remain outside this provider graph.",
+      "resource_kinds": ["service_template", "service"],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": ["ipam_addresses"],
+      "data_mappings": [
+        {"source_name": "Service template", "source_model": "ipam.ServiceTemplate", "source_path": "ipam/service-templates/", "destination_kind": "service_template"},
+        {"source_name": "Service", "source_model": "ipam.Service", "source_path": "ipam/services/", "destination_kind": "service"}
       ]
     },
     {
