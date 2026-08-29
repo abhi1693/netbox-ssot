@@ -187,6 +187,67 @@ func TestCircuitRecordsPreserveTypedFieldsAndPortableRelationships(t *testing.T)
 	}
 }
 
+func TestUserRecordsExcludeCredentialsAndPreserveAccessRelationships(t *testing.T) {
+	attributes := attributesFor("user", map[string]any{
+		"username": "alice", "first_name": "Alice", "last_name": "Admin", "email": "alice@example.com",
+		"is_active": true, "password": "source-password-hash", "is_superuser": true,
+		"date_joined": "2026-01-01T00:00:00Z", "last_login": "2026-01-02T00:00:00Z",
+	})
+	values := make(map[string]any, len(attributes))
+	for _, attribute := range attributes {
+		values[attribute.Path] = attribute.Value
+	}
+	if len(values) != 5 || values["/username"] != "alice" || values["/is_active"] != true {
+		t.Fatalf("user attributes = %#v", values)
+	}
+	for _, forbidden := range []string{"/password", "/is_superuser", "/date_joined", "/last_login"} {
+		if _, ok := values[forbidden]; ok {
+			t.Errorf("credential or destination-local field %q was collected", forbidden)
+		}
+	}
+
+	permissionAttributes := attributesFor("object_permission", map[string]any{
+		"name": "View sites", "description": "Read sites", "enabled": true,
+		"actions": []any{"view", "change"}, "constraints": map[string]any{"status": "active"},
+		"object_types": []any{"dcim.site", "dcim.location"},
+	})
+	permissionValues := make(map[string]any, len(permissionAttributes))
+	for _, attribute := range permissionAttributes {
+		permissionValues[attribute.Path] = attribute.Value
+	}
+	if strings.Join(permissionValues["/actions"].([]string), ",") != "change,view" ||
+		strings.Join(permissionValues["/object_types"].([]string), ",") != "dcim.location,dcim.site" {
+		t.Fatalf("permission attributes = %#v", permissionValues)
+	}
+
+	groupRelationships := relationshipsFor("user_group", map[string]any{
+		"permissions": []any{map[string]any{"id": json.Number("11")}},
+	})
+	userRelationships := relationshipsFor("user", map[string]any{
+		"groups":      []any{map[string]any{"id": json.Number("12")}},
+		"permissions": []any{map[string]any{"id": json.Number("11")}},
+	})
+	if len(groupRelationships) != 1 || groupRelationships[0].TargetKind != "object_permission" {
+		t.Fatalf("group relationships = %+v", groupRelationships)
+	}
+	if len(userRelationships) != 2 || userRelationships[0].TargetKind != "user_group" ||
+		userRelationships[1].TargetKind != "object_permission" {
+		t.Fatalf("user relationships = %+v", userRelationships)
+	}
+
+	manifest, err := New().Manifest()
+	if err != nil {
+		t.Fatalf("Manifest() error = %v", err)
+	}
+	for _, dataset := range manifest.Datasets {
+		for _, mapping := range dataset.DataMappings {
+			if mapping.SourceModel == "users.Token" || mapping.SourceModel == "users.UserConfig" {
+				t.Fatalf("non-portable users model was advertised: %+v", mapping)
+			}
+		}
+	}
+}
+
 func TestConnectionReadsStatusWithoutExposingToken(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodGet {

@@ -161,6 +161,23 @@ def test_dependency_order_places_circuit_catalog_endpoints_and_group_members_fir
     assert positions[("location", "location")] < positions[("circuit_termination", "termination")]
 
 
+def test_dependency_order_places_permissions_before_groups_and_users() -> None:
+    records = [
+        record(
+            "user",
+            "alice",
+            relationships={"group": ["operators"], "permission": ["view-sites"]},
+        ),
+        record("user_group", "operators", relationships={"permission": ["view-sites"]}),
+        record("object_permission", "view-sites"),
+    ]
+
+    positions = {item.key: index for index, item in enumerate(dependency_order(records))}
+
+    assert positions[("object_permission", "view-sites")] < positions[("user_group", "operators")]
+    assert positions[("user_group", "operators")] < positions[("user", "alice")]
+
+
 def test_dependency_order_rejects_duplicate_identity_and_cycles() -> None:
     duplicate = [record("region", "one"), record("region", "one")]
     with pytest.raises(ApplicationPlanError, match="duplicate"):

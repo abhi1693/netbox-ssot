@@ -24,7 +24,7 @@ def test_dataset_selection_adds_dependencies_in_manifest_order() -> None:
 
 
 def test_netbox_provider_is_agent_read_only() -> None:
-    assert MANIFEST.implementation_version == "0.0.8"
+    assert MANIFEST.implementation_version == "0.0.9"
     assert MANIFEST.execution_modes == (ExecutionMode.AGENT,)
     assert MANIFEST.capabilities == (ProviderCapability.SOURCE_READ,)
     assert MANIFEST.agent_compatibility.collector_id == "netbox"
@@ -57,6 +57,7 @@ def test_installed_netbox_provider_is_discovered_by_entry_point() -> None:
     assert wizard.provider.display_name == "NetBox"
     assert wizard.provider.icon_class == "mdi mdi-cube-outline"
     assert wizard.default_datasets == (
+        "users",
         "regions",
         "sites",
         "locations",
@@ -82,6 +83,9 @@ def test_installed_netbox_provider_is_discovered_by_entry_point() -> None:
         if dataset.selectable
         for mapping in dataset.data_mappings
     ) == (
+        ("users.ObjectPermission", "object_permission"),
+        ("users.Group", "user_group"),
+        ("users.User", "user"),
         ("dcim.Region", "region"),
         ("dcim.Site", "site"),
         ("dcim.Location", "location"),

@@ -4,7 +4,7 @@
   "icon_class": "mdi mdi-cube-outline",
   "description": "Collects infrastructure and IPAM data from a remote NetBox REST API.",
   "instance_url_field": "base_url",
-  "implementation_version": "0.0.8",
+  "implementation_version": "0.0.9",
   "contract_version": "1.0",
   "documentation_url": "https://github.com/abhi1693/netbox-ssot",
   "execution_modes": [
@@ -106,6 +106,20 @@
         {"source_name": "Site group", "source_model": "dcim.SiteGroup", "source_path": "dcim/site-groups/", "destination_kind": "site_group"},
         {"source_name": "RIR", "source_model": "ipam.RIR", "source_path": "ipam/rirs/", "destination_kind": "rir"},
         {"source_name": "ASN", "source_model": "ipam.ASN", "source_path": "ipam/asns/", "destination_kind": "asn"}
+      ]
+    },
+    {
+      "id": "users",
+      "title": "Users and access control",
+      "description": "Users, groups, and object permissions. Passwords, API tokens, superuser state, login activity, built-in Django permissions, and private user preferences are never copied.",
+      "resource_kinds": ["object_permission", "user_group", "user"],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": [],
+      "data_mappings": [
+        {"source_name": "Object permission", "source_model": "users.ObjectPermission", "source_path": "users/permissions/", "destination_kind": "object_permission"},
+        {"source_name": "Group", "source_model": "users.Group", "source_path": "users/groups/", "destination_kind": "user_group"},
+        {"source_name": "User", "source_model": "users.User", "source_path": "users/users/", "destination_kind": "user"}
       ]
     },
     {

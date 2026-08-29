@@ -66,7 +66,7 @@ from dcim.models import (
 from extras.models import Tag
 from ipam.models import ASN, RIR
 from tenancy.models import Tenant, TenantGroup
-from users.models import Owner, OwnerGroup
+from users.models import Group, ObjectPermission, Owner, OwnerGroup, User
 
 from .comparison import CanonicalRecord, natural_identity, normalize_value
 from .resource_registry import ATTRIBUTE_FIELDS, RELATIONSHIP_FIELDS, TAGGED_KINDS
@@ -75,6 +75,9 @@ MODEL_BY_KIND = {
     "tag": Tag,
     "owner_group": OwnerGroup,
     "owner": Owner,
+    "object_permission": ObjectPermission,
+    "user_group": Group,
+    "user": User,
     "tenant_group": TenantGroup,
     "tenant": Tenant,
     "site_group": SiteGroup,
@@ -172,6 +175,12 @@ def _queryset(resource_kind: str) -> Iterable[Any]:
         prefetch.append("vdcs")
     if resource_kind == "tag":
         prefetch.append("object_types")
+    if resource_kind == "object_permission":
+        prefetch.append("object_types")
+    if resource_kind == "user_group":
+        prefetch.append("object_permissions")
+    if resource_kind == "user":
+        prefetch.extend(("groups", "object_permissions"))
     if resource_kind == "site":
         prefetch.append("asns")
     if resource_kind == "provider":
@@ -223,6 +232,9 @@ def _attributes(resource_kind: str, obj: Any) -> dict[str, Any]:
         object_types = sorted(f"{item.app_label}.{item.model}" for item in obj.object_types.all())
         if object_types:
             add("/object_types", object_types)
+    elif resource_kind == "object_permission":
+        add("/actions", sorted(obj.actions))
+        add("/object_types", sorted(f"{item.app_label}.{item.model}" for item in obj.object_types.all()))
     elif resource_kind == "asn":
         add("/role", obj.role.slug if obj.role else None)
     elif resource_kind in {"device_role", "platform", "device"}:
@@ -262,7 +274,12 @@ def _relationships(resource_kind: str, obj: Any) -> dict[str, Any]:
         add(name, target_kind, getattr(obj, field_name))
     if resource_kind in TAGGED_KINDS:
         add_many("tag", "tag", obj.tags.all())
-    if resource_kind == "site" or resource_kind == "provider":
+    if resource_kind == "user_group":
+        add_many("permission", "object_permission", obj.object_permissions.all())
+    elif resource_kind == "user":
+        add_many("group", "user_group", obj.groups.all())
+        add_many("permission", "object_permission", obj.object_permissions.all())
+    elif resource_kind == "site" or resource_kind == "provider":
         add_many("asn", "asn", obj.asns.all())
     elif resource_kind == "interface":
         add_many("vdc", "virtual_device_context", obj.vdcs.all())
@@ -325,8 +342,10 @@ def _target_identity(resource_kind: str, obj: Any) -> str:
     }
     if resource_kind in slug_kinds:
         attributes["/slug"] = obj.slug
-    elif resource_kind in {"owner_group", "owner"}:
+    elif resource_kind in {"owner_group", "owner", "object_permission", "user_group"}:
         attributes["/name"] = obj.name
+    elif resource_kind == "user":
+        attributes["/username"] = obj.username
     elif resource_kind == "asn":
         attributes["/asn"] = obj.asn
 
@@ -480,6 +499,7 @@ def _target_identity(resource_kind: str, obj: Any) -> str:
 def _display_name(attributes: dict[str, Any], fallback: str) -> str:
     return str(
         attributes.get("/name")
+        or attributes.get("/username")
         or attributes.get("/cid")
         or attributes.get("/account")
         or attributes.get("/model")

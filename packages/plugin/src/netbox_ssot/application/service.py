@@ -307,20 +307,20 @@ def _content_type_problems(records: list[ApplicationRecord]) -> list[str]:
     content_type_model = apps.get_model("contenttypes.contenttype")
     missing: set[str] = set()
     for record in records:
-        if record.resource_kind != "tag":
+        if record.resource_kind not in {"tag", "object_permission"}:
             continue
         values = record.attributes.get("/object_types", [])
         if not isinstance(values, list):
-            raise ApplicationPlanError("Tag attribute /object_types must be a list.")
+            raise ApplicationPlanError(f"{record.resource_kind} attribute /object_types must be a list.")
         for value in values:
             if not isinstance(value, str) or value.count(".") != 1:
-                raise ApplicationPlanError("Tag object types must use the app_label.model format.")
+                raise ApplicationPlanError("Object types must use the app_label.model format.")
             app_label, model = value.split(".", 1)
             if not content_type_model.objects.filter(app_label=app_label, model=model).exists():
                 missing.add(value)
     if not missing:
         return []
-    return [f"The target does not provide {len(missing)} Tag object types: {', '.join(sorted(missing)[:10])}."]
+    return [f"The target does not provide {len(missing)} required object types: {', '.join(sorted(missing)[:10])}."]
 
 
 class _NetBoxMutationBackend:
@@ -554,6 +554,8 @@ def _write_object(
     else:
         raise ApplicationPlanError(f"Resource kind {record.resource_kind!r} cannot be written.")
 
+    if kind == "user" and obj._state.adding:
+        obj.set_unusable_password()
     obj.full_clean()
     if obj._state.adding and kind in {"device", "module"}:
         super(obj.__class__, obj).save()
@@ -565,6 +567,27 @@ def _write_object(
         obj._original_device_type = obj.device_type_id
     if kind == "tag":
         obj.object_types.set(_content_types(attributes.get("/object_types", [])))
+    if kind == "object_permission":
+        obj.object_types.set(_content_types(attributes.get("/object_types", [])))
+    if kind == "user_group":
+        obj.object_permissions.set(
+            _relationship_objects(
+                "object_permission",
+                relationships.get("permission"),
+                target_by_key,
+                object_cache,
+            )
+        )
+    if kind == "user":
+        obj.groups.set(_relationship_objects("user_group", relationships.get("group"), target_by_key, object_cache))
+        obj.object_permissions.set(
+            _relationship_objects(
+                "object_permission",
+                relationships.get("permission"),
+                target_by_key,
+                object_cache,
+            )
+        )
     if kind == "site":
         obj.asns.set(_relationship_objects("asn", relationships.get("asn"), target_by_key, object_cache))
     if kind == "provider":
@@ -738,12 +761,12 @@ def _content_types(values: Any) -> list[Any]:
     if values in (None, "", []):
         return []
     if not isinstance(values, list):
-        raise ApplicationPlanError("Tag attribute /object_types must be a list.")
+        raise ApplicationPlanError("Attribute /object_types must be a list.")
     content_type_model = apps.get_model("contenttypes.contenttype")
     content_types: list[Any] = []
     for value in values:
         if not isinstance(value, str) or value.count(".") != 1:
-            raise ApplicationPlanError("Tag object types must use the app_label.model format.")
+            raise ApplicationPlanError("Object types must use the app_label.model format.")
         app_label, model = value.split(".", 1)
         content_types.append(content_type_model.objects.get(app_label=app_label, model=model))
     return content_types

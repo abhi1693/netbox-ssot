@@ -318,7 +318,17 @@ def _result_to_draft(result: ComparisonResult) -> ItemDraft:
 
 
 def _display_name(attributes: dict[str, Any], fallback: str) -> str:
-    for path in ("/name", "/cid", "/account", "/asn", "/model", "/address", "/prefix", "/slug"):
+    for path in (
+        "/name",
+        "/username",
+        "/cid",
+        "/account",
+        "/asn",
+        "/model",
+        "/address",
+        "/prefix",
+        "/slug",
+    ):
         if value := attributes.get(path):
             return str(value)
     return fallback

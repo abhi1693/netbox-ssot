@@ -10,7 +10,7 @@ from .adapters import build_adapter_pair
 from .diffsync_engine import ComparisonOnlyDiffSyncEngine
 from .resource_registry import ATTRIBUTE_FIELDS, is_multi_relationship
 
-ENGINE_VERSION = "7.0"
+ENGINE_VERSION = "8.0"
 SUPPORTED_RESOURCE_KINDS = frozenset(ATTRIBUTE_FIELDS)
 MULTI_RELATIONSHIPS = {
     "tenant_group": frozenset({"tag"}),
@@ -129,8 +129,10 @@ def natural_identity(
         parts = [resource_kind, relationships.get("group", "root"), required_attribute("slug")]
     elif resource_kind in {"tag", "rir", "site", "manufacturer", "rack_group", "rack_role"}:
         parts = [resource_kind, "slug", required_attribute("slug")]
-    elif resource_kind in {"owner_group", "owner"}:
+    elif resource_kind in {"owner_group", "owner", "object_permission", "user_group"}:
         parts = [resource_kind, "name", required_attribute("name")]
+    elif resource_kind == "user":
+        parts = [resource_kind, "username", str(required_attribute("username")).casefold()]
     elif resource_kind == "asn":
         parts = [resource_kind, "asn", required_attribute("asn")]
     elif resource_kind == "location":

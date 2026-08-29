@@ -61,6 +61,11 @@ var datasetEndpoints = map[string][]endpoint{
 		{Path: "ipam/rirs/", Kind: "rir"},
 		{Path: "ipam/asns/", Kind: "asn"},
 	},
+	"users": {
+		{Path: "users/permissions/", Kind: "object_permission"},
+		{Path: "users/groups/", Kind: "user_group"},
+		{Path: "users/users/", Kind: "user"},
+	},
 	"regions":   {{Path: "dcim/regions/", Kind: "region"}},
 	"sites":     {{Path: "dcim/sites/", Kind: "site"}},
 	"locations": {{Path: "dcim/locations/", Kind: "location"}},
@@ -572,6 +577,14 @@ func attributesFor(kind string, record map[string]any) []contracts.ObservationAt
 	case "owner":
 		addDirect("/name", "name")
 		addDirect("/description", "description")
+	case "object_permission":
+		addFields("name", "description", "enabled", "constraints")
+		add("/actions", stringValues(record["actions"]))
+		add("/object_types", stringValues(record["object_types"]))
+	case "user_group":
+		addFields("name", "description")
+	case "user":
+		addFields("username", "first_name", "last_name", "email", "is_active")
 	case "tenant_group", "site_group":
 		addDirect("/name", "name")
 		addDirect("/slug", "slug")
@@ -895,6 +908,11 @@ func relationshipsFor(kind string, record map[string]any) []contracts.Relationsh
 		add("owner", "owner", record["owner"])
 	case "owner":
 		add("group", "owner_group", record["group"])
+	case "user_group":
+		addMany("permission", "object_permission", record["permissions"])
+	case "user":
+		addMany("group", "user_group", record["groups"])
+		addMany("permission", "object_permission", record["permissions"])
 	case "tenant_group":
 		add("parent", "tenant_group", record["parent"])
 		add("owner", "owner", record["owner"])

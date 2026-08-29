@@ -222,6 +222,17 @@ def test_circuit_identities_follow_netbox_uniqueness_context() -> None:
         natural_identity("circuit_group_assignment", {}, {"group": group})
 
 
+def test_user_identities_are_portable_without_credentials() -> None:
+    assert natural_identity("object_permission", {"/name": "View sites"}, {})
+    assert natural_identity("user_group", {"/name": "Network operators"}, {})
+    assert natural_identity("user", {"/username": "Alice"}, {}) == natural_identity(
+        "user", {"/username": "alice"}, {}
+    )
+
+    with pytest.raises(ValueError, match="username"):
+        natural_identity("user", {}, {})
+
+
 def test_relationship_cardinality_preserves_single_many_to_many_values() -> None:
     assert normalize_relationship_cardinality("rack", {"tag": ["managed"], "site": ["dc1"]}) == {
         "site": "dc1",
@@ -232,6 +243,9 @@ def test_relationship_cardinality_preserves_single_many_to_many_values() -> None
         normalize_relationship_cardinality("rack", {"site": ["dc1", "dc2"]})
 
     assert normalize_relationship_cardinality("provider", {"asn": ["64512"]}) == {"asn": ["64512"]}
+    assert normalize_relationship_cardinality(
+        "user", {"group": ["operators"], "permission": ["view-sites"]}
+    ) == {"group": ["operators"], "permission": ["view-sites"]}
 
 
 @pytest.mark.parametrize(
