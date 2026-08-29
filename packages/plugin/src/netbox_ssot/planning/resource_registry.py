@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from . import circuits, core, dcim, extras, ipam, tenancy, users, virtualization
+from . import circuits, core, dcim, extras, ipam, tenancy, users, virtualization, vpn
 
 RESOURCE_KINDS: Final = (
     dcim.DCIM_RESOURCE_KINDS
@@ -13,6 +13,7 @@ RESOURCE_KINDS: Final = (
     | ipam.IPAM_RESOURCE_KINDS
     | tenancy.TENANCY_RESOURCE_KINDS
     | virtualization.VIRTUALIZATION_RESOURCE_KINDS
+    | vpn.VPN_RESOURCE_KINDS
 )
 ATTRIBUTE_FIELDS: Final = {
     **dcim.ATTRIBUTE_FIELDS,
@@ -23,6 +24,7 @@ ATTRIBUTE_FIELDS: Final = {
     **ipam.IPAM_ATTRIBUTE_FIELDS,
     **tenancy.TENANCY_ATTRIBUTE_FIELDS,
     **virtualization.VIRTUALIZATION_ATTRIBUTE_FIELDS,
+    **vpn.VPN_ATTRIBUTE_FIELDS,
 }
 EXTRA_ATTRIBUTE_FIELDS: Final = {
     **dcim.EXTRA_ATTRIBUTE_FIELDS,
@@ -32,6 +34,7 @@ EXTRA_ATTRIBUTE_FIELDS: Final = {
     **ipam.IPAM_EXTRA_ATTRIBUTE_FIELDS,
     **tenancy.TENANCY_EXTRA_ATTRIBUTE_FIELDS,
     **virtualization.VIRTUALIZATION_EXTRA_ATTRIBUTE_FIELDS,
+    **vpn.VPN_EXTRA_ATTRIBUTE_FIELDS,
 }
 RELATIONSHIP_FIELDS: Final = {
     **dcim.RELATIONSHIP_FIELDS,
@@ -42,6 +45,7 @@ RELATIONSHIP_FIELDS: Final = {
     **ipam.IPAM_RELATIONSHIP_FIELDS,
     **tenancy.TENANCY_RELATIONSHIP_FIELDS,
     **virtualization.VIRTUALIZATION_RELATIONSHIP_FIELDS,
+    **vpn.VPN_RELATIONSHIP_FIELDS,
 }
 TAGGED_KINDS: Final = (
     dcim.TAGGED_KINDS
@@ -50,6 +54,7 @@ TAGGED_KINDS: Final = (
     | ipam.IPAM_TAGGED_KINDS
     | tenancy.TENANCY_TAGGED_KINDS
     | virtualization.VIRTUALIZATION_TAGGED_KINDS
+    | vpn.VPN_TAGGED_KINDS
 )
 REQUIRED_RELATIONSHIPS: Final = {
     **dcim.REQUIRED_RELATIONSHIPS,
@@ -60,6 +65,7 @@ REQUIRED_RELATIONSHIPS: Final = {
     **ipam.IPAM_REQUIRED_RELATIONSHIPS,
     **tenancy.TENANCY_REQUIRED_RELATIONSHIPS,
     **virtualization.VIRTUALIZATION_REQUIRED_RELATIONSHIPS,
+    **vpn.VPN_REQUIRED_RELATIONSHIPS,
 }
 IDENTITY_RELATIONSHIPS: Final = {
     **dcim.IDENTITY_RELATIONSHIPS,
@@ -70,6 +76,7 @@ IDENTITY_RELATIONSHIPS: Final = {
     **ipam.IPAM_IDENTITY_RELATIONSHIPS,
     **tenancy.TENANCY_IDENTITY_RELATIONSHIPS,
     **virtualization.VIRTUALIZATION_IDENTITY_RELATIONSHIPS,
+    **vpn.VPN_IDENTITY_RELATIONSHIPS,
 }
 
 
@@ -82,6 +89,7 @@ def relationship_target(resource_kind: str, name: str) -> str | None:
         or ipam.ipam_relationship_target(resource_kind, name)
         or tenancy.tenancy_relationship_target(resource_kind, name)
         or virtualization.virtualization_relationship_target(resource_kind, name)
+        or vpn.vpn_relationship_target(resource_kind, name)
     )
 
 
@@ -94,6 +102,7 @@ def is_multi_relationship(resource_kind: str, name: str) -> bool:
         or ipam.is_ipam_multi_relationship(resource_kind, name)
         or tenancy.is_tenancy_multi_relationship(resource_kind, name)
         or virtualization.is_virtualization_multi_relationship(resource_kind, name)
+        or vpn.is_vpn_multi_relationship(resource_kind, name)
     )
 
 
@@ -104,4 +113,5 @@ def is_identity_relationship(resource_kind: str, name: str) -> bool:
         or ipam.is_ipam_identity_relationship(resource_kind, name)
         or tenancy.is_tenancy_identity_relationship(resource_kind, name)
         or virtualization.is_virtualization_identity_relationship(resource_kind, name)
+        or vpn.is_vpn_identity_relationship(resource_kind, name)
     )

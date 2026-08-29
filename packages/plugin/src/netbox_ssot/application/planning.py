@@ -131,6 +131,8 @@ def relationship_dependencies(
     generic_requirements = {
         "fhrp_group_assignment": "interface_",
         "service": "parent_",
+        "tunnel_termination": "termination_",
+        "l2vpn_termination": "assigned_",
     }
     prefix = generic_requirements.get(record.resource_kind)
     if prefix is not None and len([name for name in record.relationships if name.startswith(prefix)]) != 1:

@@ -111,6 +111,18 @@ from virtualization.models import (
     VirtualMachineType,
     VMInterface,
 )
+from vpn.models import (
+    L2VPN,
+    IKEPolicy,
+    IKEProposal,
+    IPSecPolicy,
+    IPSecProfile,
+    IPSecProposal,
+    L2VPNTermination,
+    Tunnel,
+    TunnelGroup,
+    TunnelTermination,
+)
 
 from .comparison import CanonicalRecord, natural_identity, normalize_value
 from .core import portable_data_source_parameters
@@ -151,6 +163,16 @@ MODEL_BY_KIND = {
     "virtual_machine": VirtualMachine,
     "vm_interface": VMInterface,
     "virtual_disk": VirtualDisk,
+    "ike_proposal": IKEProposal,
+    "ike_policy": IKEPolicy,
+    "ipsec_proposal": IPSecProposal,
+    "ipsec_policy": IPSecPolicy,
+    "ipsec_profile": IPSecProfile,
+    "tunnel_group": TunnelGroup,
+    "tunnel": Tunnel,
+    "tunnel_termination": TunnelTermination,
+    "l2vpn": L2VPN,
+    "l2vpn_termination": L2VPNTermination,
     "site_group": SiteGroup,
     "rir": RIR,
     "role": Role,
@@ -284,6 +306,17 @@ def _queryset(resource_kind: str) -> Iterable[Any]:
             Q(scope_type__isnull=True)
             | Q(scope_type__app_label="dcim", scope_type__model__in=("region", "sitegroup", "site", "location"))
         )
+    elif resource_kind == "tunnel_termination":
+        queryset = queryset.filter(
+            Q(termination_type__app_label="dcim", termination_type__model="interface")
+            | Q(termination_type__app_label="virtualization", termination_type__model="vminterface")
+        )
+    elif resource_kind == "l2vpn_termination":
+        queryset = queryset.filter(
+            Q(assigned_object_type__app_label="dcim", assigned_object_type__model="interface")
+            | Q(assigned_object_type__app_label="virtualization", assigned_object_type__model="vminterface")
+            | Q(assigned_object_type__app_label="ipam", assigned_object_type__model="vlan")
+        )
     elif resource_kind == "contact_assignment":
         supported = Q(pk__in=[])
         for target_kind in TENANCY_CONTACT_TARGET_KINDS:
@@ -312,6 +345,8 @@ def _queryset(resource_kind: str) -> Iterable[Any]:
         "service": ("parent_object_type",),
         "contact_assignment": ("object_type",),
         "cluster": ("scope_type",),
+        "tunnel_termination": ("termination_type",),
+        "l2vpn_termination": ("assigned_object_type",),
     }.get(resource_kind, ())
     if extra_related:
         queryset = queryset.select_related(*extra_related)
@@ -355,6 +390,10 @@ def _queryset(resource_kind: str) -> Iterable[Any]:
         prefetch.append("asns")
     if resource_kind == "vrf":
         prefetch.extend(("import_targets", "export_targets"))
+    if resource_kind in {"ike_policy", "ipsec_policy"}:
+        prefetch.append("proposals")
+    if resource_kind == "l2vpn":
+        prefetch.extend(("import_targets", "export_targets"))
     if resource_kind == "service":
         prefetch.extend(("parent", "ipaddresses"))
     if resource_kind == "contact":
@@ -371,6 +410,10 @@ def _queryset(resource_kind: str) -> Iterable[Any]:
         prefetch.append("assigned_object")
     if resource_kind == "fhrp_group_assignment":
         prefetch.append("interface")
+    if resource_kind == "tunnel_termination":
+        prefetch.append("termination")
+    if resource_kind == "l2vpn_termination":
+        prefetch.append("assigned_object")
     if resource_kind in {"front_port", "front_port_template"}:
         prefetch.append("mappings__rear_port")
     if resource_kind == "cable":
@@ -441,6 +484,8 @@ def _attributes(resource_kind: str, obj: Any) -> dict[str, Any]:
         "service",
         "contact_assignment",
         "cluster",
+        "tunnel_termination",
+        "l2vpn_termination",
     }:
         field_name = {
             "prefix": "scope_type",
@@ -449,6 +494,8 @@ def _attributes(resource_kind: str, obj: Any) -> dict[str, Any]:
             "service": "parent_object_type",
             "contact_assignment": "object_type",
             "cluster": "scope_type",
+            "tunnel_termination": "termination_type",
+            "l2vpn_termination": "assigned_object_type",
         }[resource_kind]
         content_type = getattr(obj, field_name)
         add(f"/{field_name}", f"{content_type.app_label}.{content_type.model}" if content_type else None)
@@ -523,6 +570,21 @@ def _relationships(resource_kind: str, obj: Any) -> dict[str, Any]:
             add(f"scope_{target_kind}", target_kind, obj.scope)
     elif resource_kind == "vm_interface":
         add_many("tagged_vlan", "vlan", obj.tagged_vlans.all())
+    elif resource_kind == "ike_policy":
+        add_many("proposal", "ike_proposal", obj.proposals.all())
+    elif resource_kind == "ipsec_policy":
+        add_many("proposal", "ipsec_proposal", obj.proposals.all())
+    elif resource_kind == "tunnel_termination" and obj.termination is not None:
+        target_kind = _kind_for_model(obj.termination)
+        if target_kind in {"interface", "vm_interface"}:
+            add(f"termination_{target_kind}", target_kind, obj.termination)
+    elif resource_kind == "l2vpn":
+        add_many("import_target", "route_target", obj.import_targets.all())
+        add_many("export_target", "route_target", obj.export_targets.all())
+    elif resource_kind == "l2vpn_termination" and obj.assigned_object is not None:
+        target_kind = _kind_for_model(obj.assigned_object)
+        if target_kind in {"vlan", "interface", "vm_interface"}:
+            add(f"assigned_{target_kind}", target_kind, obj.assigned_object)
     elif resource_kind == "vrf":
         add_many("import_target", "route_target", obj.import_targets.all())
         add_many("export_target", "route_target", obj.export_targets.all())
@@ -637,6 +699,12 @@ def _target_identity(resource_kind: str, obj: Any) -> str:
         "vlan_translation_policy",
         "service_template",
         "contact",
+        "ike_proposal",
+        "ike_policy",
+        "ipsec_proposal",
+        "ipsec_policy",
+        "ipsec_profile",
+        "tunnel",
     }:
         attributes["/name"] = obj.name
     elif resource_kind == "saved_filter":
@@ -746,6 +814,19 @@ def _target_identity(resource_kind: str, obj: Any) -> str:
     elif resource_kind in {"vm_interface", "virtual_disk"}:
         attributes["/name"] = obj.name
         relationships["virtual_machine"] = _target_identity("virtual_machine", obj.virtual_machine)
+    elif resource_kind in {"tunnel_group", "l2vpn"}:
+        attributes["/slug"] = obj.slug
+    elif resource_kind == "tunnel_termination":
+        if obj.termination is not None:
+            target_kind = _kind_for_model(obj.termination)
+            if target_kind in {"interface", "vm_interface"}:
+                relationships[f"termination_{target_kind}"] = _target_identity(target_kind, obj.termination)
+                attributes["/termination_type"] = obj.termination_type.model
+    elif resource_kind == "l2vpn_termination" and obj.assigned_object is not None:
+        target_kind = _kind_for_model(obj.assigned_object)
+        if target_kind in {"vlan", "interface", "vm_interface"}:
+            relationships[f"assigned_{target_kind}"] = _target_identity(target_kind, obj.assigned_object)
+            attributes["/assigned_object_type"] = obj.assigned_object_type.model
 
     if resource_kind in {"region", "site_group", "tenant_group", "device_role", "contact_group"} and obj.parent:
         relationships["parent"] = _target_identity(resource_kind, obj.parent)

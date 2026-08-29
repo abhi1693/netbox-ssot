@@ -391,6 +391,42 @@ def test_ipam_generic_relationships_fail_closed_outside_owned_graph(
         natural_identity(kind, attributes, relationships)
 
 
+def test_vpn_identities_preserve_typed_terminations_and_policy_cardinality() -> None:
+    tunnel = natural_identity("tunnel", {"/name": "Primary"}, {})
+    tunnel_termination = natural_identity(
+        "tunnel_termination",
+        {"/role": "peer", "/termination_type": "virtualization.vminterface"},
+        {"tunnel": tunnel, "termination_vm_interface": "vm:eth0"},
+    )
+    l2vpn = natural_identity("l2vpn", {"/slug": "customer-lan"}, {})
+    l2vpn_termination = natural_identity(
+        "l2vpn_termination",
+        {"/assigned_object_type": "ipam.vlan"},
+        {"l2vpn": l2vpn, "assigned_vlan": "site:100"},
+    )
+
+    assert tunnel == natural_identity("tunnel", {"/name": "primary"}, {})
+    assert tunnel_termination
+    assert l2vpn_termination
+    assert normalize_relationship_cardinality(
+        "ike_policy",
+        {"proposal": ["proposal-b", "proposal-a"]},
+    ) == {"proposal": ["proposal-a", "proposal-b"]}
+
+    with pytest.raises(ValueError, match="tunnel termination targets"):
+        natural_identity(
+            "tunnel_termination",
+            {"/role": "peer", "/termination_type": "wireless.wirelesslan"},
+            {"tunnel": tunnel},
+        )
+    with pytest.raises(ValueError, match="L2VPN termination targets"):
+        natural_identity(
+            "l2vpn_termination",
+            {"/assigned_object_type": "circuits.circuittermination"},
+            {"l2vpn": l2vpn},
+        )
+
+
 def test_tenancy_contact_identities_preserve_hierarchy_and_fail_closed_for_unknown_targets() -> None:
     parent = natural_identity("contact_group", {"/slug": "operations"}, {})
     child = natural_identity("contact_group", {"/slug": "escalations"}, {"parent": parent})

@@ -221,7 +221,7 @@ func TestTenancyContactRecordsPreservePortableAssignments(t *testing.T) {
 	}
 
 	unsupported := relationshipsFor("contact_assignment", map[string]any{
-		"object_type": "vpn.tunnel", "object_id": json.Number("5"),
+		"object_type": "wireless.wirelesslan", "object_id": json.Number("5"),
 	})
 	if len(unsupported) != 0 {
 		t.Fatalf("unsupported contact assignment relationships = %#v", unsupported)
@@ -607,6 +607,100 @@ func TestVirtualizationRecordsPreserveComponentsAndGenericScope(t *testing.T) {
 	}
 	if got["virtual_machine"] != 1 || got["tagged_vlan"] != 2 || got["vrf"] != 1 || got["tag"] != 1 {
 		t.Fatalf("VM interface relationships = %#v", interfaceRelationships)
+	}
+}
+
+func TestVPNRecordsPreservePoliciesAndTypedTerminations(t *testing.T) {
+	policyAttributes := attributesFor("ike_policy", map[string]any{
+		"name": "Primary IKE", "version": map[string]any{"value": json.Number("2")},
+		"mode": nil, "preshared_key": "source-secret", "description": "Default policy",
+	})
+	values := make(map[string]any, len(policyAttributes))
+	for _, attribute := range policyAttributes {
+		values[attribute.Path] = attribute.Value
+	}
+	if values["/name"] != "Primary IKE" || values["/version"] != json.Number("2") {
+		t.Fatalf("IKE policy attributes = %#v", values)
+	}
+	if _, ok := values["/preshared_key"]; ok {
+		t.Fatal("IKE pre-shared key was included in portable attributes")
+	}
+
+	tests := []struct {
+		kind   string
+		record map[string]any
+		want   map[string]string
+	}{
+		{
+			kind: "ike_policy",
+			record: map[string]any{
+				"proposals": []any{map[string]any{"id": json.Number("1")}},
+				"owner":     map[string]any{"id": json.Number("2")},
+				"tags":      []any{map[string]any{"id": json.Number("3")}},
+			},
+			want: map[string]string{"proposal": "ike_proposal", "owner": "owner", "tag": "tag"},
+		},
+		{
+			kind: "tunnel_termination",
+			record: map[string]any{
+				"tunnel": map[string]any{"id": json.Number("4")}, "termination_type": "virtualization.vminterface",
+				"termination_id": json.Number("5"), "outside_ip": map[string]any{"id": json.Number("6")},
+			},
+			want: map[string]string{
+				"tunnel": "tunnel", "termination_vm_interface": "vm_interface", "outside_ip": "ip_address",
+			},
+		},
+		{
+			kind: "l2vpn",
+			record: map[string]any{
+				"import_targets": []any{map[string]any{"id": json.Number("7")}},
+				"export_targets": []any{map[string]any{"id": json.Number("8")}},
+			},
+			want: map[string]string{"import_target": "route_target", "export_target": "route_target"},
+		},
+		{
+			kind: "l2vpn_termination",
+			record: map[string]any{
+				"l2vpn":                map[string]any{"id": json.Number("9")},
+				"assigned_object_type": "ipam.vlan", "assigned_object_id": json.Number("10"),
+			},
+			want: map[string]string{"l2vpn": "l2vpn", "assigned_vlan": "vlan"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.kind, func(t *testing.T) {
+			got := map[string]string{}
+			for _, relationship := range relationshipsFor(test.kind, test.record) {
+				got[relationship.Kind] = relationship.TargetKind
+			}
+			if !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("relationships = %#v, want %#v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestIKEPreSharedKeyIsExcludedFromEvidenceDigest(t *testing.T) {
+	request := collectionRequest("https://netbox.example.test")
+	record := map[string]any{
+		"id": json.Number("1"), "name": "Primary IKE", "version": map[string]any{"value": json.Number("2")},
+		"preshared_key": "source-secret",
+	}
+	first, err := mapObservation(request, "ike_policy", record)
+	if err != nil {
+		t.Fatalf("mapObservation() error = %v", err)
+	}
+	record["preshared_key"] = "different-secret"
+	second, err := mapObservation(request, "ike_policy", record)
+	if err != nil {
+		t.Fatalf("mapObservation() error = %v", err)
+	}
+	if first.Evidence[0].RawDigest != second.Evidence[0].RawDigest {
+		t.Fatal("IKE pre-shared key affected the portable evidence digest")
+	}
+	encoded, _ := json.Marshal(first)
+	if strings.Contains(string(encoded), "source-secret") {
+		t.Fatalf("IKE policy observation leaked the pre-shared key: %s", encoded)
 	}
 }
 

@@ -10,7 +10,7 @@ from .adapters import build_adapter_pair
 from .diffsync_engine import ComparisonOnlyDiffSyncEngine
 from .resource_registry import ATTRIBUTE_FIELDS, is_multi_relationship
 
-ENGINE_VERSION = "13.0"
+ENGINE_VERSION = "14.0"
 SUPPORTED_RESOURCE_KINDS = frozenset(ATTRIBUTE_FIELDS)
 MULTI_RELATIONSHIPS = {
     "tenant_group": frozenset({"tag"}),
@@ -221,6 +221,33 @@ def natural_identity(
         ]
     elif resource_kind in {"vm_interface", "virtual_disk"}:
         parts = [resource_kind, required_relationship("virtual_machine"), required_attribute("name")]
+    elif resource_kind in {
+        "ike_proposal",
+        "ike_policy",
+        "ipsec_proposal",
+        "ipsec_policy",
+        "ipsec_profile",
+        "tunnel",
+    }:
+        parts = [resource_kind, "name", str(required_attribute("name")).casefold()]
+    elif resource_kind == "tunnel_group":
+        parts = [resource_kind, "slug", required_attribute("slug")]
+    elif resource_kind == "tunnel_termination":
+        terminations = sorted((name, value) for name, value in relationships.items() if name.startswith("termination_"))
+        if attributes.get("/termination_type") and len(terminations) != 1:
+            raise ValueError("The tunnel termination targets an interface outside the supported provider graph.")
+        if len(terminations) != 1:
+            raise ValueError("A tunnel termination requires exactly one supported interface.")
+        parts = [resource_kind, terminations]
+    elif resource_kind == "l2vpn":
+        parts = [resource_kind, "slug", required_attribute("slug")]
+    elif resource_kind == "l2vpn_termination":
+        assignments = sorted((name, value) for name, value in relationships.items() if name.startswith("assigned_"))
+        if attributes.get("/assigned_object_type") and len(assignments) != 1:
+            raise ValueError("The L2VPN termination targets an object outside the supported provider graph.")
+        if len(assignments) != 1:
+            raise ValueError("An L2VPN termination requires exactly one supported assigned object.")
+        parts = [resource_kind, assignments]
     elif resource_kind in {"route_target", "vlan_translation_policy", "service_template"}:
         parts = [resource_kind, "name", required_attribute("name")]
     elif resource_kind == "vrf":

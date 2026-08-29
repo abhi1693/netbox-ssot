@@ -83,6 +83,22 @@ var datasetEndpoints = map[string][]endpoint{
 		{Path: "virtualization/interfaces/", Kind: "vm_interface"},
 		{Path: "virtualization/virtual-disks/", Kind: "virtual_disk"},
 	},
+	"vpn_crypto": {
+		{Path: "vpn/ike-proposals/", Kind: "ike_proposal"},
+		{Path: "vpn/ike-policies/", Kind: "ike_policy"},
+		{Path: "vpn/ipsec-proposals/", Kind: "ipsec_proposal"},
+		{Path: "vpn/ipsec-policies/", Kind: "ipsec_policy"},
+		{Path: "vpn/ipsec-profiles/", Kind: "ipsec_profile"},
+	},
+	"vpn_tunnels": {
+		{Path: "vpn/tunnel-groups/", Kind: "tunnel_group"},
+		{Path: "vpn/tunnels/", Kind: "tunnel"},
+		{Path: "vpn/tunnel-terminations/", Kind: "tunnel_termination"},
+	},
+	"vpn_l2vpns": {
+		{Path: "vpn/l2vpns/", Kind: "l2vpn"},
+		{Path: "vpn/l2vpn-terminations/", Kind: "l2vpn_termination"},
+	},
 	"ipam_registries": {
 		{Path: "ipam/asn-ranges/", Kind: "asn_range"},
 		{Path: "ipam/aggregates/", Kind: "aggregate"},
@@ -592,9 +608,9 @@ func mapObservation(request contracts.CollectionRequest, kind string, record map
 		attributePaths = append(attributePaths, attribute.Path)
 	}
 	digestValue := any(record)
-	if kind == "data_source" || kind == "webhook" || kind == "fhrp_group" {
-		// Data Source and Webhook API records can contain credentials. Hash only
-		// the portable projection so secret material never enters evidence, even as a
+	if kind == "data_source" || kind == "webhook" || kind == "fhrp_group" || kind == "ike_policy" {
+		// Some API records contain destination-local credentials. Hash only the
+		// portable projection so secret material never enters evidence, even as a
 		// reusable offline-verification digest.
 		digestValue = map[string]any{
 			"attributes":    attributes,
@@ -767,6 +783,34 @@ func attributesFor(kind string, record map[string]any) []contracts.ObservationAt
 		addChoice("/mode", "mode")
 	case "virtual_disk":
 		addFields("name", "description", "size")
+	case "ike_proposal":
+		addFields("name", "sa_lifetime", "description", "comments")
+		addChoices("authentication_method", "encryption_algorithm", "authentication_algorithm", "group")
+	case "ike_policy":
+		addFields("name", "description", "comments")
+		addChoices("version", "mode")
+	case "ipsec_proposal":
+		addFields("name", "sa_lifetime_seconds", "sa_lifetime_data", "description", "comments")
+		addChoices("encryption_algorithm", "authentication_algorithm")
+	case "ipsec_policy":
+		addFields("name", "description", "comments")
+		addChoice("/pfs_group", "pfs_group")
+	case "ipsec_profile":
+		addFields("name", "description", "comments")
+		addChoice("/mode", "mode")
+	case "tunnel_group":
+		addFields("name", "slug", "description", "comments")
+	case "tunnel":
+		addFields("name", "tunnel_id", "description", "comments")
+		addChoices("status", "encapsulation")
+	case "tunnel_termination":
+		addChoice("/role", "role")
+		add("/termination_type", contentTypeValue(record["termination_type"]))
+	case "l2vpn":
+		addFields("name", "slug", "identifier", "description", "comments")
+		addChoices("type", "status")
+	case "l2vpn_termination":
+		add("/assigned_object_type", contentTypeValue(record["assigned_object_type"]))
 	case "rir":
 		addDirect("/name", "name")
 		addDirect("/slug", "slug")
@@ -1228,6 +1272,46 @@ func relationshipsFor(kind string, record map[string]any) []contracts.Relationsh
 		add("virtual_machine", "virtual_machine", record["virtual_machine"])
 		add("owner", "owner", record["owner"])
 		addMany("tag", "tag", record["tags"])
+	case "ike_proposal", "ipsec_proposal":
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "ike_policy":
+		addMany("proposal", "ike_proposal", record["proposals"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "ipsec_policy":
+		addMany("proposal", "ipsec_proposal", record["proposals"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "ipsec_profile":
+		add("ike_policy", "ike_policy", record["ike_policy"])
+		add("ipsec_policy", "ipsec_policy", record["ipsec_policy"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "tunnel_group":
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "tunnel":
+		add("group", "tunnel_group", record["group"])
+		add("ipsec_profile", "ipsec_profile", record["ipsec_profile"])
+		add("tenant", "tenant", record["tenant"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "tunnel_termination":
+		add("tunnel", "tunnel", record["tunnel"])
+		addGeneric("termination", record["termination_type"], record["termination_id"])
+		add("outside_ip", "ip_address", record["outside_ip"])
+		addMany("tag", "tag", record["tags"])
+	case "l2vpn":
+		addMany("import_target", "route_target", record["import_targets"])
+		addMany("export_target", "route_target", record["export_targets"])
+		add("tenant", "tenant", record["tenant"])
+		add("owner", "owner", record["owner"])
+		addMany("tag", "tag", record["tags"])
+	case "l2vpn_termination":
+		add("l2vpn", "l2vpn", record["l2vpn"])
+		addGeneric("assigned", record["assigned_object_type"], record["assigned_object_id"])
+		addMany("tag", "tag", record["tags"])
 	case "site_group":
 		add("parent", "site_group", record["parent"])
 		add("owner", "owner", record["owner"])
@@ -1588,6 +1672,7 @@ func resourceKindForObjectType(objectType string) (string, bool) {
 		"ipam.ipaddress":                 "ip_address",
 		"ipam.service":                   "service",
 		"ipam.fhrpgroup":                 "fhrp_group",
+		"ipam.vlan":                      "vlan",
 		"circuits.provider":              "provider",
 		"circuits.provideraccount":       "provider_account",
 		"circuits.providernetwork":       "provider_network",
@@ -1598,6 +1683,9 @@ func resourceKindForObjectType(objectType string) (string, bool) {
 		"virtualization.cluster":         "cluster",
 		"virtualization.virtualmachine":  "virtual_machine",
 		"virtualization.vminterface":     "vm_interface",
+		"vpn.tunnelgroup":                "tunnel_group",
+		"vpn.tunnel":                     "tunnel",
+		"vpn.l2vpn":                      "l2vpn",
 		"extras.webhook":                 "webhook",
 		"extras.notificationgroup":       "notification_group",
 	}[objectType]

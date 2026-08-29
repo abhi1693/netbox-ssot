@@ -74,6 +74,9 @@ TENANCY_CONTACT_TARGET_KINDS: Final = frozenset(
         "cluster_group",
         "cluster",
         "virtual_machine",
+        "tunnel_group",
+        "tunnel",
+        "l2vpn",
     }
 )
 

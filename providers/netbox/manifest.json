@@ -4,7 +4,7 @@
   "icon_class": "mdi mdi-cube-outline",
   "description": "Collects portable configuration and infrastructure data from a remote NetBox REST API.",
   "instance_url_field": "base_url",
-  "implementation_version": "0.0.14",
+  "implementation_version": "0.0.15",
   "contract_version": "1.0",
   "documentation_url": "https://github.com/abhi1693/netbox-ssot",
   "execution_modes": [
@@ -147,7 +147,9 @@
         "circuit_catalog",
         "circuits",
         "virtual_circuits",
-        "virtualization_machines"
+        "virtualization_machines",
+        "vpn_tunnels",
+        "vpn_l2vpns"
       ],
       "data_mappings": [
         {"source_name": "Contact assignment", "source_model": "tenancy.ContactAssignment", "source_path": "tenancy/contact-assignments/", "destination_kind": "contact_assignment"}
@@ -538,6 +540,49 @@
       "data_mappings": [
         {"source_name": "VM interface", "source_model": "virtualization.VMInterface", "source_path": "virtualization/interfaces/", "destination_kind": "vm_interface"},
         {"source_name": "Virtual disk", "source_model": "virtualization.VirtualDisk", "source_path": "virtualization/virtual-disks/", "destination_kind": "virtual_disk"}
+      ]
+    },
+    {
+      "id": "vpn_crypto",
+      "title": "VPN cryptography",
+      "description": "IKE and IPsec proposals, policies, and profiles. Pre-shared keys remain destination-local and are never collected.",
+      "resource_kinds": ["ike_proposal", "ike_policy", "ipsec_proposal", "ipsec_policy", "ipsec_profile"],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": ["references"],
+      "data_mappings": [
+        {"source_name": "IKE proposal", "source_model": "vpn.IKEProposal", "source_path": "vpn/ike-proposals/", "destination_kind": "ike_proposal"},
+        {"source_name": "IKE policy", "source_model": "vpn.IKEPolicy", "source_path": "vpn/ike-policies/", "destination_kind": "ike_policy"},
+        {"source_name": "IPsec proposal", "source_model": "vpn.IPSecProposal", "source_path": "vpn/ipsec-proposals/", "destination_kind": "ipsec_proposal"},
+        {"source_name": "IPsec policy", "source_model": "vpn.IPSecPolicy", "source_path": "vpn/ipsec-policies/", "destination_kind": "ipsec_policy"},
+        {"source_name": "IPsec profile", "source_model": "vpn.IPSecProfile", "source_path": "vpn/ipsec-profiles/", "destination_kind": "ipsec_profile"}
+      ]
+    },
+    {
+      "id": "vpn_tunnels",
+      "title": "VPN tunnels",
+      "description": "Tunnel groups, tunnels, and physical or virtual interface terminations with optional outside IP addresses.",
+      "resource_kinds": ["tunnel_group", "tunnel", "tunnel_termination"],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": ["vpn_crypto", "ipam_addresses"],
+      "data_mappings": [
+        {"source_name": "Tunnel group", "source_model": "vpn.TunnelGroup", "source_path": "vpn/tunnel-groups/", "destination_kind": "tunnel_group"},
+        {"source_name": "Tunnel", "source_model": "vpn.Tunnel", "source_path": "vpn/tunnels/", "destination_kind": "tunnel"},
+        {"source_name": "Tunnel termination", "source_model": "vpn.TunnelTermination", "source_path": "vpn/tunnel-terminations/", "destination_kind": "tunnel_termination"}
+      ]
+    },
+    {
+      "id": "vpn_l2vpns",
+      "title": "Layer 2 VPNs",
+      "description": "L2VPN definitions, route targets, and VLAN, device-interface, or VM-interface terminations.",
+      "resource_kinds": ["l2vpn", "l2vpn_termination"],
+      "default_enabled": true,
+      "completeness": "declared_scope",
+      "depends_on": ["ipam_routing", "ipam_vlans", "device_components"],
+      "data_mappings": [
+        {"source_name": "L2VPN", "source_model": "vpn.L2VPN", "source_path": "vpn/l2vpns/", "destination_kind": "l2vpn"},
+        {"source_name": "L2VPN termination", "source_model": "vpn.L2VPNTermination", "source_path": "vpn/l2vpn-terminations/", "destination_kind": "l2vpn_termination"}
       ]
     },
     {

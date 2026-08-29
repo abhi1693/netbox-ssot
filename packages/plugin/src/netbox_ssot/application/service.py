@@ -667,6 +667,22 @@ def _write_object(
                 target_by_key,
                 object_cache,
             )
+        elif kind == "tunnel_termination":
+            obj.termination = _generic_relationship_object(
+                kind,
+                "termination_",
+                relationships,
+                target_by_key,
+                object_cache,
+            )
+        elif kind == "l2vpn_termination":
+            obj.assigned_object = _generic_relationship_object(
+                kind,
+                "assigned_",
+                relationships,
+                target_by_key,
+                object_cache,
+            )
         elif kind == "circuit_termination":
             obj.termination = _generic_relationship_object(
                 kind,
@@ -753,6 +769,21 @@ def _write_object(
     if kind == "vm_interface":
         obj.tagged_vlans.set(
             _relationship_objects("vlan", relationships.get("tagged_vlan"), target_by_key, object_cache)
+        )
+    if kind == "ike_policy":
+        obj.proposals.set(
+            _relationship_objects("ike_proposal", relationships.get("proposal"), target_by_key, object_cache)
+        )
+    if kind == "ipsec_policy":
+        obj.proposals.set(
+            _relationship_objects("ipsec_proposal", relationships.get("proposal"), target_by_key, object_cache)
+        )
+    if kind == "l2vpn":
+        obj.import_targets.set(
+            _relationship_objects("route_target", relationships.get("import_target"), target_by_key, object_cache)
+        )
+        obj.export_targets.set(
+            _relationship_objects("route_target", relationships.get("export_target"), target_by_key, object_cache)
         )
     if kind == "config_context":
         for name, target_kind in CONFIG_CONTEXT_MULTI_RELATIONSHIPS.items():

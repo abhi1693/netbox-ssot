@@ -63,6 +63,9 @@ def test_contact_assignments_close_over_every_supported_target_dataset() -> None
         "virtual_circuits",
         "virtualization_clusters",
         "virtualization_machines",
+        "vpn_crypto",
+        "vpn_tunnels",
+        "vpn_l2vpns",
     } <= selected
 
 
@@ -84,8 +87,34 @@ def test_virtualization_components_close_over_placement_vlan_and_routing_depende
     } <= selected
 
 
+def test_vpn_tunnels_close_over_crypto_addresses_and_interface_dependencies() -> None:
+    selected = set(selected_dataset_ids(MANIFEST, ("vpn_tunnels",)))
+
+    assert {
+        "references",
+        "vpn_crypto",
+        "vpn_tunnels",
+        "ipam_addresses",
+        "device_components",
+        "virtualization_components",
+    } <= selected
+
+
+def test_l2vpns_close_over_route_targets_vlans_and_interface_dependencies() -> None:
+    selected = set(selected_dataset_ids(MANIFEST, ("vpn_l2vpns",)))
+
+    assert {
+        "references",
+        "vpn_l2vpns",
+        "ipam_routing",
+        "ipam_vlans",
+        "device_components",
+        "virtualization_components",
+    } <= selected
+
+
 def test_netbox_provider_is_agent_read_only() -> None:
-    assert MANIFEST.implementation_version == "0.0.14"
+    assert MANIFEST.implementation_version == "0.0.15"
     assert MANIFEST.execution_modes == (ExecutionMode.AGENT,)
     assert MANIFEST.capabilities == (ProviderCapability.SOURCE_READ,)
     assert MANIFEST.agent_compatibility.collector_id == "netbox"
@@ -145,6 +174,9 @@ def test_installed_netbox_provider_is_discovered_by_entry_point() -> None:
         "virtualization_clusters",
         "virtualization_machines",
         "virtualization_components",
+        "vpn_crypto",
+        "vpn_tunnels",
+        "vpn_l2vpns",
         "rack_reservations",
         "power",
         "circuit_catalog",
@@ -242,6 +274,16 @@ def test_installed_netbox_provider_is_discovered_by_entry_point() -> None:
         ("virtualization.VirtualMachine", "virtual_machine"),
         ("virtualization.VMInterface", "vm_interface"),
         ("virtualization.VirtualDisk", "virtual_disk"),
+        ("vpn.IKEProposal", "ike_proposal"),
+        ("vpn.IKEPolicy", "ike_policy"),
+        ("vpn.IPSecProposal", "ipsec_proposal"),
+        ("vpn.IPSecPolicy", "ipsec_policy"),
+        ("vpn.IPSecProfile", "ipsec_profile"),
+        ("vpn.TunnelGroup", "tunnel_group"),
+        ("vpn.Tunnel", "tunnel"),
+        ("vpn.TunnelTermination", "tunnel_termination"),
+        ("vpn.L2VPN", "l2vpn"),
+        ("vpn.L2VPNTermination", "l2vpn_termination"),
         ("dcim.RackReservation", "rack_reservation"),
         ("dcim.PowerPanel", "power_panel"),
         ("dcim.PowerFeed", "power_feed"),
