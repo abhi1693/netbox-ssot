@@ -80,7 +80,9 @@ class ComparisonResult:
 
 def normalize_value(value: Any) -> Any:
     if isinstance(value, Decimal):
-        return float(value)
+        return int(value) if value == value.to_integral_value() else float(value)
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
     if isinstance(value, dict):
         return {str(key): normalize_value(item) for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))}
     if isinstance(value, (list, tuple, set)):
@@ -508,7 +510,7 @@ def natural_identity(
         parts = [resource_kind, terminations]
     else:
         raise ValueError(f"Resource kind {resource_kind!r} is not supported by the comparison target.")
-    return json.dumps(parts, ensure_ascii=False, separators=(",", ":"))
+    return json.dumps(normalize_value(parts), ensure_ascii=False, separators=(",", ":"))
 
 
 def compare_canonical_records(

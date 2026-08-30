@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from uuid import uuid4
 
 import pytest
@@ -167,6 +168,15 @@ def test_dcim_catalog_and_rack_identities_follow_netbox_uniqueness_context() -> 
     assert device_type
     assert rack_type
     assert rack != natural_identity("rack", {"/name": "A01"}, {"site": site})
+    assert natural_identity(
+        "device",
+        {"/position": Decimal("11.0"), "/face": "front"},
+        {"site": site, "rack": rack},
+    ) == natural_identity(
+        "device",
+        {"/position": 11, "/face": "front"},
+        {"site": site, "rack": rack},
+    )
 
 
 def test_unsupported_cross_app_generic_assignments_and_cable_terminations_fail_closed() -> None:
