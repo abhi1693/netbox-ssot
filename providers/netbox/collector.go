@@ -277,6 +277,7 @@ type page struct {
 
 type collectError struct {
 	code      string
+	summary   string
 	retryable bool
 }
 
@@ -400,8 +401,14 @@ func (c *Collector) Collect(
 				}
 				batch.State = state
 				batch.Messages = append(batch.Messages, contracts.CollectionMessage{
-					Code:      collectErr.code,
-					Message:   "NetBox collection stopped before the declared dataset scope was complete.",
+					Code: collectErr.code,
+					Message: fmt.Sprintf(
+						"Dataset %q failed at /api/%s (%s): %s.",
+						datasetID,
+						endpoint.Path,
+						endpoint.Kind,
+						collectErr.summary,
+					),
 					Retryable: collectErr.retryable,
 				})
 				batch.CompletedAt = time.Now().UTC()
@@ -438,16 +445,28 @@ func (c *Collector) collectEndpoint(
 
 	for pageNumber := 0; endpointURL != nil; pageNumber++ {
 		if pageNumber >= maxPages {
-			return observations, &collectError{code: "pagination_limit", retryable: false}
+			return observations, &collectError{
+				code:      "pagination_limit",
+				summary:   fmt.Sprintf("pagination exceeded %d pages", maxPages),
+				retryable: false,
+			}
 		}
 		response, err := c.doGET(ctx, client, endpointURL, token)
 		if err != nil {
 			failure := classifyRequestError(err)
-			return observations, &collectError{code: failure.code, retryable: failure.retryable}
+			return observations, &collectError{
+				code:      failure.code,
+				summary:   fmt.Sprintf("%s (page %d)", strings.TrimSuffix(failure.summary, "."), pageNumber+1),
+				retryable: failure.retryable,
+			}
 		}
 		if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 			response.Body.Close()
-			return observations, &collectError{code: "http_status", retryable: response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500}
+			return observations, &collectError{
+				code:      "http_status",
+				summary:   fmt.Sprintf("NetBox returned HTTP %d on page %d", response.StatusCode, pageNumber+1),
+				retryable: response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500,
+			}
 		}
 
 		var payload page
@@ -456,15 +475,27 @@ func (c *Collector) collectEndpoint(
 		decodeErr := decoder.Decode(&payload)
 		response.Body.Close()
 		if decodeErr != nil {
-			return observations, &collectError{code: "invalid_response", retryable: false}
+			return observations, &collectError{
+				code:      "invalid_response",
+				summary:   fmt.Sprintf("response page %d was not valid NetBox paginated JSON", pageNumber+1),
+				retryable: false,
+			}
 		}
 		for _, record := range payload.Results {
 			observation, err := mapObservationWithProjection(request, endpoint.Kind, record, projection)
 			if err != nil {
 				if errors.Is(err, errUnsafeDataSourceConfiguration) {
-					return observations, &collectError{code: "unsafe_source_configuration", retryable: false}
+					return observations, &collectError{
+						code:      "unsafe_source_configuration",
+						summary:   fmt.Sprintf("a %s record on page %d contains destination-local secret configuration", endpoint.Kind, pageNumber+1),
+						retryable: false,
+					}
 				}
-				return observations, &collectError{code: "invalid_record", retryable: false}
+				return observations, &collectError{
+					code:      "invalid_record",
+					summary:   fmt.Sprintf("a %s record on page %d could not be mapped: %s", endpoint.Kind, pageNumber+1, err),
+					retryable: false,
+				}
 			}
 			observations = append(observations, observation)
 		}
@@ -475,7 +506,11 @@ func (c *Collector) collectEndpoint(
 		}
 		nextURL, err := url.Parse(*payload.Next)
 		if err != nil || !sameAPIOrigin(apiURL, nextURL) {
-			return observations, &collectError{code: "unsafe_pagination_url", retryable: false}
+			return observations, &collectError{
+				code:      "unsafe_pagination_url",
+				summary:   fmt.Sprintf("page %d returned a pagination URL outside the configured NetBox API origin", pageNumber+1),
+				retryable: false,
+			}
 		}
 		endpointURL = nextURL
 	}
@@ -522,7 +557,7 @@ func classifyRequestError(err error) requestFailure {
 		return requestFailure{code: "invalid_token_format", summary: "NetBox API token format is invalid.", retryable: false}
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
-		return requestFailure{code: "request_timeout", summary: "NetBox status request timed out.", retryable: true}
+		return requestFailure{code: "request_timeout", summary: "NetBox API request timed out.", retryable: true}
 	}
 
 	var dnsError *net.DNSError
@@ -540,9 +575,9 @@ func classifyRequestError(err error) requestFailure {
 	}
 	var networkError net.Error
 	if errors.As(err, &networkError) && networkError.Timeout() {
-		return requestFailure{code: "request_timeout", summary: "NetBox status request timed out.", retryable: true}
+		return requestFailure{code: "request_timeout", summary: "NetBox API request timed out.", retryable: true}
 	}
-	return requestFailure{code: "connection_failed", summary: "NetBox status endpoint could not be read.", retryable: true}
+	return requestFailure{code: "connection_failed", summary: "NetBox API endpoint could not be read.", retryable: true}
 }
 
 func (c *Collector) httpClient(config configuration) *http.Client {

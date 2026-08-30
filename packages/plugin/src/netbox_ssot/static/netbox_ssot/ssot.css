@@ -1,8 +1,5 @@
 .ssot-page-heading { max-width: 72rem; }
 .ssot-page-header h1 { font-size: clamp(1.55rem, 2vw, 2rem); letter-spacing: -.02em; }
-.ssot-mode-tabs { border-bottom: 1px solid var(--tblr-border-color); }
-.ssot-mode-tabs .nav-link { border: 0; border-bottom: 3px solid transparent; color: var(--tblr-secondary-color); padding: .75rem 1rem; }
-.ssot-mode-tabs .nav-link.active { border-bottom-color: var(--tblr-primary); color: var(--tblr-body-color); font-weight: 600; }
 .ssot-kpi { min-height: 8.5rem; }
 .ssot-kpi-value { font-size: clamp(2rem, 4vw, 3.25rem); font-weight: 650; letter-spacing: -.04em; line-height: 1; }
 .ssot-kpi-label { color: var(--tblr-secondary-color); font-size: .78rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
@@ -40,6 +37,15 @@
 .ssot-table-action .mdi { font-size: 1rem; line-height: 1; }
 .ssot-empty-state > .mdi { color: var(--tblr-secondary-color); font-size: 3rem; }
 .ssot-empty-state p { max-width: 36rem; }
+.ssot-provider-card { transition: background-color .15s ease; }
+.ssot-provider-card:hover { background: var(--tblr-bg-surface-secondary); }
+.ssot-provider-icon { align-items: center; border-radius: var(--tblr-border-radius-lg); display: inline-flex; flex: 0 0 auto; font-size: 1.75rem; height: 3.5rem; justify-content: center; width: 3.5rem; }
+.ssot-provider-description { max-width: 54rem; }
+.ssot-dataset-groups .accordion-button { padding: .9rem 1rem; }
+.ssot-dataset-groups .accordion-button:not(.collapsed) { background: var(--tblr-bg-surface-secondary); color: var(--tblr-body-color); }
+.ssot-dataset-option { cursor: pointer; padding: .85rem 1rem; }
+.ssot-dataset-option:hover { background: var(--tblr-bg-surface-secondary); }
+.ssot-dataset-option[hidden] { display: none !important; }
 .ssot-timeline { border-left: 2px solid var(--tblr-border-color); margin-left: .7rem; padding-left: 1.5rem; }
 .ssot-timeline-item { position: relative; }
 .ssot-timeline-item::before { background: var(--tblr-bg-surface); border: 2px solid var(--tblr-primary); border-radius: 50%; content: ""; height: .8rem; left: -1.96rem; position: absolute; top: .3rem; width: .8rem; }
@@ -64,5 +70,5 @@
   .ssot-table-cards td[data-label]::before { color: var(--tblr-secondary-color); content: attr(data-label); display: block; font-size: .7rem; font-weight: 600; text-transform: uppercase; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .ssot-mode-tabs .nav-link { transition: none; }
+  .ssot-provider-card { transition: none; }
 }

@@ -137,6 +137,108 @@ class AgentSecurityTests(TestCase):
                 providers=NETBOX_CAPABILITIES,
             )
 
+    def test_enrollment_receipt_waits_then_links_to_enrolled_agent(self) -> None:
+        self.user.is_superuser = True
+        self.user.save(update_fields=("is_superuser",))
+        created = create_enrollment(agent_name="watched-edge", sources=[], created_by=self.user)
+        client = Client()
+        client.force_login(self.user)
+        status_url = reverse(
+            "plugins:netbox_ssot:agent_enrollment_status",
+            kwargs={"pk": created.enrollment.pk},
+        )
+
+        waiting = client.get(status_url)
+
+        assert waiting.status_code == 200
+        assert waiting.headers["Cache-Control"] == "no-store"
+        self.assertContains(waiting, "Waiting for watched-edge to enroll.")
+        self.assertContains(waiting, 'class="spinner-border spinner-border-sm text-info"')
+        self.assertContains(waiting, 'hx-trigger="every 2s"')
+
+        agent, _ = enroll_agent(
+            token=created.token,
+            public_key=public_key(),
+            agent_version="0.6.5-alpha.0",
+            protocol_version="1.1",
+            providers=NETBOX_CAPABILITIES,
+        )
+        complete = client.get(status_url)
+
+        assert complete.status_code == 200
+        self.assertContains(complete, "Agent enrolled.")
+        self.assertContains(
+            complete,
+            reverse("plugins:netbox_ssot:agent_detail", kwargs={"pk": agent.pk}),
+        )
+        self.assertNotContains(complete, "spinner-border")
+        self.assertNotContains(complete, "hx-trigger")
+
+    def test_create_enrollment_receipt_starts_the_status_watcher(self) -> None:
+        self.user.is_superuser = True
+        self.user.save(update_fields=("is_superuser",))
+        client = Client()
+        client.force_login(self.user)
+
+        response = client.post(
+            reverse("plugins:netbox_ssot:agent_add"),
+            data={"name": "receipt-edge"},
+        )
+
+        enrollment = AgentEnrollmentToken.objects.get(agent_name="receipt-edge")
+        assert response.status_code == 200
+        assert response.headers["Cache-Control"] == "no-store"
+        self.assertContains(response, 'id="agent-enrollment-status"')
+        self.assertContains(response, 'hx-trigger="every 2s"')
+        self.assertContains(
+            response,
+            reverse(
+                "plugins:netbox_ssot:agent_enrollment_status",
+                kwargs={"pk": enrollment.pk},
+            ),
+        )
+
+    def test_enrollment_receipt_stops_waiting_when_token_expires(self) -> None:
+        self.user.is_superuser = True
+        self.user.save(update_fields=("is_superuser",))
+        created = create_enrollment(
+            agent_name="expired-ui-edge",
+            sources=[],
+            created_by=self.user,
+            lifetime=timedelta(seconds=-1),
+        )
+        client = Client()
+        client.force_login(self.user)
+
+        response = client.get(
+            reverse(
+                "plugins:netbox_ssot:agent_enrollment_status",
+                kwargs={"pk": created.enrollment.pk},
+            )
+        )
+
+        assert response.status_code == 200
+        self.assertContains(response, "Enrollment expired.")
+        self.assertNotContains(response, "spinner-border")
+        self.assertNotContains(response, "hx-trigger")
+
+    def test_enrollment_status_is_private_to_its_creator(self) -> None:
+        self.user.is_superuser = True
+        self.user.save(update_fields=("is_superuser",))
+        created = create_enrollment(agent_name="private-edge", sources=[], created_by=self.user)
+        other_user = get_user_model().objects.create_superuser(username="other-enrollment-admin")
+        client = Client()
+        client.force_login(other_user)
+
+        response = client.get(
+            reverse(
+                "plugins:netbox_ssot:agent_enrollment_status",
+                kwargs={"pk": created.enrollment.pk},
+            )
+        )
+
+        assert response.status_code == 404
+
     def test_rotation_overlap_and_revocation_preserve_audit_history(self) -> None:
         created = create_enrollment(agent_name="rotating-edge", sources=[self.source], created_by=self.user)
         agent, original = enroll_agent(
@@ -227,6 +329,95 @@ class AgentSecurityTests(TestCase):
             **signed_headers(original_private, agent.id, configuration_body),
         )
         assert revoked_response.status_code in {401, 403}
+
+    def test_configuration_heartbeat_tracks_active_collections_without_breaking_old_agents(self) -> None:
+        private_key, encoded_public_key = key_pair()
+        created = create_enrollment(agent_name="collecting-edge", sources=[self.source], created_by=self.user)
+        agent, _ = enroll_agent(
+            token=created.token,
+            public_key=encoded_public_key,
+            agent_version="0.6.8-alpha.0",
+            protocol_version="1.1",
+            providers=NETBOX_CAPABILITIES,
+        )
+        client = APIClient()
+
+        def heartbeat(*, active_source_ids: list[str] | None) -> object:
+            payload: dict[str, object] = {
+                "protocol_version": "1.1",
+                "agent_version": "0.6.8-alpha.0",
+                "control_interval_seconds": 5,
+                "active_command_ids": [],
+            }
+            if active_source_ids is not None:
+                payload["active_source_ids"] = active_source_ids
+            body = json.dumps(payload, separators=(",", ":")).encode()
+            return client.post(
+                reverse("plugins-api:netbox_ssot-api:agent-config"),
+                data=body,
+                content_type="application/json",
+                **signed_headers(private_key, agent.id, body),
+            )
+
+        started = heartbeat(active_source_ids=[str(self.source.pk)])
+
+        assert started.status_code == 200, started.content
+        self.source.refresh_from_db()
+        assert self.source.active_collection_started_at is not None
+        assert self.source.active_collection_seen_at is not None
+        first_started_at = self.source.active_collection_started_at
+
+        legacy = heartbeat(active_source_ids=None)
+
+        assert legacy.status_code == 200, legacy.content
+        self.source.refresh_from_db()
+        assert self.source.active_collection_started_at == first_started_at
+
+        completed = heartbeat(active_source_ids=[])
+
+        assert completed.status_code == 200, completed.content
+        self.source.refresh_from_db()
+        assert self.source.active_collection_started_at is None
+        assert self.source.active_collection_seen_at is None
+
+    def test_configuration_rejects_active_collection_for_another_agents_source(self) -> None:
+        private_key, encoded_public_key = key_pair()
+        created = create_enrollment(agent_name="bounded-edge", sources=[self.source], created_by=self.user)
+        agent, _ = enroll_agent(
+            token=created.token,
+            public_key=encoded_public_key,
+            agent_version="0.6.8-alpha.0",
+            protocol_version="1.1",
+            providers=NETBOX_CAPABILITIES,
+        )
+        other_source = DiscoverySource.objects.create(
+            name="other-agent-source",
+            provider_id="netbox",
+            configuration={},
+            datasets=["regions"],
+        )
+        body = json.dumps(
+            {
+                "protocol_version": "1.1",
+                "agent_version": "0.6.8-alpha.0",
+                "control_interval_seconds": 5,
+                "active_command_ids": [],
+                "active_source_ids": [str(other_source.pk)],
+            },
+            separators=(",", ":"),
+        ).encode()
+
+        response = APIClient().post(
+            reverse("plugins-api:netbox_ssot-api:agent-config"),
+            data=body,
+            content_type="application/json",
+            **signed_headers(private_key, agent.id, body),
+        )
+
+        assert response.status_code == 400
+        assert response.json()["code"] == "invalid_active_source"
+        other_source.refresh_from_db()
+        assert other_source.active_collection_started_at is None
 
     @override_settings(PLUGINS_CONFIG=PAUSE_CONFIG)
     def test_current_agent_receives_paused_schedule_while_commands_remain_available(self) -> None:

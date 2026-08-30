@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Any
 
 from django.utils import timezone
 
@@ -23,6 +24,31 @@ class SourceHealth:
     status: HealthStatus
     last_success_at: datetime | None
     next_expected_at: datetime | None
+
+
+def collection_failure_messages(messages: object) -> tuple[dict[str, Any], ...]:
+    """Return unique actionable messages from an incomplete collection."""
+    failure_messages: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for item in messages if isinstance(messages, list) else ():
+        if not isinstance(item, dict):
+            continue
+        code = str(item.get("code") or "collection_error").strip()
+        message = str(item.get("message") or "").strip()
+        if not message or code == "collection_complete":
+            continue
+        identity = (code, message)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        failure_messages.append(
+            {
+                "code": code,
+                "message": message,
+                "retryable": bool(item.get("retryable")),
+            }
+        )
+    return tuple(failure_messages)
 
 
 def agent_health(agent: CollectorAgent, *, now: datetime | None = None) -> HealthStatus:
@@ -75,6 +101,28 @@ def source_health(source: DiscoverySource, *, now: datetime | None = None) -> So
             status = HealthStatus("agent_offline", "Agent offline", "danger", agent_status.detail)
         elif agent_status.key == "stale":
             status = HealthStatus("agent_stale", "Agent stale", "warning", agent_status.detail)
+        elif (
+            source.active_collection_started_at is not None
+            and source.active_collection_seen_at is not None
+            and now - source.active_collection_seen_at
+            <= timedelta(
+                seconds=max(
+                    15,
+                    (
+                        source.assigned_agent.reported_control_interval_seconds
+                        or source.assigned_agent.control_interval_seconds
+                    )
+                    * 3,
+                )
+            )
+        ):
+            next_expected_at = None
+            status = HealthStatus(
+                "collecting",
+                "Collection running",
+                "info",
+                "The assigned agent is collecting this source now.",
+            )
         elif not schedule_policy.enabled:
             status = HealthStatus("waiting_review", "Waiting for review", "info", schedule_policy.reason)
         elif latest_at is None:
@@ -85,7 +133,11 @@ def source_health(source: DiscoverySource, *, now: datetime | None = None) -> So
                 "The agent is online and the first collection is pending.",
             )
         elif latest_state != "complete":
-            status = HealthStatus("failed", "Last run failed", "danger", "The latest collection did not complete.")
+            failure_messages = collection_failure_messages(getattr(source, "latest_collection_messages", None))
+            detail = " ".join(item["message"] for item in failure_messages) or (
+                "The latest collection did not complete and supplied no error message."
+            )
+            status = HealthStatus("failed", "Last run failed", "danger", detail)
         else:
             grace = max(timedelta(minutes=1), timedelta(minutes=source.collection_interval_minutes / 10))
             if next_expected_at is not None and now > next_expected_at + grace:

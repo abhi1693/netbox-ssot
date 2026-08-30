@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
-from core.models import ObjectType
+from core.choices import JobStatusChoices
+from core.models import Job, ObjectType
 from dcim.models import Region
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
@@ -21,7 +23,9 @@ from netbox_ssot.application.service import (
     apply_comparison,
     inspect_application,
 )
+from netbox_ssot.jobs import ApplyComparisonJob, apply_comparison_job_name
 from netbox_ssot.models import (
+    ApplyRun,
     CollectionRun,
     CollectorAgent,
     ComparisonItem,
@@ -454,6 +458,10 @@ class ReviewWorkflowTests(TestCase):
         self.assertContains(response, "Ready to apply")
         self.assertContains(response, "Atomic NetBox transaction")
         self.assertContains(response, "Approved by")
+        self.assertContains(response, 'id="background-apply"', count=1)
+        self.assertContains(response, 'name="background"', count=1)
+        self.assertContains(response, "Run with a NetBox background worker")
+        self.assertContains(response, 'id="background-apply" name="background" type="checkbox" value="1" checked')
         self.assertContains(response, ">Apply 2 approved changes</button>", count=1, html=False)
         self.assertContains(response, 'id="apply-actions"', count=1)
         self.assertNotContains(response, "The immutable approval is ready for a separately permissioned apply.")
@@ -461,6 +469,114 @@ class ReviewWorkflowTests(TestCase):
         self.assertNotContains(response, "Application performs one atomic transaction.")
         self.assertNotContains(response, f'aria-label="Approve {self.items[0].display_name}"')
         self.assertNotContains(response, f'aria-label="Reject {self.items[0].display_name}"')
+
+    @patch("netbox_ssot.views.ApplyComparisonJob.enqueue")
+    def test_apply_can_be_queued_with_netbox_background_worker(self, enqueue) -> None:
+        enqueue.return_value = SimpleNamespace(job_id=uuid4())
+        approve_all_review_items(self.comparison, self.reviewer)
+        finalize_review(self.comparison, ComparisonReview.Decision.APPROVED, self.reviewer)
+        self.applier.is_superuser = True
+        self.applier.save(update_fields=("is_superuser",))
+        self.client.force_login(self.applier)
+
+        response = self.client.post(
+            reverse("plugins:netbox_ssot:apply_add", kwargs={"pk": self.comparison.pk}),
+            {"confirm": "apply", "background": "1"},
+        )
+
+        assert response.status_code == 302
+        assert response.url == (
+            reverse("plugins:netbox_ssot:comparison_detail", kwargs={"pk": self.comparison.pk})
+            + "#apply-actions"
+        )
+        assert not ApplyRun.objects.filter(comparison=self.comparison).exists()
+        enqueue.assert_called_once_with(
+            comparison_id=str(self.comparison.pk),
+            applied_by_id=str(self.applier.pk),
+            required_permissions=["dcim.add_region"],
+            name=apply_comparison_job_name(self.comparison.pk),
+            user=self.applier,
+            notifications="always",
+            job_timeout=86_400,
+        )
+
+    @patch("netbox_ssot.views.ApplyComparisonJob.enqueue")
+    def test_existing_active_apply_job_is_not_queued_twice(self, enqueue) -> None:
+        approve_all_review_items(self.comparison, self.reviewer)
+        finalize_review(self.comparison, ComparisonReview.Decision.APPROVED, self.reviewer)
+        self.applier.is_superuser = True
+        self.applier.save(update_fields=("is_superuser",))
+        self.client.force_login(self.applier)
+        Job.objects.create(
+            name=apply_comparison_job_name(self.comparison.pk),
+            status=JobStatusChoices.STATUS_RUNNING,
+            user=self.applier,
+            job_id=uuid4(),
+        )
+
+        response = self.client.post(
+            reverse("plugins:netbox_ssot:apply_add", kwargs={"pk": self.comparison.pk}),
+            {"confirm": "apply", "background": "1"},
+        )
+
+        assert response.status_code == 302
+        enqueue.assert_not_called()
+
+    def test_background_apply_status_polls_then_opens_the_receipt(self) -> None:
+        approve_all_review_items(self.comparison, self.reviewer)
+        finalize_review(self.comparison, ComparisonReview.Decision.APPROVED, self.reviewer)
+        self.applier.is_superuser = True
+        self.applier.save(update_fields=("is_superuser",))
+        self.client.force_login(self.applier)
+        Job.objects.create(
+            name=apply_comparison_job_name(self.comparison.pk),
+            status=JobStatusChoices.STATUS_RUNNING,
+            user=self.applier,
+            job_id=uuid4(),
+        )
+        url = reverse("plugins:netbox_ssot:apply_status", kwargs={"pk": self.comparison.pk})
+
+        pending = self.client.get(url, headers={"HX-Request": "true"})
+
+        assert pending.status_code == 200
+        self.assertContains(pending, "Applying in the background")
+        self.assertContains(pending, 'hx-trigger="every 3s"')
+
+        application = ApplyRun.objects.create(comparison=self.comparison, applied_by=self.applier)
+        complete = self.client.get(url, headers={"HX-Request": "true"})
+
+        assert complete.status_code == 204
+        assert complete.headers["HX-Redirect"] == reverse(
+            "plugins:netbox_ssot:apply_detail",
+            kwargs={"pk": application.pk},
+        )
+
+    @patch("netbox_ssot.jobs.request_comparison_preparation")
+    @patch("netbox_ssot.jobs.apply_comparison")
+    def test_background_worker_uses_the_atomic_apply_service(self, apply, refresh) -> None:
+        receipt_id = uuid4()
+        approve_all_review_items(self.comparison, self.reviewer)
+        finalize_review(self.comparison, ComparisonReview.Decision.APPROVED, self.reviewer)
+        self.applier.is_superuser = True
+        self.applier.save(update_fields=("is_superuser",))
+        apply.return_value = SimpleNamespace(
+            created=True,
+            apply_run=SimpleNamespace(pk=receipt_id),
+        )
+        refresh.return_value = SimpleNamespace(queued=True)
+        job = SimpleNamespace(log=lambda record: None)
+
+        ApplyComparisonJob(job).run(
+            str(self.comparison.pk),
+            str(self.applier.pk),
+            ["dcim.add_region"],
+        )
+
+        apply.assert_called_once()
+        assert apply.call_args.args == (self.comparison, self.applier)
+        refresh.assert_called_once()
+        assert refresh.call_args.args[0] == self.comparison.collection_run
+        assert refresh.call_args.kwargs == {"force": True}
 
     def test_stale_review_leads_directly_to_a_fresh_comparison(self) -> None:
         self.reviewer.is_superuser = True

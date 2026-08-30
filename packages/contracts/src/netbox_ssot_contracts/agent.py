@@ -61,6 +61,7 @@ class AgentConfigurationRequest(ContractModel):
     agent_version: str = Field(min_length=1, max_length=64)
     control_interval_seconds: int = Field(default=30, ge=2, le=30)
     active_command_ids: tuple[UUID, ...] = Field(default=(), max_length=100)
+    active_source_ids: tuple[UUID, ...] = Field(default=(), max_length=100)
     providers: tuple[AgentProviderCapability, ...] = Field(default=(), max_length=100)
 
 

@@ -6,6 +6,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from django.urls import reverse
 from django.utils import timezone
 
 from .ingestion.signing import SignatureError, decode_public_key, public_key_fingerprint
@@ -46,6 +47,8 @@ class DiscoverySource(models.Model):
         default=30,
         validators=(MinValueValidator(1), MaxValueValidator(3_650)),
     )
+    active_collection_started_at = models.DateTimeField(null=True, blank=True)
+    active_collection_seen_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -54,6 +57,9 @@ class DiscoverySource(models.Model):
 
     def __str__(self) -> str:
         return self.name
+
+    def get_absolute_url(self) -> str:
+        return reverse("plugins:netbox_ssot:source_detail", kwargs={"pk": self.pk})
 
 
 class CollectorAgent(models.Model):
@@ -80,6 +86,9 @@ class CollectorAgent(models.Model):
     def __str__(self) -> str:
         return self.name
 
+    def get_absolute_url(self) -> str:
+        return reverse("plugins:netbox_ssot:agent_detail", kwargs={"pk": self.pk})
+
     def clean(self) -> None:
         super().clean()
         try:
@@ -96,7 +105,7 @@ class AgentSigningKey(models.Model):
         REVOKED = "revoked", "Revoked"
 
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
-    agent = models.ForeignKey(CollectorAgent, on_delete=models.PROTECT, related_name="signing_keys")
+    agent = models.ForeignKey(CollectorAgent, on_delete=models.CASCADE, related_name="signing_keys")
     public_key = models.CharField(max_length=43, unique=True)
     fingerprint = models.CharField(max_length=64, unique=True, editable=False)
     state = models.CharField(max_length=16, choices=State.choices, default=State.ACTIVE)
@@ -150,14 +159,14 @@ class AgentEnrollmentToken(models.Model):
     revoked_at = models.DateTimeField(null=True, blank=True)
     enrolled_agent = models.ForeignKey(
         CollectorAgent,
-        on_delete=models.PROTECT,
+        on_delete=models.CASCADE,
         related_name="enrollment_tokens",
         null=True,
         blank=True,
     )
     target_agent = models.ForeignKey(
         CollectorAgent,
-        on_delete=models.PROTECT,
+        on_delete=models.CASCADE,
         related_name="replacement_enrollment_tokens",
         null=True,
         blank=True,
@@ -251,7 +260,7 @@ class AgentSecurityEvent(AppendOnlyModel):
     id = models.BigAutoField(primary_key=True)
     agent = models.ForeignKey(
         CollectorAgent,
-        on_delete=models.PROTECT,
+        on_delete=models.SET_NULL,
         related_name="security_events",
         null=True,
         blank=True,

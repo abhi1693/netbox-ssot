@@ -1,10 +1,22 @@
-{% extends 'netbox_ssot/base.html' %}
+{% extends 'generic/_base.html' %}
+{% load static %}
 
-{% block title %}Replace {{ agent.name }}{% endblock %}
+{% block head %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'netbox_ssot/ssot.css' %}">
+{% endblock %}
+
+{% block title %}{{ agent.name }}{% endblock %}
+
+{% block subtitle %}<div class="text-secondary mt-1">Replace agent identity</div>{% endblock %}
+
+{% block tabs %}
+  {% include 'netbox_ssot/_agent_tabs.html' with active_tab='settings' %}
+{% endblock %}
 
 {% block content %}
-  <div class="row justify-content-center"><div class="col-xl-9">
-    {% include 'netbox_ssot/_page_header.html' with page_title='Replace agent identity' page_description='Move this collector to another host while preserving its ID and source assignments.' %}
+  <div class="row justify-content-center mt-4"><div class="col-xl-9">
+    <p class="text-secondary">Move this collector to another host while preserving its ID and source assignments.</p>
     <p class="text-secondary"><a href="{% url 'plugins:netbox_ssot:agent_detail' pk=agent.pk %}">{{ agent.name }}</a> · <code>{{ agent.id }}</code></p>
 
     {% if enrollment_token %}

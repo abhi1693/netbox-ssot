@@ -1,0 +1,17 @@
+<div id="agent-enrollment-status"
+     class="alert {% if enrollment_state == 'complete' %}alert-success bg-success-subtle{% elif enrollment_state == 'waiting' %}alert-info bg-info-subtle{% else %}alert-danger bg-danger-subtle{% endif %} d-flex flex-wrap justify-content-between align-items-center gap-3"
+     role="status"
+     {% if enrollment_state == 'waiting' %}hx-get="{% url 'plugins:netbox_ssot:agent_enrollment_status' pk=enrollment.pk %}" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+  {% if enrollment_state == 'complete' %}
+    <div><i class="mdi mdi-check-circle text-success me-1" aria-hidden="true"></i><strong>Agent enrolled.</strong> {{ enrollment.enrolled_agent.name }} is now connected to NetBox.</div>
+    <a class="btn btn-success btn-sm" href="{% url 'plugins:netbox_ssot:agent_detail' pk=enrollment.enrolled_agent_id %}">View agent</a>
+  {% elif enrollment_state == 'waiting' %}
+    <div class="d-flex align-items-center gap-2"><span class="spinner-border spinner-border-sm text-info" aria-hidden="true"></span><span><strong>Waiting for {{ enrollment.agent_name }} to enroll.</strong> This status updates automatically.</span></div>
+  {% elif enrollment_state == 'expired' %}
+    <div><i class="mdi mdi-clock-alert-outline me-1" aria-hidden="true"></i><strong>Enrollment expired.</strong> Create a new enrollment token to continue.</div>
+    <a class="btn btn-danger btn-sm" href="{% url 'plugins:netbox_ssot:agent_add' %}">Create enrollment</a>
+  {% else %}
+    <div><i class="mdi mdi-cancel me-1" aria-hidden="true"></i><strong>Enrollment revoked.</strong> This command can no longer connect an agent.</div>
+    <a class="btn btn-danger btn-sm" href="{% url 'plugins:netbox_ssot:agent_add' %}">Create enrollment</a>
+  {% endif %}
+</div>

@@ -1,92 +1,157 @@
-{% extends 'netbox_ssot/base.html' %}
+{% extends 'generic/_base.html' %}
+{% load static %}
 
-{% block title %}{% if editing %}Edit {{ source.name }}{% else %}Connect {{ wizard.provider.display_name }}{% endif %}{% endblock %}
+{% block head %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'netbox_ssot/ssot.css' %}">
+{% endblock %}
+
+{% block title %}{% if editing %}Editing source {{ source.name }}{% else %}Add source{% endif %}{% endblock %}
+
+{% block subtitle %}
+  <div class="text-secondary mt-1"><i class="{{ wizard.provider.icon_class }} me-1" aria-hidden="true"></i>{{ wizard.provider.display_name }} provider</div>
+{% endblock %}
 
 {% block content %}
-  <div class="row justify-content-center">
-    <div class="col-xl-8">
-      {% if editing %}{% include 'netbox_ssot/_page_header.html' with page_title='Source settings' page_description=wizard.provider.description %}{% else %}{% include 'netbox_ssot/_page_header.html' with page_title='Configure source' page_description=wizard.provider.description %}<div class="d-flex align-items-center gap-2 mb-3"><span class="badge rounded-pill text-bg-primary">2</span><strong>Configure source</strong><span class="text-secondary">Provider → Source configuration → Agent</span></div>{% endif %}
+    <form method="post" novalidate class="form form-horizontal object-edit object-edit--with-sticky-actions mt-5">
+      {% csrf_token %}
 
-      <div class="alert alert-info">
-        Credentials stay on the agent host and are never stored in NetBox.
+      <div class="field-group my-5">
+        <div class="row"><h2 class="col-9 offset-3">Source</h2></div>
+        <div class="row mb-3">
+          <label class="col-sm-3 col-form-label text-lg-end required" for="source-name">Name</label>
+          <div class="col-sm-9">
+            <input class="form-control" id="source-name" name="source_name" value="{{ source_name }}" maxlength="100" required>
+          </div>
+        </div>
+        <div id="provider-fields"></div>
+        <div class="row mb-3">
+          <label class="col-sm-3 col-form-label text-lg-end required" for="collection-interval">Collection interval</label>
+          <div class="col-sm-9">
+            <div class="input-group">
+              <input class="form-control" id="collection-interval" name="collection_interval_minutes" type="number" min="1" max="43200" value="{{ collection_interval_minutes }}" required>
+              <span class="input-group-text">minutes</span>
+            </div>
+            <div class="form-text">The agent fetches updated source configuration before each collection.</div>
+          </div>
+        </div>
+        <div class="row mb-3">
+          <label class="col-sm-3 col-form-label text-lg-end" for="assigned-agent">Execution agent</label>
+          <div class="col-sm-9">
+            <select class="form-select" id="assigned-agent" name="assigned_agent">
+              <option value="">Not assigned</option>
+              {% for choice in agent_choices %}<option value="{{ choice.agent.pk }}" {% if choice.agent.pk|stringformat:"s" == selected_agent %}selected{% endif %} {% if choice.issue and choice.agent.pk|stringformat:"s" != selected_agent %}disabled{% endif %}>{{ choice.agent.name }}{% if choice.issue %} — incompatible: {{ choice.issue }}{% endif %}</option>{% endfor %}
+            </select>
+            <div class="form-text">Only agents advertising this provider and contract version can be assigned.</div>
+          </div>
+        </div>
+        {% if editing %}
+          <div class="row mb-3">
+            <div class="col-sm-9 offset-sm-3">
+              <div class="form-check">
+                <input class="form-check-input" id="source-enabled" name="enabled" type="checkbox" {% if enabled %}checked{% endif %}>
+                <label class="form-check-label" for="source-enabled">Enable automatic collection</label>
+              </div>
+            </div>
+          </div>
+        {% endif %}
+        <div class="row">
+          <div class="col-sm-9 offset-sm-3 small text-secondary"><i class="mdi mdi-shield-lock-outline me-1" aria-hidden="true"></i>Credentials remain on the agent host and are never stored in NetBox.</div>
+        </div>
       </div>
 
-      <form method="post" novalidate>
-        {% csrf_token %}
-        <div class="card">
-          <div class="card-header"><strong>Source details</strong></div>
-          <div class="card-body">
-            <div class="mb-3">
-              <label class="form-label" for="source-name">Source name <span class="text-danger">*</span></label>
-              <input class="form-control" id="source-name" name="source_name" value="{{ source_name }}" maxlength="100" required>
-            </div>
-            <div id="provider-fields"></div>
-            <div class="mb-3">
-              <label class="form-label" for="collection-interval">Collect every</label>
-              <div class="input-group">
-                <input class="form-control" id="collection-interval" name="collection_interval_minutes" type="number" min="1" max="43200" value="{{ collection_interval_minutes }}" required>
-                <span class="input-group-text">minutes</span>
-              </div>
-              <div class="form-text">The agent automatically fetches updated configuration before running.</div>
-            </div>
-            <div class="mb-3">
-              <label class="form-label" for="assigned-agent">Execution agent</label>
-              <select class="form-select" id="assigned-agent" name="assigned_agent">
-                <option value="">Not assigned</option>
-                {% for choice in agent_choices %}<option value="{{ choice.agent.pk }}" {% if choice.agent.pk|stringformat:"s" == selected_agent %}selected{% endif %} {% if choice.issue and choice.agent.pk|stringformat:"s" != selected_agent %}disabled{% endif %}>{{ choice.agent.name }}{% if choice.issue %} — incompatible: {{ choice.issue }}{% endif %}</option>{% endfor %}
-              </select>
-              <div class="form-text">Only agents advertising the installed provider and contract version can be assigned.</div>
-            </div>
-            {% if editing %}<div class="form-check">
-              <input class="form-check-input" id="source-enabled" name="enabled" type="checkbox" {% if enabled %}checked{% endif %}>
-              <label class="form-check-label" for="source-enabled">Enable automatic collection</label>
-            </div>{% endif %}
+      <div class="field-group my-5">
+        <div class="row"><h2 class="col-9 offset-3">Retention</h2></div>
+        <div class="row mb-3">
+          <label class="col-sm-3 col-form-label text-lg-end required" for="retention-days">Successful collection age</label>
+          <div class="col-sm-9">
+            <div class="input-group"><input class="form-control" id="retention-days" name="retention_days" type="number" min="1" max="3650" value="{{ retention_days }}" required><span class="input-group-text">days</span></div>
           </div>
         </div>
+        <div class="row mb-3">
+          <label class="col-sm-3 col-form-label text-lg-end required" for="retention-successful-runs">Successful collection limit</label>
+          <div class="col-sm-9">
+            <div class="input-group"><input class="form-control" id="retention-successful-runs" name="retention_successful_runs" type="number" min="1" max="100000" value="{{ retention_successful_runs }}" required><span class="input-group-text">runs</span></div>
+            <div class="form-text">Both successful collection limits apply.</div>
+          </div>
+        </div>
+        <div class="row mb-3">
+          <label class="col-sm-3 col-form-label text-lg-end required" for="retention-failure-days">Failed collection age</label>
+          <div class="col-sm-9">
+            <div class="input-group"><input class="form-control" id="retention-failure-days" name="retention_failure_days" type="number" min="1" max="3650" value="{{ retention_failure_days }}" required><span class="input-group-text">days</span></div>
+            <div class="form-text">Reviewed and applied collections, plus the newest collection of each kind, are always protected.</div>
+          </div>
+        </div>
+      </div>
 
-        <div class="card mt-3">
-          <div class="card-header"><strong>Collection retention</strong></div>
-          <div class="card-body">
-            <p class="text-secondary">Both successful-run limits apply. Reviewed and applied collections are always protected.</p>
-            <div class="row g-3">
-              <div class="col-md-4">
-                <label class="form-label" for="retention-days">Keep successful collections for</label>
-                <div class="input-group"><input class="form-control" id="retention-days" name="retention_days" type="number" min="1" max="3650" value="{{ retention_days }}" required><span class="input-group-text">days</span></div>
-              </div>
-              <div class="col-md-4">
-                <label class="form-label" for="retention-successful-runs">Keep at most</label>
-                <div class="input-group"><input class="form-control" id="retention-successful-runs" name="retention_successful_runs" type="number" min="1" max="100000" value="{{ retention_successful_runs }}" required><span class="input-group-text">successful runs</span></div>
-              </div>
-              <div class="col-md-4">
-                <label class="form-label" for="retention-failure-days">Keep partial and failed collections for</label>
-                <div class="input-group"><input class="form-control" id="retention-failure-days" name="retention_failure_days" type="number" min="1" max="3650" value="{{ retention_failure_days }}" required><span class="input-group-text">days</span></div>
-              </div>
+      <div class="field-group my-5">
+        <div class="row">
+          <div class="col-sm-9 offset-sm-3 d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+            <div>
+              <h2 class="d-inline mb-0">Data to collect</h2>
+              <span class="badge bg-primary-lt text-primary ms-2"><span id="dataset-selected-count">0</span> selected</span>
             </div>
-            <div class="form-text mt-3">The newest collection and newest successful collection are retained even after these limits. Cleanup runs only through the explicit maintenance command.</div>
+            <div class="btn-list">
+              <button class="btn btn-sm btn-outline-secondary" type="button" data-dataset-action="select-all">Select all</button>
+              <button class="btn btn-sm btn-outline-secondary" type="button" data-dataset-action="clear-all">Clear</button>
+            </div>
           </div>
         </div>
+        <div class="row">
+          <div class="col-sm-9 offset-sm-3">
+            <p class="text-secondary mb-3">Choose the application areas this source should manage. Supporting dependencies are included automatically.</p>
+            <div class="input-icon mb-3">
+              <span class="input-icon-addon"><i class="mdi mdi-magnify" aria-hidden="true"></i></span>
+              <input class="form-control" id="dataset-search" type="search" placeholder="Find a dataset or application" autocomplete="off">
+            </div>
+            <div class="accordion ssot-dataset-groups" id="dataset-groups">
+              {% for group in dataset_groups %}
+                <div class="accordion-item" data-dataset-group data-group-title="{{ group.title|lower }}">
+                  <h2 class="accordion-header" id="dataset-group-heading-{{ group.id }}">
+                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#dataset-group-{{ group.id }}" aria-expanded="false" aria-controls="dataset-group-{{ group.id }}">
+                      <span class="fw-semibold">{{ group.title }}</span>
+                      <span class="badge bg-secondary-lt text-secondary ms-2"><span data-group-selected>0</span> of {{ group.datasets|length }}</span>
+                    </button>
+                  </h2>
+                  <div class="accordion-collapse collapse" id="dataset-group-{{ group.id }}" aria-labelledby="dataset-group-heading-{{ group.id }}">
+                    <div class="d-flex justify-content-end gap-2 px-3 py-2 border-bottom bg-secondary-lt">
+                      <button class="btn btn-sm btn-ghost-secondary" type="button" data-dataset-action="select-group">Select group</button>
+                      <button class="btn btn-sm btn-ghost-secondary" type="button" data-dataset-action="clear-group">Clear group</button>
+                    </div>
+                    <div class="list-group list-group-flush">
+                      {% for dataset in group.datasets %}
+                        <label class="list-group-item ssot-dataset-option d-flex align-items-start gap-3" for="dataset-{{ dataset.id }}">
+                          <input class="form-check-input flex-shrink-0 mt-1" type="checkbox" name="datasets" value="{{ dataset.id }}" id="dataset-{{ dataset.id }}" {% if dataset.id in selected_datasets %}checked{% endif %}>
+                          <span>
+                            <strong class="d-block">{{ dataset.title }}</strong>
+                            <span class="d-block small text-secondary mt-1">{{ dataset.description }}</span>
+                          </span>
+                        </label>
+                      {% endfor %}
+                    </div>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+            <div class="text-center text-secondary py-4 d-none" id="dataset-search-empty">
+              <i class="mdi mdi-database-search-outline fs-2 d-block mb-1" aria-hidden="true"></i>
+              No datasets match this search.
+            </div>
+          </div>
+        </div>
+      </div>
 
-        <div class="card mt-3">
-          <div class="card-header"><strong>Data to collect</strong></div>
-          <div class="card-body">
-            {% for dataset in dataset_fields %}
-              <div class="form-check mb-2">
-                <input class="form-check-input" type="checkbox" name="datasets" value="{{ dataset.id }}"
-                       id="dataset-{{ dataset.id }}" {% if dataset.id in selected_datasets %}checked{% endif %}>
-                <label class="form-check-label" for="dataset-{{ dataset.id }}">
-                  <strong>{{ dataset.title }}</strong> — {{ dataset.description }}
-                </label>
-              </div>
-            {% endfor %}
-          </div>
-          <div class="card-footer d-flex justify-content-end gap-2">
-            {% if editing %}<a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_ssot:source_detail' pk=source.pk %}">Cancel</a>{% endif %}
-            <button class="btn btn-primary" type="submit">{% if editing %}Save changes{% else %}Create source{% endif %}</button>
-          </div>
+      <div class="sticky-actions sticky-actions-footer d-print-none" data-sticky-position="full" data-sticky-when="always">
+        <div class="btn-list">
+          {% if editing %}
+            <a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_ssot:source_detail' pk=source.pk %}">Cancel</a>
+          {% else %}
+            <a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_ssot:provider_list' %}">Cancel</a>
+          {% endif %}
+          <button class="btn btn-primary" type="submit">{% if editing %}Save{% else %}Create{% endif %}</button>
         </div>
-      </form>
-    </div>
-  </div>
+      </div>
+    </form>
 
   {{ wizard_fields|json_script:"provider-field-contract" }}
   {{ safe_values|json_script:"provider-safe-values" }}
@@ -111,11 +176,16 @@
 
       fields.forEach((field) => {
         const group = document.createElement('div');
-        group.className = 'mb-3';
-        const label = makeText('label', field.title, 'form-label');
+        group.className = 'row mb-3';
+        const label = makeText(
+          'label',
+          field.title,
+          `col-sm-3 col-form-label text-lg-end${field.required ? ' required' : ''}`,
+        );
         label.htmlFor = `provider-field-${field.name}`;
-        if (field.required) label.append(makeText('span', ' *', 'text-danger'));
         group.append(label);
+        const fieldColumn = document.createElement('div');
+        fieldColumn.className = 'col-sm-9';
 
         let input;
         if (field.widget === 'select' || field.widget === 'multiselect') {
@@ -147,11 +217,76 @@
         input.id = `provider-field-${field.name}`;
         input.name = field.name;
         input.required = field.required && !(editing && field.secret);
-        input.className = field.widget === 'checkbox' ? 'form-check-input' : 'form-control';
-        group.append(input);
-        if (field.description) group.append(makeText('div', field.description, 'form-text'));
+        input.className = field.widget === 'checkbox'
+          ? 'form-check-input mt-2'
+          : field.widget === 'select' || field.widget === 'multiselect'
+            ? 'form-select'
+            : 'form-control';
+        fieldColumn.append(input);
+        if (field.description) fieldColumn.append(makeText('div', field.description, 'form-text'));
+        group.append(fieldColumn);
         container.append(group);
       });
+
+      const datasetInputs = Array.from(document.querySelectorAll('input[name="datasets"]'));
+      const datasetGroups = Array.from(document.querySelectorAll('[data-dataset-group]'));
+      const selectedCount = document.getElementById('dataset-selected-count');
+      const datasetSearch = document.getElementById('dataset-search');
+      const searchEmpty = document.getElementById('dataset-search-empty');
+
+      const updateDatasetCounts = () => {
+        selectedCount.textContent = String(datasetInputs.filter((input) => input.checked).length);
+        datasetGroups.forEach((group) => {
+          const groupInputs = Array.from(group.querySelectorAll('input[name="datasets"]'));
+          group.querySelector('[data-group-selected]').textContent = String(
+            groupInputs.filter((input) => input.checked).length,
+          );
+        });
+      };
+
+      document.querySelectorAll('[data-dataset-action]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const action = button.dataset.datasetAction;
+          const scope = action.endsWith('group') ? button.closest('[data-dataset-group]') : document;
+          const checked = action.startsWith('select');
+          scope.querySelectorAll('input[name="datasets"]').forEach((input) => {
+            input.checked = checked;
+          });
+          updateDatasetCounts();
+        });
+      });
+
+      datasetInputs.forEach((input) => input.addEventListener('change', updateDatasetCounts));
+      datasetSearch.addEventListener('input', () => {
+        const query = datasetSearch.value.trim().toLocaleLowerCase();
+        let visibleGroups = 0;
+        datasetGroups.forEach((group) => {
+          const groupMatch = group.dataset.groupTitle.includes(query);
+          let visibleRows = 0;
+          group.querySelectorAll('.ssot-dataset-option').forEach((row) => {
+            const matches = !query || groupMatch || row.textContent.toLocaleLowerCase().includes(query);
+            row.hidden = !matches;
+            if (matches) visibleRows += 1;
+          });
+          group.hidden = visibleRows === 0;
+          if (visibleRows) visibleGroups += 1;
+          const collapse = group.querySelector('.accordion-collapse');
+          const toggle = group.querySelector('.accordion-button');
+          if (query && visibleRows) {
+            if (!collapse.classList.contains('show')) collapse.dataset.openedBySearch = 'true';
+            collapse.classList.add('show');
+            toggle.classList.remove('collapsed');
+            toggle.setAttribute('aria-expanded', 'true');
+          } else if (!query && collapse.dataset.openedBySearch) {
+            collapse.classList.remove('show');
+            toggle.classList.add('collapsed');
+            toggle.setAttribute('aria-expanded', 'false');
+            delete collapse.dataset.openedBySearch;
+          }
+        });
+        searchEmpty.classList.toggle('d-none', visibleGroups !== 0);
+      });
+      updateDatasetCounts();
     })();
   </script>
 {% endblock %}

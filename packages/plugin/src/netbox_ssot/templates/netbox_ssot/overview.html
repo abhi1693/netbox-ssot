@@ -1,20 +1,39 @@
-{% extends 'netbox_ssot/base.html' %}
+{% extends 'generic/_base.html' %}
+{% load static %}
 
-{% block title %}Synchronization overview{% endblock %}
+{% block head %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'netbox_ssot/ssot.css' %}">
+{% endblock %}
+
+{% block title %}SSoT{% endblock %}
+
+{% block subtitle %}
+  <div class="text-secondary mt-1">Understand alignment at a glance, then move each source safely from collection through review and apply.</div>
+{% endblock %}
+
+{% block controls %}
+  {% if perms.netbox_ssot.add_discoverysource %}
+    <div class="btn-list justify-content-end mb-2">
+      <a class="btn btn-primary" href="{% url 'plugins:netbox_ssot:provider_list' %}"><i class="mdi mdi-plus me-1" aria-hidden="true"></i>Add source</a>
+    </div>
+  {% endif %}
+{% endblock %}
+
+{% block tabs %}
+  <ul class="nav nav-tabs" role="presentation">
+    <li class="nav-item"><a class="nav-link{% if selected_view == 'operations' %} active{% endif %}" href="{% url 'plugins:netbox_ssot:overview' %}"><i class="mdi mdi-format-list-checks me-1" aria-hidden="true"></i>Operations</a></li>
+    <li class="nav-item"><a class="nav-link{% if selected_view == 'summary' %} active{% endif %}" href="{% url 'plugins:netbox_ssot:summary' %}"><i class="mdi mdi-chart-areaspline me-1" aria-hidden="true"></i>Summary</a></li>
+    <li class="nav-item"><a class="nav-link" href="{% url 'plugins:netbox_ssot:activity' %}"><i class="mdi mdi-history me-1" aria-hidden="true"></i>Activity</a></li>
+  </ul>
+{% endblock %}
 
 {% block content %}
-  {% url 'plugins:netbox_ssot:provider_list' as add_source_url %}
-  {% include 'netbox_ssot/_page_header.html' with page_title='Synchronization' page_description='Understand alignment at a glance, then move each source safely from collection through review and apply.' page_action_url=add_source_url page_action_label='Add source' page_action_icon='mdi-plus' %}
-
-  <nav class="ssot-mode-tabs mb-4" aria-label="Overview mode"><div class="nav">
-    <a class="nav-link{% if selected_view == 'operations' %} active{% endif %}" href="?view=operations&period={{ selected_period }}"{% if selected_view == 'operations' %} aria-current="page"{% endif %}><i class="mdi mdi-format-list-checks me-1" aria-hidden="true"></i>Operations</a>
-    <a class="nav-link{% if selected_view == 'summary' %} active{% endif %}" href="?view=summary&period={{ selected_period }}"{% if selected_view == 'summary' %} aria-current="page"{% endif %}><i class="mdi mdi-chart-areaspline me-1" aria-hidden="true"></i>Summary</a>
-  </div></nav>
-
-  {% if selected_view == 'summary' %}
+  <div class="mt-4">
+    {% if selected_view == 'summary' %}
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
       <div><h2 class="h3 mb-1">Estate alignment</h2><p class="text-secondary mb-0">Latest prepared comparison for every enabled source.</p></div>
-      <div class="btn-group" role="group" aria-label="Trend period">{% for period in period_options %}<a class="btn btn-sm {% if selected_period == period %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="?view=summary&period={{ period }}">{{ period }} days</a>{% endfor %}</div>
+      <div class="btn-group" role="group" aria-label="Trend period">{% for period in period_options %}<a class="btn btn-sm {% if selected_period == period %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="?period={{ period }}">{{ period }} days</a>{% endfor %}</div>
     </div>
 
     {% if can_view_drift and drift_summary.total %}
@@ -79,5 +98,6 @@
         <div class="card"><div class="card-header d-flex justify-content-between align-items-center"><h2 class="card-title">Recent activity</h2><a href="{% url 'plugins:netbox_ssot:activity' %}">All activity</a></div><div class="list-group list-group-flush">{% for event in events %}<a class="list-group-item list-group-item-action py-3" href="{{ event.url }}"><div class="d-flex justify-content-between gap-2"><strong>{{ event.title }}</strong><span class="small text-secondary text-nowrap">{{ event.occurred_at|timesince }} ago</span></div><div class="small text-secondary mt-1">{{ event.detail }}</div></a>{% empty %}<div class="list-group-item text-secondary">No activity yet.</div>{% endfor %}</div></div>
       </div>
     </div>
-  {% endif %}
+    {% endif %}
+  </div>
 {% endblock %}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any
 from urllib.parse import quote, urljoin, urlsplit
 
@@ -19,9 +20,22 @@ class ProviderCard(ContractModel):
     datasets: tuple[str, ...]
 
 
+class ProviderDataset(ContractModel):
+    id: str
+    title: str
+    description: str
+
+
+class ProviderDatasetGroup(ContractModel):
+    id: str
+    title: str
+    datasets: tuple[ProviderDataset, ...]
+
+
 class ProviderWizard(ContractModel):
     provider: ProviderCard
     fields: tuple[SchemaField, ...]
+    dataset_groups: tuple[ProviderDatasetGroup, ...] = Field(default=())
     default_datasets: tuple[str, ...] = Field(default=())
 
 
@@ -42,9 +56,46 @@ def build_provider_wizard(manifest: ProviderManifest) -> ProviderWizard:
     return ProviderWizard(
         provider=build_provider_card(manifest),
         fields=normalize_config_schema(manifest.config_schema),
+        dataset_groups=build_provider_dataset_groups(manifest),
         default_datasets=tuple(
             dataset.id for dataset in manifest.datasets if dataset.selectable and dataset.default_enabled
         ),
+    )
+
+
+def build_provider_dataset_groups(
+    manifest: ProviderManifest,
+    dataset_ids: Iterable[str] | None = None,
+    *,
+    include_supporting: bool = False,
+) -> tuple[ProviderDatasetGroup, ...]:
+    selected_ids = set(dataset_ids) if dataset_ids is not None else None
+    grouped: dict[str, list[ProviderDataset]] = {}
+    for dataset in manifest.datasets:
+        if selected_ids is not None and dataset.id not in selected_ids:
+            continue
+        if not dataset.selectable:
+            if not include_supporting:
+                continue
+            source_namespace = "dependencies"
+        else:
+            first_mapping = dataset.data_mappings[0] if dataset.data_mappings else None
+            source_namespace = first_mapping.source_model.partition(".")[0].lower() if first_mapping else "other"
+        grouped.setdefault(source_namespace, []).append(
+            ProviderDataset(
+                id=dataset.id,
+                title=dataset.title,
+                description=dataset.description,
+            )
+        )
+    acronyms = {"dcim": "DCIM", "ipam": "IPAM", "vpn": "VPN", "dependencies": "Dependencies"}
+    return tuple(
+        ProviderDatasetGroup(
+            id=group_id,
+            title=acronyms.get(group_id, group_id.replace("_", " ").title()),
+            datasets=tuple(datasets),
+        )
+        for group_id, datasets in grouped.items()
     )
 
 

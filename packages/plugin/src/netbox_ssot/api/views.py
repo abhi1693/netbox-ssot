@@ -169,6 +169,23 @@ class AgentConfigurationView(APIView):
         CollectorAgent.objects.filter(pk=agent.pk).update(
             **agent_updates,
         )
+        if "active_source_ids" in configuration_request.model_fields_set:
+            active_source_ids = set(configuration_request.active_source_ids)
+            assigned_source_ids = set(agent.sources.values_list("pk", flat=True))
+            unknown_source_ids = active_source_ids - assigned_source_ids
+            if unknown_source_ids:
+                return Response(
+                    {
+                        "code": "invalid_active_source",
+                        "message": "Active collection status may only be reported for sources assigned to this agent.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            inactive_sources = agent.sources.exclude(pk__in=active_source_ids)
+            inactive_sources.update(active_collection_started_at=None, active_collection_seen_at=None)
+            active_sources = agent.sources.filter(pk__in=active_source_ids)
+            active_sources.filter(active_collection_started_at__isnull=True).update(active_collection_started_at=now)
+            active_sources.update(active_collection_seen_at=now)
         if capabilities_in_request and reported_capabilities != previous_capabilities:
             incompatible_sources = [
                 str(source.id) for source in assigned_sources if source_capability_issue(agent, source.provider_id)

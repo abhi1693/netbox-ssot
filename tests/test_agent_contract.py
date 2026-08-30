@@ -198,6 +198,19 @@ def test_agent_configuration_request_rejects_unknown_protocol() -> None:
         AgentConfigurationRequest(protocol_version="2.0", agent_version="0.4.0")  # type: ignore[arg-type]
 
 
+def test_agent_configuration_request_reports_active_sources() -> None:
+    source_id = uuid4()
+    request = AgentConfigurationRequest(
+        protocol_version="1.1",
+        agent_version="0.6.8-alpha.0",
+        active_source_ids=(source_id,),
+    )
+
+    restored = AgentConfigurationRequest.model_validate_json(request.model_dump_json())
+
+    assert restored.active_source_ids == (source_id,)
+
+
 @pytest.mark.parametrize("interval", [0, 1, 31])
 def test_agent_configuration_request_rejects_unsafe_control_intervals(interval: int) -> None:
     with pytest.raises(ValidationError):

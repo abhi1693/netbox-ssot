@@ -25,6 +25,7 @@ sudo -E netbox-ssot-agent enroll \
           <p class="mb-0 text-secondary">After enrollment, unset the token and start the agent using the private-key file shown on the Agents page.</p>
         </div>
       </div>
+      {% include 'netbox_ssot/_agent_enrollment_status.html' %}
       <a class="btn btn-primary" href="{% url 'plugins:netbox_ssot:agent_list' %}">Go to agents</a>
     {% else %}
       <form method="post" class="card">

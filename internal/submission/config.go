@@ -20,6 +20,7 @@ func FetchConfiguration(
 	agentVersion string,
 	controlIntervalSeconds int,
 	activeCommandIDs []string,
+	activeSourceIDs []string,
 	providers []contracts.AgentProviderCapability,
 ) (contracts.AgentConfigurationResponse, error) {
 	if err := validateOptions(options); err != nil || controlIntervalSeconds < 2 || controlIntervalSeconds > 30 {
@@ -30,6 +31,7 @@ func FetchConfiguration(
 		AgentVersion:           agentVersion,
 		ControlIntervalSeconds: controlIntervalSeconds,
 		ActiveCommandIDs:       activeCommandIDs,
+		ActiveSourceIDs:        activeSourceIDs,
 		Providers:              providers,
 	})
 	if err != nil {

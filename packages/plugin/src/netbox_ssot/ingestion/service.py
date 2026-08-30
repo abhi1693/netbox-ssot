@@ -76,6 +76,10 @@ def ingest_batch(*, agent: CollectorAgent, batch: ObservationBatch) -> Ingestion
     if existing is not None:
         if existing.payload_digest != digest or existing.agent_id != agent.pk or existing.source_id != source.pk:
             raise IngestionConflictError("Run ID is already associated with a different batch.")
+        DiscoverySource.objects.filter(pk=source.pk).update(
+            active_collection_started_at=None,
+            active_collection_seen_at=None,
+        )
         return IngestionOutcome("duplicate", str(existing.run_id), existing.observation_count, digest)
 
     run = CollectionRun.objects.create(
@@ -115,4 +119,8 @@ def ingest_batch(*, agent: CollectorAgent, batch: ObservationBatch) -> Ingestion
         batch_size=1_000,
     )
     CollectorAgent.objects.filter(pk=agent.pk).update(last_seen_at=timezone.now())
+    DiscoverySource.objects.filter(pk=source.pk).update(
+        active_collection_started_at=None,
+        active_collection_seen_at=None,
+    )
     return IngestionOutcome("accepted", str(run.run_id), run.observation_count, digest)

@@ -11,7 +11,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from .drift import DriftSummary
-from .health import SourceHealth
+from .health import SourceHealth, collection_failure_messages
 from .models import (
     ApplyRun,
     CollectionRun,
@@ -143,7 +143,10 @@ def reconciliation_row(run: CollectionRun, *, include_comparison: bool = True) -
     elif run.state != "complete":
         status = UIStatus("collection_incomplete", "Collection incomplete", "danger", "mdi-alert-outline")
         state_group = "attention"
-        detail = f"The source reported a {run.state} collection."
+        failure_messages = collection_failure_messages(run.messages)
+        detail = " ".join(item["message"] for item in failure_messages) or (
+            f"The source reported a {run.state} collection without an error message."
+        )
         action_label = "Inspect evidence"
         action_url = reverse("plugins:netbox_ssot:run_detail", kwargs={"pk": run.pk})
     elif comparison and attention_count:

@@ -91,6 +91,7 @@ type AgentConfigurationRequest struct {
 	AgentVersion           string                    `json:"agent_version"`
 	ControlIntervalSeconds int                       `json:"control_interval_seconds"`
 	ActiveCommandIDs       []string                  `json:"active_command_ids"`
+	ActiveSourceIDs        []string                  `json:"active_source_ids"`
 	Providers              []AgentProviderCapability `json:"providers"`
 }
 

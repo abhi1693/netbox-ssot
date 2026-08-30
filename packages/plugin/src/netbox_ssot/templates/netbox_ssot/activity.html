@@ -1,11 +1,35 @@
-{% extends 'netbox_ssot/base.html' %}
+{% extends 'generic/_base.html' %}
+{% load static %}
 
-{% block title %}Synchronization activity{% endblock %}
+{% block head %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'netbox_ssot/ssot.css' %}">
+{% endblock %}
+
+{% block title %}SSoT{% endblock %}
+
+{% block subtitle %}
+  <div class="text-secondary mt-1">A chronological audit trail of agent actions, collections, comparisons, reviews, applications, and security events.</div>
+{% endblock %}
+
+{% block controls %}
+  {% if perms.netbox_ssot.add_discoverysource %}
+    <div class="btn-list justify-content-end mb-2">
+      <a class="btn btn-primary" href="{% url 'plugins:netbox_ssot:provider_list' %}"><i class="mdi mdi-plus me-1" aria-hidden="true"></i>Add source</a>
+    </div>
+  {% endif %}
+{% endblock %}
+
+{% block tabs %}
+  <ul class="nav nav-tabs" role="presentation">
+    <li class="nav-item"><a class="nav-link" href="{% url 'plugins:netbox_ssot:overview' %}"><i class="mdi mdi-format-list-checks me-1" aria-hidden="true"></i>Operations</a></li>
+    <li class="nav-item"><a class="nav-link" href="{% url 'plugins:netbox_ssot:summary' %}"><i class="mdi mdi-chart-areaspline me-1" aria-hidden="true"></i>Summary</a></li>
+    <li class="nav-item"><a class="nav-link active" href="{% url 'plugins:netbox_ssot:activity' %}" aria-current="page"><i class="mdi mdi-history me-1" aria-hidden="true"></i>Activity</a></li>
+  </ul>
+{% endblock %}
 
 {% block content %}
-  {% include 'netbox_ssot/_page_header.html' with page_title='Activity' page_description='A chronological audit trail of agent actions, collections, comparisons, reviews, applications, and security events.' %}
-
-  <div class="card"><div class="card-body"><div class="ssot-timeline">
+  <div class="card mt-4"><div class="card-body"><div class="ssot-timeline">
     {% for event in events %}
       <div class="ssot-timeline-item pb-4"><div class="d-flex flex-wrap justify-content-between gap-2"><a class="fw-semibold" href="{{ event.url }}">{{ event.title }}</a><time class="small text-secondary" datetime="{{ event.occurred_at|date:'c' }}">{{ event.occurred_at }}</time></div><div class="mt-1"><span class="badge {% if event.state == 'attention' %}text-bg-warning{% elif event.state == 'complete' %}text-bg-success{% elif event.state == 'running' or event.state == 'reporting' %}text-bg-info{% else %}text-bg-secondary{% endif %}">{{ event.kind }}</span><span class="text-secondary ms-2">{{ event.detail }}</span></div></div>
     {% empty %}{% include 'netbox_ssot/_empty_state.html' with empty_icon='mdi-history' empty_title='No activity yet' empty_description='Collections, reviews, agent actions, and applications will appear here.' %}{% endfor %}

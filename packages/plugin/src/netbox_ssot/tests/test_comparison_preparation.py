@@ -214,7 +214,7 @@ class ComparisonPreparationTests(TestCase):
         )
 
         with CaptureQueriesContext(connection) as queries:
-            response = self.client.get(reverse("plugins:netbox_ssot:overview") + "?view=summary&period=30")
+            response = self.client.get(reverse("plugins:netbox_ssot:summary") + "?period=30")
 
         assert response.status_code == 200
         summary = response.context["drift_summary"]
@@ -229,6 +229,9 @@ class ComparisonPreparationTests(TestCase):
 
     def test_complete_ingest_requests_background_preparation(self) -> None:
         now = timezone.now()
+        self.source.active_collection_started_at = now
+        self.source.active_collection_seen_at = now
+        self.source.save(update_fields=("active_collection_started_at", "active_collection_seen_at"))
         datasets = selected_dataset_ids(ProviderRegistry().get("netbox").manifest, ("regions",))
         batch = ObservationBatch(
             run_id=uuid4(),
@@ -260,5 +263,8 @@ class ComparisonPreparationTests(TestCase):
 
         assert response.status_code == 201, response.data
         assert response.data["comparison_preparation"] == ComparisonPreparation.State.PENDING
+        self.source.refresh_from_db()
+        assert self.source.active_collection_started_at is None
+        assert self.source.active_collection_seen_at is None
         prepare.assert_called_once()
         assert prepare.call_args.args[0].pk == batch.run_id

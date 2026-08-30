@@ -1,11 +1,17 @@
-{% extends 'netbox_ssot/base.html' %}
+{% extends 'generic/_base.html' %}
+{% load static %}
 
-{% block title %}Agent settings{% endblock %}
+{% block head %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'netbox_ssot/ssot.css' %}">
+{% endblock %}
+
+{% block title %}{{ agent.name }}{% endblock %}
+
+{% block subtitle %}<div class="text-secondary mt-1">Agent settings and signing-key security</div>{% endblock %}
 
 {% block content %}
-  {% include 'netbox_ssot/_page_header.html' with page_title='Agent settings' page_description=agent.name %}
-
-  <form method="post" class="card mb-4">
+  <form method="post" class="card mt-4 mb-4">
     {% csrf_token %}
     <div class="card-body">
       <div class="mb-3"><label class="form-label" for="name">Name</label><input class="form-control" id="name" name="name" value="{{ agent.name }}" maxlength="100" required></div>
@@ -45,7 +51,4 @@ sudo systemctl restart netbox-ssot-agent</pre></div>
     {% for event in security_events %}<div class="list-group-item"><div class="d-flex justify-content-between"><strong>{{ event.get_kind_display }}</strong><span class="text-secondary">{{ event.occurred_at }}</span></div><div class="small text-secondary">{% if event.actor %}by {{ event.actor }} · {% endif %}{{ event.details }}</div></div>{% empty %}<div class="list-group-item text-secondary">No security activity is recorded.</div>{% endfor %}
   </div></div>
 
-  <div class="card border-warning mb-4"><div class="card-header text-warning"><strong>Replace agent identity</strong></div><div class="card-body"><p>Use this when moving the agent to another host or recovering from a lost private key. The agent ID and source assignments are preserved.</p><a class="btn btn-warning" href="{% url 'plugins:netbox_ssot:agent_replace' pk=agent.pk %}">Replace agent</a></div></div>
-
-  <div class="card border-danger"><div class="card-header text-danger"><strong>Revoke agent access</strong></div><div class="card-body"><p>Immediately revoke active and overlapping signing keys, disable this agent, and fail its in-progress actions.</p><form method="post" action="{% url 'plugins:netbox_ssot:agent_revoke_keys' pk=agent.pk %}" onsubmit="return confirm('Revoke all signing keys and disable this agent?');">{% csrf_token %}<button class="btn btn-danger" type="submit">Revoke keys and disable</button></form></div></div>
 {% endblock %}

@@ -1,0 +1,45 @@
+<div id="source-status"
+     class="alert alert-{{ health.status.color }} bg-{{ health.status.color }}-subtle d-flex flex-wrap justify-content-between align-items-center gap-3"
+     role="status"
+     aria-live="polite"
+     hx-get="{% url 'plugins:netbox_ssot:source_status' pk=source.pk %}"
+     hx-trigger="every 5s"
+     hx-swap="outerHTML">
+  <div class="d-flex align-items-start gap-2">
+    <i class="mdi {% if health.status.key == 'collecting' %}mdi-loading mdi-spin{% elif health.status.color == 'success' %}mdi-check-circle-outline{% elif health.status.color == 'danger' %}mdi-alert-circle-outline{% elif health.status.color == 'warning' %}mdi-alert-outline{% else %}mdi-information-outline{% endif %} fs-3" aria-hidden="true"></i>
+    <div>
+      <div class="fw-semibold">{{ health.status.label }}</div>
+      {% if latest_failure_messages %}
+        <ul class="list-unstyled mb-0 mt-1">
+          {% for message in latest_failure_messages %}<li><code>{{ message.code }}</code> — {{ message.message }}{% if message.retryable %} <span class="badge text-bg-warning">Retryable</span>{% endif %}</li>{% endfor %}
+        </ul>
+      {% else %}
+        <div>{{ health.status.detail }}</div>
+      {% endif %}
+      <div class="small text-secondary mt-1">
+        {% if source.assigned_agent %}
+          <a href="{% url 'plugins:netbox_ssot:agent_detail' pk=source.assigned_agent_id %}">{{ source.assigned_agent.name }}</a>
+          {% if health.status.key == 'collecting' and source.active_collection_started_at %}
+            · started {{ source.active_collection_started_at|timesince }} ago
+          {% else %}
+            · every {{ source.collection_interval_minutes }} minutes
+          {% endif %}
+        {% else %}
+          No agent assigned
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% if failed_collection_url %}
+    <a class="btn btn-outline-danger" href="{{ failed_collection_url }}">View failed collection</a>
+  {% elif not source.assigned_agent and perms.netbox_ssot.add_collectoragent %}
+    <a class="btn btn-{{ health.status.color }}" href="{% url 'plugins:netbox_ssot:agent_add' %}">
+      <i class="mdi mdi-link-variant me-1" aria-hidden="true"></i>Connect agent
+    </a>
+  {% endif %}
+</div>
+{% if include_header_badge %}
+  <span id="source-health-badge"
+        class="badge bg-{{ health.status.color }}-lt text-{{ health.status.color }}"
+        hx-swap-oob="true">{{ health.status.label }}</span>
+{% endif %}

@@ -37,6 +37,7 @@ class SourceDatasetUITests(TestCase):
         )
 
         assert response.status_code == 200
+        assert [group.title for group in response.context["dataset_groups"]] == ["Dependencies", "DCIM"]
         self.assertContains(response, f'href="{dataset_url}"')
         self.assertContains(response, "Regions")
 
@@ -54,6 +55,9 @@ class SourceDatasetUITests(TestCase):
         )
 
         assert response.status_code == 200
+        self.assertTemplateUsed(response, "generic/_base.html")
+        self.assertContains(response, 'class="nav nav-tabs"', count=1)
+        self.assertContains(response, 'class="nav-link active"', count=1)
         self.assertContains(response, "Complete Region hierarchy")
         self.assertContains(response, "Included in source")
         self.assertContains(response, "Declared Scope")

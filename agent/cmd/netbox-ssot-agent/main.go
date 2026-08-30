@@ -517,6 +517,7 @@ func runDaemon(
 	)
 	schedules := make(map[string]sourceSchedule)
 	runningSources := make(map[string]bool)
+	collectingSources := make(map[string]bool)
 	knownCommands := make(map[string]bool)
 	pendingReports := make(map[string]contracts.AgentCommandResult)
 	reportingCommands := make(map[string]bool)
@@ -568,6 +569,9 @@ func runDaemon(
 				command := queuedCommands[commandIndex]
 				queuedCommands = append(queuedCommands[:commandIndex], queuedCommands[commandIndex+1:]...)
 				runningSources[command.Assignment.SourceID] = true
+				if command.Kind == "run_now" {
+					collectingSources[command.Assignment.SourceID] = true
+				}
 				activeWorkers++
 				logger.InfoContext(ctx, "command execution started",
 					"command_id", command.CommandID,
@@ -621,6 +625,7 @@ func runDaemon(
 					reason = "configuration_changed"
 				}
 				runningSources[assignment.SourceID] = true
+				collectingSources[assignment.SourceID] = true
 				activeWorkers++
 				startedSource = true
 				logger.InfoContext(ctx, "scheduled source work dispatched",
@@ -663,13 +668,19 @@ func runDaemon(
 				activeCommandIDs = append(activeCommandIDs, commandID)
 			}
 			sort.Strings(activeCommandIDs)
+			activeSourceIDs := make([]string, 0, len(collectingSources))
+			for sourceID := range collectingSources {
+				activeSourceIDs = append(activeSourceIDs, sourceID)
+			}
+			sort.Strings(activeSourceIDs)
 			logger.DebugContext(ctx, "fetching agent configuration",
 				"active_commands", len(activeCommandIDs),
+				"active_sources", len(activeSourceIDs),
 				"active_workers", activeWorkers,
 			)
 			fetchRunner := runner
 			go func() {
-				configuration, err := fetchRunner.FetchWithActiveCommands(ctx, activeCommandIDs)
+				configuration, err := fetchRunner.FetchWithActivity(ctx, activeCommandIDs, activeSourceIDs)
 				fetchResults <- daemonFetchResult{configuration: configuration, err: err}
 			}()
 		case fetched := <-fetchResults:
@@ -768,6 +779,7 @@ func runDaemon(
 		case completed := <-sourceResults:
 			activeWorkers--
 			delete(runningSources, completed.assignment.SourceID)
+			delete(collectingSources, completed.assignment.SourceID)
 			if err := encode(stdout, completed.result); err != nil {
 				return err
 			}
@@ -790,6 +802,9 @@ func runDaemon(
 		case completed := <-commandResults:
 			activeWorkers--
 			delete(runningSources, completed.command.Assignment.SourceID)
+			if completed.command.Kind == "run_now" {
+				delete(collectingSources, completed.command.Assignment.SourceID)
+			}
 			completed.result.DurationSeconds = time.Since(completed.started).Seconds()
 			pendingReports[completed.command.CommandID] = completed.result
 			if completed.command.Kind == "run_now" {

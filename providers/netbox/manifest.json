@@ -2,7 +2,7 @@
   "provider_id": "netbox",
   "display_name": "NetBox",
   "icon_class": "mdi mdi-cube-outline",
-  "description": "Collects portable configuration and infrastructure data from a remote NetBox REST API.",
+  "description": "An infrastructure resource modeling platform for documenting and managing network infrastructure.",
   "instance_url_field": "base_url",
   "implementation_version": "0.0.1",
   "contract_version": "1.0",

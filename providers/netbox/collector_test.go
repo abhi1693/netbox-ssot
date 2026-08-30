@@ -1446,6 +1446,40 @@ func TestCollectRejectsCrossOriginPaginationAsPartial(t *testing.T) {
 	if len(batch.Messages) != 1 || batch.Messages[0].Code != "unsafe_pagination_url" {
 		t.Fatalf("messages = %+v", batch.Messages)
 	}
+	want := `Dataset "references" failed at /api/extras/tags/ (tag): page 1 returned a pagination URL outside the configured NetBox API origin.`
+	if batch.Messages[0].Message != want {
+		t.Fatalf("message = %q, want %q", batch.Messages[0].Message, want)
+	}
+}
+
+func TestCollectReportsFailingDatasetEndpointAndHTTPStatus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if isReferenceEndpoint(request.URL.Path) {
+			response.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(response).Encode(map[string]any{"next": nil, "results": []any{}})
+			return
+		}
+		if request.URL.Path == "/api/dcim/regions/" {
+			http.Error(response, "forbidden", http.StatusForbidden)
+			return
+		}
+		http.NotFound(response, request)
+	}))
+	defer server.Close()
+
+	batch := NewWithClient(server.Client()).Collect(
+		context.Background(),
+		collectionRequest(server.URL),
+		&staticSecrets{value: "source-token"},
+	)
+
+	if batch.State != "failed" || len(batch.Messages) != 1 || batch.Messages[0].Code != "http_status" {
+		t.Fatalf("batch = %+v", batch)
+	}
+	want := `Dataset "regions" failed at /api/dcim/regions/ (region): NetBox returned HTTP 403 on page 1.`
+	if batch.Messages[0].Message != want {
+		t.Fatalf("message = %q, want %q", batch.Messages[0].Message, want)
+	}
 }
 
 func TestCollectRefusesUnsupportedScopeBeforeNetworkAccess(t *testing.T) {

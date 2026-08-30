@@ -1,37 +1,38 @@
 {% extends 'netbox_ssot/base.html' %}
 
-{% block title %}Add source{% endblock %}
+{% block title %}Providers{% endblock %}
 
 {% block content %}
-  {% include 'netbox_ssot/_page_header.html' with page_title='Providers' page_description='Choose the connector that defines available datasets, configuration, collection, and synchronization capabilities.' %}
+  {% include 'netbox_ssot/_page_header.html' with page_title='Providers' page_description='Choose a provider to configure a new synchronization source.' %}
 
-  <div class="d-flex align-items-center gap-2 mb-3"><span class="badge rounded-pill text-bg-primary">1</span><strong>Choose provider</strong><span class="text-secondary">→ Configure source → Connect agent</span></div>
-
-  <div class="row row-cols-1 row-cols-lg-2 g-3">
-    {% for provider in providers %}
-      <div class="col">
-        <div class="card h-100">
-          <div class="card-body">
-            <h2 class="h4 card-title d-flex align-items-center gap-2"><i class="{{ provider.icon_class }} fs-2 text-primary" aria-hidden="true"></i>{{ provider.display_name }}</h2>
-            <p class="card-text">{{ provider.description }}</p>
-            <a class="btn btn-primary" href="{% url 'plugins:netbox_ssot:source_wizard' provider_id=provider.provider_id %}">
+  <div class="card">
+    <div class="list-group list-group-flush">
+      {% for provider in providers %}
+        <div class="list-group-item p-4 ssot-provider-card">
+          <div class="d-flex flex-column flex-md-row align-items-md-center gap-3">
+            <span class="ssot-provider-icon bg-primary-lt text-primary" aria-hidden="true">
+              <i class="{{ provider.icon_class }}"></i>
+            </span>
+            <div class="flex-grow-1">
+              <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+                <h2 class="h3 mb-0">{{ provider.display_name }}</h2>
+                <span class="badge bg-secondary-lt text-secondary">Version {{ provider.implementation_version }}</span>
+              </div>
+              <p class="text-secondary mb-0 ssot-provider-description">{{ provider.description }}</p>
+            </div>
+            <a class="btn btn-primary flex-shrink-0 align-self-start align-self-md-center" href="{% url 'plugins:netbox_ssot:source_wizard' provider_id=provider.provider_id %}">
               Configure source <i class="mdi mdi-arrow-right ms-1" aria-hidden="true"></i>
             </a>
-            <a class="btn btn-outline-secondary" href="{{ provider.documentation_url }}" rel="noopener noreferrer">
-              Learn more
-            </a>
-            <details class="small text-secondary mt-3">
-              <summary>Technical details</summary>
-              <div class="mt-2">Version {{ provider.implementation_version }} · Runs via {{ provider.execution_modes|join:", " }}</div>
-            </details>
           </div>
         </div>
-      </div>
-    {% empty %}
-      <div class="col">
-        <div class="alert alert-info">No compatible provider distributions are installed.</div>
-      </div>
-    {% endfor %}
+      {% empty %}
+        <div class="card-body text-center py-5 ssot-empty-state">
+          <i class="mdi mdi-package-variant-closed" aria-hidden="true"></i>
+          <h2 class="h4 mt-2">No providers installed</h2>
+          <p class="text-secondary mx-auto mb-0">Install a compatible provider distribution to configure a synchronization source.</p>
+        </div>
+      {% endfor %}
+    </div>
   </div>
 
   {% if provider_failures %}

@@ -1,0 +1,31 @@
+<div id="source-recent-commands"
+     {% if commands_polling %}
+       hx-get="{% url 'plugins:netbox_ssot:source_commands' pk=source.pk %}"
+       hx-trigger="every 2s"
+       hx-swap="outerHTML"
+     {% endif %}>
+  <div class="card-header border-top">
+    <h3 class="card-title">Recent commands</h3>
+    {% if commands_polling %}
+      <div class="card-actions text-secondary small" role="status">
+        <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Waiting for agent
+      </div>
+    {% endif %}
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover table-vcenter mb-0">
+      <thead><tr><th>Action</th><th>Status</th><th>Requested</th></tr></thead>
+      <tbody>
+        {% for command in recent_commands %}
+          <tr>
+            <td><span class="fw-semibold">{{ command.get_kind_display }}</span>{% if command.collection_run_url %}<span class="d-block small"><a href="{{ command.collection_run_url }}">View collection</a></span>{% elif command.result.summary %}<span class="d-block small text-secondary">{{ command.result.summary }}</span>{% endif %}</td>
+            <td><span class="badge text-bg-{% if command.state == 'succeeded' %}success{% elif command.state == 'failed' %}danger{% else %}info{% endif %}">{{ command.get_state_display }}</span></td>
+            <td class="text-nowrap">{{ command.requested_at|timesince }} ago</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="3" class="text-center text-secondary py-4">No manual commands have been requested.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>

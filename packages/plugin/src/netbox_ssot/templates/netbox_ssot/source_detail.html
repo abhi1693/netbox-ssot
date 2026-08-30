@@ -1,24 +1,150 @@
-{% extends 'netbox_ssot/base.html' %}
+{% extends 'generic/_base.html' %}
+{% load static %}
+
+{% block head %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'netbox_ssot/ssot.css' %}">
+{% endblock %}
 
 {% block title %}{{ source.name }}{% endblock %}
 
-{% block content %}
-  {% include 'netbox_ssot/_page_header.html' with page_title=source.name page_description=provider_name page_status=health.status %}
-  <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
-    <nav class="ssot-mode-tabs flex-grow-1" aria-label="Source sections"><div class="nav"><a class="nav-link{% if selected_tab == 'overview' %} active{% endif %}" href="?tab=overview">Overview</a><a class="nav-link{% if selected_tab == 'data' %} active{% endif %}" href="?tab=data">Data</a><a class="nav-link{% if selected_tab == 'history' %} active{% endif %}" href="?tab=history">History</a></div></nav>
-    {% if perms.netbox_ssot.change_discoverysource %}<a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_ssot:source_edit' pk=source.pk %}"><i class="mdi mdi-cog-outline me-1" aria-hidden="true"></i>Source settings</a>{% endif %}
+{% block subtitle %}
+  <div class="d-flex flex-wrap align-items-center gap-2 text-secondary mt-1">
+    <span><i class="{{ source_icon_class }} me-1" aria-hidden="true"></i>{{ provider_name }} provider</span>
+    <span id="source-health-badge" class="badge bg-{{ health.status.color }}-lt text-{{ health.status.color }}">{{ health.status.label }}</span>
   </div>
+{% endblock %}
 
-  {% if selected_tab == 'overview' %}
-    <div class="card ssot-status-strip mb-4" data-tone="{{ health.status.color }}"><div class="card-body d-flex flex-wrap justify-content-between align-items-start gap-3"><div><h2 class="h4 mb-1">{{ health.status.label }}</h2><p class="mb-0">{{ health.status.detail }}</p><div class="small text-secondary mt-2">{% if source.assigned_agent %}<a href="{% url 'plugins:netbox_ssot:agent_detail' pk=source.assigned_agent_id %}">{{ source.assigned_agent.name }}</a> · every {{ source.collection_interval_minutes }} minutes{% else %}No agent assigned{% endif %}</div></div>{% if not source.assigned_agent and perms.netbox_ssot.add_collectoragent %}<a class="btn btn-primary" href="{% url 'plugins:netbox_ssot:agent_add' %}">Connect agent</a>{% endif %}</div></div>
-    {% if current_reconciliation %}<div class="card mb-4"><div class="card-header"><div><h2 class="card-title mb-1">Current reconciliation</h2><div class="small text-secondary">Latest immutable collection and its progress toward NetBox.</div></div></div><div class="card-body ssot-status-strip" data-tone="{{ current_reconciliation.status.tone }}"><div class="d-flex flex-wrap justify-content-between align-items-center gap-3"><div><span class="badge text-bg-{{ current_reconciliation.status.tone }}"><i class="mdi {{ current_reconciliation.status.icon }} me-1" aria-hidden="true"></i>{{ current_reconciliation.status.label }}</span><p class="mb-1 mt-2">{{ current_reconciliation.detail }}</p><div class="small text-secondary">{{ current_reconciliation.run.observation_count }} observations · {{ current_reconciliation.run.completed_at|timesince }} ago{% if current_reconciliation.comparison %} · {{ current_reconciliation.change_count }} changes · {{ current_reconciliation.match_count }} matches{% endif %}</div></div><a class="btn btn-primary" href="{{ current_reconciliation.action_url }}">{{ current_reconciliation.action_label }} <i class="mdi mdi-arrow-right ms-1" aria-hidden="true"></i></a></div></div></div>{% endif %}
-    <div class="card mb-4"><div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2"><div><h2 class="card-title mb-1">Data scope</h2><div class="small text-secondary">Provider datasets included in every collection.</div></div><a href="?tab=data">View model mappings</a></div><div class="card-body d-flex flex-wrap gap-2">{% for dataset in dataset_definitions %}<a class="badge text-bg-secondary text-decoration-none" href="{% url 'plugins:netbox_ssot:source_dataset_detail' pk=source.pk dataset_id=dataset.id %}">{{ dataset.title }}</a>{% empty %}<span class="text-secondary">No datasets are selected.</span>{% endfor %}</div></div>
-    <div class="card mb-4" id="agent-actions"><div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2"><div><h2 class="card-title mb-1">Collection controls</h2><div class="small text-secondary">Commands are picked up independently of the collection schedule.</div></div>{% if perms.netbox_ssot.add_agentcommand %}<div class="d-flex gap-2"><form method="post" action="{% url 'plugins:netbox_ssot:source_test_connection' pk=source.pk %}">{% csrf_token %}<button class="btn btn-outline-secondary btn-sm" type="submit">Test connection</button></form><form method="post" action="{% url 'plugins:netbox_ssot:source_run_now' pk=source.pk %}">{% csrf_token %}<button class="btn btn-outline-primary btn-sm" type="submit"><i class="mdi mdi-refresh me-1" aria-hidden="true"></i>Run now</button></form></div>{% endif %}</div><div class="card-body"><dl class="row ssot-definition mb-0"><div class="col-md-4"><dt>Last successful collection</dt><dd>{{ health.last_success_at|default:'Never' }}</dd></div><div class="col-md-4"><dt>Next expected collection</dt><dd>{{ health.next_expected_at|default:'Not scheduled' }}</dd></div><div class="col-md-4"><dt>Assigned agent</dt><dd>{{ source.assigned_agent|default:'Not assigned' }}</dd></div></dl></div><div class="list-group list-group-flush">{% for command in recent_commands|slice:':5' %}<div class="list-group-item d-flex justify-content-between gap-3"><span><strong>{{ command.get_kind_display }}</strong><span class="d-block small text-secondary">{{ command.result.summary|default:command.get_state_display }}{% if command.collection_run_url %} · <a href="{{ command.collection_run_url }}">View collection</a>{% endif %}</span></span><span class="badge text-bg-{% if command.state == 'succeeded' %}success{% elif command.state == 'failed' %}danger{% else %}info{% endif %}">{{ command.get_state_display }}</span></div>{% empty %}<div class="list-group-item text-secondary">No manual commands have been requested.</div>{% endfor %}</div></div>
-  {% elif selected_tab == 'data' %}
-    <div class="card mb-4"><div class="card-header"><div><h2 class="card-title mb-1">Data ownership</h2><div class="small text-secondary">Selected remote models and the local NetBox objects they can reconcile.</div></div></div><div class="table-responsive"><table class="table table-vcenter mb-0 ssot-table-cards"><thead><tr><th>{{ provider_name }} source</th><th>NetBox destination</th><th>Dataset</th></tr></thead><tbody>{% for mapping in data_mappings %}<tr><td data-label="Source"><div class="fw-semibold">{% if mapping.source_url %}<a href="{{ mapping.source_url }}">{{ mapping.source_name }}</a>{% else %}{{ mapping.source_name }}{% endif %}</div><code class="small">{{ mapping.source_model }}</code></td><td data-label="Destination"><div class="fw-semibold">{% if mapping.destination_url %}<a href="{{ mapping.destination_url }}">{{ mapping.destination_name }}</a>{% else %}{{ mapping.destination_name }}{% endif %}</div><code class="small">{{ mapping.destination_model }}</code></td><td data-label="Dataset"><a class="badge text-bg-secondary text-decoration-none" href="{% url 'plugins:netbox_ssot:source_dataset_detail' pk=source.pk dataset_id=mapping.dataset_id %}">{{ mapping.dataset_title }}</a></td></tr>{% empty %}<tr><td colspan="3" class="text-secondary">No datasets are selected.</td></tr>{% endfor %}</tbody></table></div></div>
-  {% else %}
-    <div class="card mb-4"><div class="card-header d-flex justify-content-between align-items-center"><div><h2 class="card-title mb-1">Reconciliation history</h2><div class="small text-secondary">Collections, reviews, and applies for this source.</div></div><a href="{% url 'plugins:netbox_ssot:reconciliation_list' %}?source={{ source.pk }}&period=&workflow_state=">Open full history</a></div><div class="list-group list-group-flush ssot-action-list">{% for row in reconciliation_rows %}<div class="list-group-item ssot-status-strip" data-tone="{{ row.status.tone }}"><div class="d-flex flex-wrap justify-content-between gap-3"><div><span class="badge text-bg-{{ row.status.tone }}">{{ row.status.label }}</span><strong class="ms-2">{{ row.run.completed_at }}</strong><div class="small text-secondary mt-1">{{ row.detail }} · {{ row.run.observation_count }} observations</div></div><a class="btn btn-sm btn-outline-primary" href="{{ row.action_url }}">{{ row.action_label }}</a></div></div>{% empty %}{% include 'netbox_ssot/_empty_state.html' with empty_icon='mdi-history' empty_title='No collections yet' empty_description='Once the assigned agent reports its first collection, its full lifecycle will appear here.' %}{% endfor %}</div></div>
-    <div class="card mb-4"><div class="card-header"><h2 class="card-title">Retention</h2></div><div class="card-body"><dl class="row ssot-definition mb-0"><div class="col-md-3"><dt>Stored</dt><dd>{{ retention.total_runs }} runs · {{ retention.total_observations }} records</dd></div><div class="col-md-3"><dt>Successful policy</dt><dd>{{ source.retention_days }} days · latest {{ source.retention_successful_runs }}</dd></div><div class="col-md-3"><dt>Diagnostic policy</dt><dd>{{ source.retention_failure_days }} days</dd></div><div class="col-md-3"><dt>Protected by reviews</dt><dd>{{ retention.review_protected_runs }} runs</dd></div></dl><p class="small text-secondary mb-0">{% if retention.eligible_runs %}{{ retention.eligible_runs }} runs containing {{ retention.eligible_observations }} observations are eligible for cleanup.{% else %}Nothing is currently eligible for cleanup.{% endif %}</p></div></div>
-    <details class="card ssot-technical mb-3" id="collection-request"><summary class="card-header"><strong>Manual collection request</strong><span class="text-secondary ms-2">Troubleshooting only</span></summary><div class="card-body"><pre class="mb-0">{{ collection_request }}</pre></div></details><details class="card ssot-technical"><summary class="card-header"><strong>Technical details</strong></summary><div class="card-body"><p class="text-secondary">Source ID: <code>{{ source.id }}</code></p><pre class="mb-0">{{ safe_configuration }}</pre></div></details>
-  {% endif %}
+{% block controls %}
+  <div class="btn-list justify-content-end mb-2">
+    {% if perms.netbox_ssot.delete_discoverysource %}
+      <a class="btn btn-danger" href="{% url 'plugins:netbox_ssot:source_delete' pk=source.pk %}">
+        <i class="mdi mdi-trash-can-outline me-1" aria-hidden="true"></i>Delete
+      </a>
+    {% endif %}
+    {% if perms.netbox_ssot.change_discoverysource %}
+      <a class="btn btn-primary" href="{% url 'plugins:netbox_ssot:source_edit' pk=source.pk %}">
+        <i class="mdi mdi-pencil me-1" aria-hidden="true"></i>Edit
+      </a>
+    {% endif %}
+  </div>
+{% endblock %}
+
+{% block tabs %}
+  {% include 'netbox_ssot/_source_tabs.html' with active_tab=selected_tab %}
+{% endblock %}
+
+{% block content %}
+  <div class="tab-content mt-4">
+    {% if selected_tab == 'overview' %}
+      {% include 'netbox_ssot/_source_status.html' %}
+
+      {% if current_reconciliation %}
+        <div class="card mb-4">
+          <div class="card-header">
+            <h2 class="card-title">Current reconciliation</h2>
+          </div>
+          <div class="card-body">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+              <div>
+                <span class="badge text-bg-{{ current_reconciliation.status.tone }}"><i class="mdi {{ current_reconciliation.status.icon }} me-1" aria-hidden="true"></i>{{ current_reconciliation.status.label }}</span>
+                <p class="mb-1 mt-2">{{ current_reconciliation.detail }}</p>
+                <div class="small text-secondary">{{ current_reconciliation.run.observation_count }} observations · {{ current_reconciliation.run.completed_at|timesince }} ago{% if current_reconciliation.comparison %} · {{ current_reconciliation.change_count }} changes · {{ current_reconciliation.match_count }} matches{% endif %}</div>
+              </div>
+              <a class="btn btn-primary" href="{{ current_reconciliation.action_url }}">{{ current_reconciliation.action_label }}</a>
+            </div>
+          </div>
+        </div>
+      {% endif %}
+
+      <div class="row">
+        <div class="col-12 col-xl-7">
+          <div class="card mb-4">
+            <div class="card-header">
+              <h2 class="card-title">Data scope</h2>
+            </div>
+            <div class="table-responsive">
+              <table class="table table-hover table-vcenter mb-0">
+                <thead><tr><th>Application</th><th>Datasets</th><th class="text-end">Count</th></tr></thead>
+                <tbody>
+                  {% for group in dataset_groups %}
+                    <tr>
+                      <th scope="row" class="text-nowrap">{{ group.title }}</th>
+                      <td>
+                        {% for dataset in group.datasets %}<a href="{% url 'plugins:netbox_ssot:source_dataset_detail' pk=source.pk dataset_id=dataset.id %}">{{ dataset.title }}</a>{% if not forloop.last %}<span class="text-secondary">, </span>{% endif %}{% endfor %}
+                      </td>
+                      <td class="text-end"><span class="badge bg-secondary-lt text-secondary">{{ group.datasets|length }}</span></td>
+                    </tr>
+                  {% empty %}
+                    <tr><td colspan="3" class="text-center text-secondary py-4">No datasets are selected.</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-12 col-xl-5">
+          <div class="card mb-4" id="agent-actions">
+            <div class="card-header">
+              <h2 class="card-title">Collection</h2>
+              {% if perms.netbox_ssot.add_agentcommand and source.assigned_agent and source.enabled %}
+                <div class="card-actions btn-list">
+                  <form method="post" action="{% url 'plugins:netbox_ssot:source_test_connection' pk=source.pk %}">{% csrf_token %}<button class="btn btn-sm btn-outline-secondary" type="submit">Test connection</button></form>
+                  <form method="post" action="{% url 'plugins:netbox_ssot:source_run_now' pk=source.pk %}">{% csrf_token %}<button class="btn btn-sm btn-primary" type="submit"><i class="mdi mdi-play me-1" aria-hidden="true"></i>Run now</button></form>
+                </div>
+              {% endif %}
+            </div>
+            <table class="table table-hover attr-table mb-0">
+              <tbody>
+                <tr><th scope="row">Assigned agent</th><td>{% if source.assigned_agent %}<a href="{% url 'plugins:netbox_ssot:agent_detail' pk=source.assigned_agent_id %}">{{ source.assigned_agent }}</a>{% else %}<span class="text-secondary">Not assigned</span>{% endif %}</td></tr>
+                <tr><th scope="row">Collection interval</th><td>{{ source.collection_interval_minutes }} minutes</td></tr>
+                <tr><th scope="row">Last successful collection</th><td>{{ health.last_success_at|default:'Never' }}</td></tr>
+                <tr><th scope="row">Next expected collection</th><td>{{ health.next_expected_at|default:'Not scheduled' }}</td></tr>
+              </tbody>
+            </table>
+            {% include 'netbox_ssot/_source_commands.html' %}
+          </div>
+        </div>
+      </div>
+    {% elif selected_tab == 'data' %}
+      <div class="card mb-4">
+        <div class="card-header"><h2 class="card-title">Data ownership</h2></div>
+        <div class="table-responsive">
+          <table class="table table-hover table-vcenter mb-0">
+            <thead><tr><th>{{ provider_name }} source</th><th>NetBox destination</th><th>Dataset</th></tr></thead>
+            <tbody>
+              {% for mapping in data_mappings %}
+                <tr>
+                  <td><div class="fw-semibold">{% if mapping.source_url %}<a href="{{ mapping.source_url }}">{{ mapping.source_name }}</a>{% else %}{{ mapping.source_name }}{% endif %}</div><code class="small">{{ mapping.source_model }}</code></td>
+                  <td><div class="fw-semibold">{% if mapping.destination_url %}<a href="{{ mapping.destination_url }}">{{ mapping.destination_name }}</a>{% else %}{{ mapping.destination_name }}{% endif %}</div><code class="small">{{ mapping.destination_model }}</code></td>
+                  <td><a href="{% url 'plugins:netbox_ssot:source_dataset_detail' pk=source.pk dataset_id=mapping.dataset_id %}">{{ mapping.dataset_title }}</a></td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="3" class="text-center text-secondary py-4">No datasets are selected.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {% else %}
+      <div class="card mb-4">
+        <div class="card-header"><h2 class="card-title">Reconciliation history</h2><div class="card-actions"><a href="{% url 'plugins:netbox_ssot:reconciliation_list' %}?source={{ source.pk }}&period=&workflow_state=">Open full history</a></div></div>
+        <div class="list-group list-group-flush ssot-action-list">
+          {% for row in reconciliation_rows %}
+            <div class="list-group-item"><div class="d-flex flex-wrap justify-content-between gap-3"><div><span class="badge text-bg-{{ row.status.tone }}">{{ row.status.label }}</span><strong class="ms-2">{{ row.run.completed_at }}</strong><div class="small text-secondary mt-1">{{ row.detail }} · {{ row.run.observation_count }} observations</div></div><a class="btn btn-sm btn-outline-secondary" href="{{ row.action_url }}">{{ row.action_label }}</a></div></div>
+          {% empty %}
+            {% include 'netbox_ssot/_empty_state.html' with empty_icon='mdi-history' empty_title='No collections yet' empty_description='Once the assigned agent reports its first collection, its full lifecycle will appear here.' %}
+          {% endfor %}
+        </div>
+      </div>
+      <div class="card mb-4">
+        <div class="card-header"><h2 class="card-title">Retention</h2></div>
+        <table class="table table-hover attr-table mb-0"><tbody><tr><th scope="row">Stored</th><td>{{ retention.total_runs }} runs · {{ retention.total_observations }} records</td></tr><tr><th scope="row">Successful collections</th><td>{{ source.retention_days }} days · latest {{ source.retention_successful_runs }}</td></tr><tr><th scope="row">Failed collections</th><td>{{ source.retention_failure_days }} days</td></tr><tr><th scope="row">Protected by reviews</th><td>{{ retention.review_protected_runs }} runs</td></tr></tbody></table>
+        <div class="card-footer text-secondary">{% if retention.eligible_runs %}{{ retention.eligible_runs }} runs containing {{ retention.eligible_observations }} observations are eligible for cleanup.{% else %}Nothing is currently eligible for cleanup.{% endif %}</div>
+      </div>
+      <details class="card ssot-technical mb-3" id="collection-request"><summary class="card-header"><strong>Manual collection request</strong><span class="text-secondary ms-2">Troubleshooting only</span></summary><div class="card-body"><pre class="mb-0">{{ collection_request }}</pre></div></details>
+      <details class="card ssot-technical"><summary class="card-header"><strong>Technical details</strong></summary><div class="card-body"><p class="text-secondary">Source ID: <code>{{ source.id }}</code></p><pre class="mb-0">{{ safe_configuration }}</pre></div></details>
+    {% endif %}
+  </div>
 {% endblock %}

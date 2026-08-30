@@ -1,0 +1,22 @@
+<div
+  class="ssot-apply-confirmation h-100"
+  id="apply-job-status"
+  aria-live="polite"
+  hx-get="{% url 'plugins:netbox_ssot:apply_status' pk=comparison.pk %}"
+  hx-trigger="every 3s"
+  hx-swap="outerHTML"
+>
+  <div class="d-flex flex-wrap align-items-start justify-content-between gap-3">
+    <div class="d-flex align-items-start gap-3">
+      <span class="spinner-border spinner-border-sm text-primary mt-1" role="status"><span class="visually-hidden">Waiting</span></span>
+      <div>
+        <h3 class="h5 mb-1">
+          {% if apply_job.status == "running" %}Applying in the background{% else %}Waiting for a NetBox worker{% endif %}
+        </h3>
+        <p class="text-secondary mb-0">{{ apply_job.get_status_display }} · queued {{ apply_job.created|timesince }} ago</p>
+      </div>
+    </div>
+    {% if apply_job_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ apply_job_url }}"><i class="mdi mdi-briefcase-clock-outline me-1" aria-hidden="true"></i>View job</a>{% endif %}
+  </div>
+  <div class="border-top mt-3 pt-3 small text-secondary">You can leave this page. NetBox will notify you after the atomic transaction completes, and this panel will open the application receipt automatically if you stay.</div>
+</div>

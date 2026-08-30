@@ -1,10 +1,29 @@
-{% extends 'netbox_ssot/base.html' %}
+{% extends 'generic/_base.html' %}
+{% load static %}
 
-{% block title %}{{ dataset.title }}{% endblock %}
+{% block head %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'netbox_ssot/ssot.css' %}">
+{% endblock %}
+
+{% block title %}{{ source.name }}{% endblock %}
+
+{% block subtitle %}
+  <div class="text-secondary mt-1"><i class="{{ provider_icon_class }} me-1" aria-hidden="true"></i>{{ provider_name }} provider</div>
+{% endblock %}
+
+{% block controls %}
+  {% if perms.netbox_ssot.change_discoverysource %}
+    <div class="btn-list justify-content-end mb-2"><a class="btn btn-primary" href="{% url 'plugins:netbox_ssot:source_edit' pk=source.pk %}"><i class="mdi mdi-pencil me-1" aria-hidden="true"></i>Edit</a></div>
+  {% endif %}
+{% endblock %}
+
+{% block tabs %}
+  {% include 'netbox_ssot/_source_tabs.html' with active_tab='data' %}
+{% endblock %}
 
 {% block content %}
-  {% include 'netbox_ssot/_page_header.html' with page_title=dataset.title page_description=dataset.description %}
-  <div class="d-flex justify-content-between align-items-start mb-4"><div class="text-secondary"><a href="{% url 'plugins:netbox_ssot:source_detail' pk=source.pk %}?tab=data">{{ source.name }}</a> · {{ provider_name }}</div>
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mt-4 mb-4"><div><h2 class="mb-1">{{ dataset.title }}</h2><p class="text-secondary mb-0">{{ dataset.description }}</p></div>
     <div class="d-flex flex-wrap justify-content-end gap-2">
       {% if included %}<span class="badge text-bg-success">Included in source</span>{% else %}<span class="badge text-bg-secondary">Not included</span>{% endif %}
       {% if dataset.selectable %}<span class="badge text-bg-primary">Selectable</span>{% else %}<span class="badge text-bg-info">Supporting dataset</span>{% endif %}

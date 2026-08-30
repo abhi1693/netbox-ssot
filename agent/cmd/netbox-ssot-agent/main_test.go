@@ -468,12 +468,22 @@ func TestDaemonKeepsPollingWhileCollectionRuns(t *testing.T) {
 	const agentID = "00000000-0000-4000-8000-000000000001"
 	const sourceID = "00000000-0000-4000-8000-000000000002"
 	var fetchCount atomic.Int32
+	var activeSourceReported atomic.Bool
 	var server *httptest.Server
 	server = httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		response.Header().Set("Content-Type", "application/json")
 		if request.URL.Path != "/config/" {
 			http.NotFound(response, request)
 			return
+		}
+		var configurationRequest contracts.AgentConfigurationRequest
+		if err := json.NewDecoder(request.Body).Decode(&configurationRequest); err != nil {
+			t.Errorf("configuration request is invalid: %v", err)
+		}
+		for _, activeSourceID := range configurationRequest.ActiveSourceIDs {
+			if activeSourceID == sourceID {
+				activeSourceReported.Store(true)
+			}
 		}
 		fetchCount.Add(1)
 		json.NewEncoder(response).Encode(contracts.AgentConfigurationResponse{
@@ -518,6 +528,10 @@ func TestDaemonKeepsPollingWhileCollectionRuns(t *testing.T) {
 	if fetchCount.Load() < 3 {
 		cancel()
 		t.Fatalf("configuration polls stopped during collection; fetch count = %d", fetchCount.Load())
+	}
+	if !activeSourceReported.Load() {
+		cancel()
+		t.Fatal("scheduled collection was not reported as active")
 	}
 	cancel()
 	close(collector.release)

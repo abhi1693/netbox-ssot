@@ -26,12 +26,13 @@ type Runner struct {
 }
 
 func (r Runner) Fetch(ctx context.Context) (contracts.AgentConfigurationResponse, error) {
-	return r.FetchWithActiveCommands(ctx, nil)
+	return r.FetchWithActivity(ctx, nil, nil)
 }
 
-func (r Runner) FetchWithActiveCommands(
+func (r Runner) FetchWithActivity(
 	ctx context.Context,
 	activeCommandIDs []string,
+	activeSourceIDs []string,
 ) (contracts.AgentConfigurationResponse, error) {
 	if r.Registry == nil || r.SecretResolver == nil || r.AgentVersion == "" {
 		return contracts.AgentConfigurationResponse{}, errors.New("automatic agent is not configured")
@@ -46,6 +47,7 @@ func (r Runner) FetchWithActiveCommands(
 		r.AgentVersion,
 		int(controlInterval/time.Second),
 		activeCommandIDs,
+		activeSourceIDs,
 		r.ProviderCapabilities,
 	)
 	if err != nil {

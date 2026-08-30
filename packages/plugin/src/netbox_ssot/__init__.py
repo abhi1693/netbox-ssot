@@ -24,6 +24,7 @@ else:
             "agent_key_rotation_grace_seconds": 600,
             "maximum_batch_bytes": 67_108_864,
             "maximum_observations_per_batch": 100_000,
+            "apply_job_timeout_seconds": 86_400,
             "comparison_job_timeout_seconds": 86_400,
             "provider_entry_point_group": "netbox_ssot.providers",
             "pause_scheduled_collections_until_resolved": False,

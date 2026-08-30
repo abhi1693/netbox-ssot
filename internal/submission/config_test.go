@@ -37,6 +37,9 @@ func TestFetchConfigurationAuthenticatesAndValidatesAssignments(t *testing.T) {
 		if body.ControlIntervalSeconds != 5 {
 			t.Errorf("control interval = %d, want 5", body.ControlIntervalSeconds)
 		}
+		if len(body.ActiveSourceIDs) != 1 || body.ActiveSourceIDs[0] != "00000000-0000-4000-8000-000000000002" {
+			t.Errorf("active source IDs = %+v", body.ActiveSourceIDs)
+		}
 		if len(body.Providers) != 1 || body.Providers[0].ProviderID != "netbox" ||
 			body.Providers[0].ImplementationVersion != "0.0.2" || body.Providers[0].ContractVersion != "1.0" {
 			t.Errorf("provider capabilities = %+v", body.Providers)
@@ -71,7 +74,7 @@ func TestFetchConfigurationAuthenticatesAndValidatesAssignments(t *testing.T) {
 		PrivateKey: keyPair.PrivateKey,
 		VerifyTLS:  false,
 		Timeout:    5 * time.Second,
-	}, "0.6.0", 5, nil, []contracts.AgentProviderCapability{{
+	}, "0.6.0", 5, nil, []string{"00000000-0000-4000-8000-000000000002"}, []contracts.AgentProviderCapability{{
 		ProviderID: "netbox", ImplementationVersion: "0.0.2", ContractVersion: "1.0",
 	}})
 	if err != nil {
@@ -111,7 +114,7 @@ func TestFetchConfigurationRejectsCrossOriginIngest(t *testing.T) {
 		PrivateKey: keyPair.PrivateKey,
 		VerifyTLS:  false,
 		Timeout:    5 * time.Second,
-	}, "0.6.0", 5, nil, nil)
+	}, "0.6.0", 5, nil, nil, nil)
 	if err == nil {
 		t.Fatal("FetchConfiguration() accepted a cross-origin ingest endpoint")
 	}

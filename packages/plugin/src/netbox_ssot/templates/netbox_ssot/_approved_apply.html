@@ -22,15 +22,34 @@
         {% if final_review.reason %}<div class="mt-3"><div class="ssot-kpi-label">Review note</div><p class="mb-0 mt-1">{{ final_review.reason }}</p></div>{% endif %}
       </div>
       <div class="col-lg-7">
-        {% if readiness.ready and has_changes %}
+        {% if apply_job_active %}
+          {% include "netbox_ssot/_apply_status.html" %}
+        {% elif readiness.ready and has_changes %}
           <div class="ssot-apply-confirmation h-100">
             <div><h3 class="h5 mb-1">Atomic NetBox transaction</h3><p class="text-secondary mb-3">Immediately before writing, NetBox revalidates the complete target graph, dependencies, references, and approved plan. Any drift rejects the entire transaction.</p></div>
             {% if perms.netbox_ssot.add_applyrun %}
+              {% if apply_job_failed %}
+                <div class="alert alert-danger mb-3">
+                  <div class="d-flex align-items-start gap-2">
+                    <i class="mdi mdi-alert-circle-outline fs-4" aria-hidden="true"></i>
+                    <div>
+                      <strong>The background application did not finish.</strong>
+                      <div class="small mt-1">{{ apply_job.get_status_display }}{% if apply_job.error %}: {{ apply_job.error }}{% endif %}</div>
+                      {% if apply_job_url %}<a class="alert-link small" href="{{ apply_job_url }}">View NetBox job details</a>{% endif %}
+                    </div>
+                  </div>
+                </div>
+              {% endif %}
               <form method="post" action="{% url 'plugins:netbox_ssot:apply_add' pk=comparison.pk %}">
                 {% csrf_token %}
                 <div class="form-check mb-3">
                   <input class="form-check-input" id="confirm-apply" name="confirm" type="checkbox" value="apply" required>
                   <label class="form-check-label" for="confirm-apply">I understand this performs one atomic transaction against local NetBox.</label>
+                </div>
+                <div class="form-check form-switch mb-3">
+                  <input class="form-check-input" id="background-apply" name="background" type="checkbox" value="1" checked>
+                  <label class="form-check-label" for="background-apply">Run with a NetBox background worker</label>
+                  <div class="form-hint">Recommended for larger plans. You can leave this page and NetBox will notify you when it finishes. Uncheck to wait here instead.</div>
                 </div>
                 <button class="btn btn-primary" type="submit"><i class="mdi mdi-play me-1" aria-hidden="true"></i>Apply {{ comparison.create_count|add:comparison.update_count }} approved changes</button>
               </form>
