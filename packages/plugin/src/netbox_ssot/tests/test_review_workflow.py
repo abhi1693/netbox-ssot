@@ -15,6 +15,7 @@ from users.models import ObjectPermission
 
 from netbox_ssot.application.planning import ReferenceRequirement
 from netbox_ssot.application.service import (
+    ApplicationReadiness,
     _records_by_item,
     _reference_problem_message,
     apply_comparison,
@@ -284,6 +285,17 @@ class ReviewWorkflowTests(TestCase):
         }
         assert outcome.apply_run.items.count() == 2
 
+        self.applier.is_superuser = True
+        self.applier.save(update_fields=("is_superuser",))
+        self.client.force_login(self.applier)
+        response = self.client.get(
+            reverse("plugins:netbox_ssot:apply_detail", kwargs={"pk": outcome.apply_run.pk})
+        )
+        assert response.status_code == 200
+        self.assertContains(response, "Reconciliation workflow")
+        self.assertContains(response, "Next: Back to source")
+        self.assertContains(response, "The workflow completed successfully.")
+
     def test_reverse_direction_fails_closed_until_the_provider_can_write(self) -> None:
         ComparisonRun.objects.filter(pk=self.comparison.pk).update(
             direction=SynchronizationDirection.TARGET_TO_SOURCE
@@ -374,8 +386,112 @@ class ReviewWorkflowTests(TestCase):
 
         assert response.status_code == 200
         assert latest.call_args.kwargs["item_ids"] == tuple(item.pk for item in self.items)
-        self.assertContains(response, "Review decisions")
-        self.assertContains(response, "Approve all and finalize")
+        self.assertContains(response, "Reconciliation workflow")
+        self.assertContains(response, "Approve proposed changes")
+        self.assertContains(response, "Approve all and continue to apply")
+        self.assertContains(response, "In review")
+        self.assertNotContains(response, "In_Review")
+
+    def test_stale_review_leads_directly_to_a_fresh_comparison(self) -> None:
+        self.reviewer.is_superuser = True
+        self.reviewer.save(update_fields=("is_superuser",))
+        self.client.force_login(self.reviewer)
+        Region.objects.create(name="External change", slug=f"external-{uuid4().hex}")
+
+        response = self.client.get(
+            reverse("plugins:netbox_ssot:comparison_detail", kwargs={"pk": self.comparison.pk})
+        )
+
+        assert response.status_code == 200
+        self.assertContains(response, "Review stale")
+        self.assertContains(response, "Next: Compare again")
+        self.assertContains(response, "Create a new comparison against current local NetBox data.")
+
+    def test_rejected_review_leads_to_a_new_collection(self) -> None:
+        finalize_review(
+            self.comparison,
+            ComparisonReview.Decision.REJECTED,
+            self.reviewer,
+            reason="Correct the source first.",
+        )
+        self.reviewer.is_superuser = True
+        self.reviewer.save(update_fields=("is_superuser",))
+        self.client.force_login(self.reviewer)
+
+        response = self.client.get(
+            reverse("plugins:netbox_ssot:comparison_detail", kwargs={"pk": self.comparison.pk})
+        )
+
+        assert response.status_code == 200
+        self.assertContains(response, "Review rejected")
+        self.assertContains(response, "Next: Run a new collection")
+        self.assertContains(response, "A rejected immutable review cannot be reopened.")
+
+    def test_collection_page_has_one_contextual_next_action_and_filter_label(self) -> None:
+        self.reviewer.is_superuser = True
+        self.reviewer.save(update_fields=("is_superuser",))
+        self.client.force_login(self.reviewer)
+
+        response = self.client.get(
+            reverse("plugins:netbox_ssot:run_detail", kwargs={"pk": self.comparison.collection_run_id})
+        )
+
+        assert response.status_code == 200
+        self.assertContains(response, "Reconciliation workflow")
+        self.assertContains(response, "Next: Continue review")
+        self.assertContains(response, ">Filter</button>", html=False)
+        self.assertNotContains(response, ">Apply</button>", html=False)
+
+    def test_new_collection_leads_to_compare_without_calling_it_review_or_apply(self) -> None:
+        self.reviewer.is_superuser = True
+        self.reviewer.save(update_fields=("is_superuser",))
+        self.client.force_login(self.reviewer)
+        run = CollectionRun.objects.create(
+            run_id=uuid4(),
+            source=self.source,
+            agent=self.agent,
+            provider_id="netbox",
+            provider_version="0.0.1",
+            contract_version="1.0",
+            state="complete",
+            started_at=timezone.now(),
+            completed_at=timezone.now(),
+            datasets=["regions"],
+            scope=[],
+            messages=[],
+            completeness_token="complete",
+            payload_digest="b" * 64,
+            observation_count=0,
+        )
+
+        response = self.client.get(reverse("plugins:netbox_ssot:run_detail", kwargs={"pk": run.pk}))
+
+        assert response.status_code == 200
+        self.assertContains(response, "Next: Compare with NetBox")
+        self.assertContains(response, "This creates a read-only comparison; it does not change NetBox.")
+        self.assertNotContains(response, "Review changes")
+
+    def test_final_approval_is_not_recorded_when_apply_is_already_blocked(self) -> None:
+        self.reviewer.is_superuser = True
+        self.reviewer.save(update_fields=("is_superuser",))
+        self.client.force_login(self.reviewer)
+        url = reverse("plugins:netbox_ssot:comparison_review", kwargs={"pk": self.comparison.pk})
+        readiness = ApplicationReadiness(
+            ready=False,
+            reasons=(
+                "This comparison must be approved in a finalized review before it can be applied.",
+                "Create one required local object before applying.",
+            ),
+            current_target_digest=self.comparison.target_snapshot_digest,
+        )
+
+        with patch("netbox_ssot.views.inspect_application", return_value=readiness):
+            response = self.client.post(url, {"action": "approve_all_and_finalize"}, follow=True)
+
+        assert response.status_code == 200
+        assert not ComparisonReview.objects.filter(comparison=self.comparison).exists()
+        assert not ReviewDecision.objects.filter(comparison=self.comparison).exists()
+        self.assertContains(response, "Approval cannot be finalized while apply is blocked")
 
     def test_item_detail_fetches_only_its_latest_decision(self) -> None:
         self.reviewer.is_superuser = True
@@ -465,7 +581,8 @@ class ReviewWorkflowTests(TestCase):
         self.assertContains(response, "Why apply is unavailable")
         self.assertContains(response, "A portable identity could not be established.")
         self.assertContains(response, "?action=skipped")
-        self.assertContains(response, "apply remains blocked")
+        self.assertContains(response, "Requirements before this review can be approved")
+        self.assertNotContains(response, "Approve all and continue to apply")
 
     def test_comparison_list_marks_no_change_comparison_as_resolved(self) -> None:
         ComparisonRun.objects.create(

@@ -3,18 +3,12 @@
 {% block title %}Collection result{% endblock %}
 
 {% block content %}
-  <div class="d-flex justify-content-between align-items-start mb-3">
-    <div>
-      <h1>Collection result</h1>
-      <p class="text-secondary mb-0"><a href="{% url 'plugins:netbox_ssot:source_detail' pk=run.source_id %}">{{ run.source }}</a> · {{ provider_name }} · {{ run.completed_at }}</p>
-    </div>
-    {% if run.state == "complete" and perms.netbox_ssot.add_comparisonrun %}
-      <form method="post" action="{% url 'plugins:netbox_ssot:comparison_add' pk=run.pk %}">
-        {% csrf_token %}
-        <button class="btn btn-primary" type="submit">Review changes</button>
-      </form>
-    {% endif %}
+  <div class="mb-3">
+    <h1>Collection result</h1>
+    <p class="text-secondary mb-0"><a href="{% url 'plugins:netbox_ssot:source_detail' pk=run.source_id %}">{{ run.source }}</a> · {{ provider_name }} · {{ run.completed_at }}</p>
   </div>
+
+  {% include 'netbox_ssot/_workflow.html' %}
   {% if run.state == "complete" %}
     <div class="alert alert-success d-flex flex-wrap gap-2 mb-3">
       <strong>Collection complete.</strong>
@@ -44,7 +38,7 @@
           </select>
         </div>
         <div class="col-md-2 d-flex gap-2">
-          <button class="btn btn-primary" type="submit">Apply</button>
+          <button class="btn btn-primary" type="submit">Filter</button>
           {% if query or selected_sort != "count_desc" %}<a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_ssot:run_detail' pk=run.pk %}">Reset</a>{% endif %}
         </div>
       </form>
@@ -78,8 +72,8 @@
   {% endif %}
 
   {% if comparisons %}
-    <div class="card mb-3"><div class="card-header"><strong>Reviews</strong></div><div class="list-group list-group-flush">
-      {% for comparison in comparisons %}<a class="list-group-item list-group-item-action d-flex justify-content-between" href="{% url 'plugins:netbox_ssot:comparison_detail' pk=comparison.pk %}"><span>{{ comparison.create_count }} creates · {{ comparison.update_count }} updates · {{ comparison.conflict_count }} conflicts</span><span class="text-secondary">{{ comparison.created_at }}</span></a>{% endfor %}
+    <div class="card mb-3"><div class="card-header"><strong>Comparisons for this collection</strong></div><div class="list-group list-group-flush">
+      {% for comparison in comparisons %}<a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center gap-3" href="{% url 'plugins:netbox_ssot:comparison_detail' pk=comparison.pk %}"><span><span class="badge me-2 {% if comparison.apply_run %}text-bg-success{% elif comparison.final_review.decision == 'approved' %}text-bg-success{% elif comparison.final_review.decision == 'rejected' %}text-bg-warning{% elif comparison.conflict_count or comparison.skipped_count %}text-bg-danger{% elif not comparison.create_count and not comparison.update_count %}text-bg-success{% else %}text-bg-info{% endif %}">{% if comparison.apply_run %}Applied{% elif comparison.final_review %}{{ comparison.final_review.get_decision_display }}{% elif comparison.conflict_count or comparison.skipped_count %}Blocked{% elif not comparison.create_count and not comparison.update_count %}No changes{% else %}In review{% endif %}</span>{{ comparison.create_count }} creates · {{ comparison.update_count }} updates · {{ comparison.no_change_count }} matches</span><span class="text-secondary text-nowrap">{{ comparison.created_at }}</span></a>{% endfor %}
     </div></div>
   {% endif %}
 

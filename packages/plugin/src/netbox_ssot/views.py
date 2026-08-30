@@ -35,7 +35,11 @@ from .agent_security import (
     create_replacement_enrollment,
     revoke_agent_keys,
 )
-from .application.service import ApplicationRejectedError, apply_comparison, inspect_application
+from .application.service import (
+    ApplicationRejectedError,
+    apply_comparison,
+    inspect_application,
+)
 from .collection_policy import agent_collection_policy_issue
 from .comparison_presentation import comparison_field_rows
 from .destination import dataset_data_model_mappings, selected_data_model_mappings
@@ -66,6 +70,7 @@ from .review import (
     record_review_decision,
     review_progress,
 )
+from .workflow import APPROVAL_REQUIRED_REASON, workflow_presentation
 
 ACTIVE_COMMAND_STATES = (
     AgentCommand.State.PENDING,
@@ -74,6 +79,14 @@ ACTIVE_COMMAND_STATES = (
     AgentCommand.State.REPORTING,
 )
 
+
+def _ensure_review_can_progress_to_apply(comparison: ComparisonRun) -> None:
+    readiness = inspect_application(comparison)
+    blockers = tuple(reason for reason in readiness.reasons if reason != APPROVAL_REQUIRED_REASON)
+    if blockers:
+        raise ReviewRejectedError(
+            "Approval cannot be finalized while apply is blocked: " + " ".join(blockers)
+        )
 
 class OverviewView(LoginRequiredMixin, View):
     template_name = "netbox_ssot/overview.html"
@@ -771,6 +784,22 @@ class RunDetailView(PermissionRequiredMixin, View):
         count_rows.sort(key=sort_options[selected_sort][1])
         page = Paginator(count_rows, 50).get_page(request.GET.get("page"))
         duration_seconds = max(0.0, (run.completed_at - run.started_at).total_seconds())
+        comparisons = tuple(
+            run.comparisons.select_related(
+                "final_review",
+                "final_review__reviewed_by",
+                "apply_run",
+                "apply_run__applied_by",
+            )[:20]
+        )
+        latest_comparison = comparisons[0] if comparisons else None
+        latest_review = getattr(latest_comparison, "final_review", None) if latest_comparison else None
+        latest_application = getattr(latest_comparison, "apply_run", None) if latest_comparison else None
+        latest_progress = (
+            review_progress(latest_comparison)
+            if latest_comparison is not None and latest_review is None and latest_application is None
+            else None
+        )
         return render(
             request,
             self.template_name,
@@ -784,7 +813,16 @@ class RunDetailView(PermissionRequiredMixin, View):
                 "sort_options": tuple((value, label) for value, (label, _) in sort_options.items()),
                 "selected_sort": selected_sort,
                 "duration_seconds": duration_seconds,
-                "comparisons": run.comparisons.all()[:20],
+                "comparisons": comparisons,
+                "workflow": workflow_presentation(
+                    request,
+                    run,
+                    comparison=latest_comparison,
+                    final_review=latest_review,
+                    application=latest_application,
+                    progress=latest_progress,
+                    current_stage="run",
+                ),
             },
         )
 
@@ -895,9 +933,9 @@ class ComparisonCreateView(PermissionRequiredMixin, View):
             messages.error(request, str(exc))
             return redirect("plugins:netbox_ssot:run_detail", pk=run.pk)
         if outcome.created:
-            messages.success(request, "Review ready. No NetBox records were changed.")
+            messages.success(request, "Comparison ready. Review the proposed changes; no NetBox records were changed.")
         else:
-            messages.info(request, "This collection has already been reviewed against the current local data.")
+            messages.info(request, "Continuing the existing comparison for this collection and local snapshot.")
         return redirect("plugins:netbox_ssot:comparison_detail", pk=outcome.comparison.pk)
 
 
@@ -949,9 +987,8 @@ class ComparisonDetailView(PermissionRequiredMixin, View):
             .order_by("-count", "resource_kind", "reason")[:10]
         )
         readiness = None if application else inspect_application(comparison, request.user)
-        expected_review_reason = "This comparison must be approved in a finalized review before it can be applied."
         preapproval_blockers = (
-            tuple(reason for reason in readiness.reasons if reason != expected_review_reason)
+            tuple(reason for reason in readiness.reasons if reason != APPROVAL_REQUIRED_REASON)
             if readiness is not None and final_review is None
             else ()
         )
@@ -967,6 +1004,14 @@ class ComparisonDetailView(PermissionRequiredMixin, View):
             review_state = "in_review"
         else:
             review_state = "no_changes"
+        review_state_label = {
+            "applied": "Applied",
+            "approved": "Approved",
+            "in_review": "In review",
+            "no_changes": "No changes",
+            "rejected": "Rejected",
+            "stale": "Stale",
+        }.get(review_state, review_state.replace("_", " ").title())
         return render(
             request,
             self.template_name,
@@ -981,10 +1026,21 @@ class ComparisonDetailView(PermissionRequiredMixin, View):
                 "final_review": final_review,
                 "review_progress": progress,
                 "review_state": review_state,
+                "review_state_label": review_state_label,
                 "readiness": readiness,
                 "preapproval_blockers": preapproval_blockers,
                 "has_changes": bool(comparison.create_count or comparison.update_count),
                 "blocked_item_reasons": blocked_item_reasons,
+                "workflow": workflow_presentation(
+                    request,
+                    comparison.collection_run,
+                    comparison=comparison,
+                    final_review=final_review,
+                    application=application,
+                    readiness=readiness,
+                    progress=progress,
+                    current_stage="comparison",
+                ),
             },
         )
 
@@ -1078,12 +1134,14 @@ class ComparisonReviewActionView(PermissionRequiredMixin, View):
                 progress = approve_all_review_items(comparison, request.user)
                 messages.success(request, f"Approved {progress.approved_count} proposed changes for final review.")
             elif action == "approve_all_and_finalize":
+                _ensure_review_can_progress_to_apply(comparison)
                 approve_all_review_items(comparison, request.user)
                 finalize_review(comparison, ComparisonReview.Decision.APPROVED, request.user)
-                messages.success(request, "The comparison review was approved and finalized.")
+                messages.success(request, "Review approved. Continue to the apply step below.")
             elif action == "finalize_approval":
+                _ensure_review_can_progress_to_apply(comparison)
                 finalize_review(comparison, ComparisonReview.Decision.APPROVED, request.user)
-                messages.success(request, "The comparison review was approved and finalized.")
+                messages.success(request, "Review approved. Continue to the apply step below.")
             elif action == "reject":
                 finalize_review(
                     comparison,
@@ -1174,6 +1232,8 @@ class ApplyDetailView(PermissionRequiredMixin, View):
                 "comparison",
                 "comparison__collection_run",
                 "comparison__collection_run__source",
+                "comparison__final_review",
+                "comparison__final_review__reviewed_by",
                 "applied_by",
             ),
             pk=pk,
@@ -1187,7 +1247,19 @@ class ApplyDetailView(PermissionRequiredMixin, View):
         return render(
             request,
             self.template_name,
-            {"apply_run": apply_run, "page": page, "record_rows": record_rows},
+            {
+                "apply_run": apply_run,
+                "page": page,
+                "record_rows": record_rows,
+                "workflow": workflow_presentation(
+                    request,
+                    apply_run.comparison.collection_run,
+                    comparison=apply_run.comparison,
+                    final_review=apply_run.comparison.final_review,
+                    application=apply_run,
+                    current_stage="apply",
+                ),
+            },
         )
 
 
