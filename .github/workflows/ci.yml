@@ -70,6 +70,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r .netbox/requirements.txt
+          python -m pip install pytest
           python -m pip install -e packages/contracts -e providers/netbox -e packages/plugin
       - name: Check plugin migrations
         run: python .netbox/netbox/manage.py makemigrations netbox_ssot --check --dry-run
