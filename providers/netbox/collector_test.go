@@ -356,6 +356,19 @@ func TestIPAMRecordsPreserveTypedFieldsAndPortableRelationships(t *testing.T) {
 		t.Fatalf("IP address attributes = %#v", values)
 	}
 
+	vlanGroupAttributes := attributesFor("vlan_group", map[string]any{
+		"name": "Production", "slug": "production",
+		"vid_ranges": []any{[]any{json.Number("1"), json.Number("100")}},
+	})
+	vlanGroupValues := make(map[string]any, len(vlanGroupAttributes))
+	for _, attribute := range vlanGroupAttributes {
+		vlanGroupValues[attribute.Path] = attribute.Value
+	}
+	wantRanges := []any{map[string]any{"start": int64(1), "end": int64(100)}}
+	if !reflect.DeepEqual(vlanGroupValues["/vid_ranges"], wantRanges) {
+		t.Fatalf("VLAN group ranges = %#v, want %#v", vlanGroupValues["/vid_ranges"], wantRanges)
+	}
+
 	tests := []struct {
 		kind   string
 		record map[string]any

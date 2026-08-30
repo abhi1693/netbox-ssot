@@ -894,7 +894,8 @@ func attributesForProjection(
 	case "aggregate":
 		addFields("prefix", "date_added", "description", "comments")
 	case "vlan_group":
-		addFields("name", "slug", "vid_ranges", "description", "comments")
+		addFields("name", "slug", "description", "comments")
+		add("/vid_ranges", portableVLANRanges(record["vid_ranges"]))
 		add("/scope_type", contentTypeValue(record["scope_type"]))
 	case "vlan":
 		addFields("vid", "name", "description", "comments")
@@ -1914,6 +1915,52 @@ func decimalValue(value any) any {
 		}
 	}
 	return value
+}
+
+func portableVLANRanges(value any) any {
+	items, ok := value.([]any)
+	if !ok {
+		return value
+	}
+	ranges := make([]any, 0, len(items))
+	for _, item := range items {
+		var startValue any
+		var endValue any
+		switch typed := item.(type) {
+		case []any:
+			if len(typed) != 2 {
+				return value
+			}
+			startValue, endValue = typed[0], typed[1]
+		case map[string]any:
+			startValue, endValue = typed["start"], typed["end"]
+		default:
+			return value
+		}
+		start, startOK := integerValue(startValue)
+		end, endOK := integerValue(endValue)
+		if !startOK || !endOK || start > end {
+			return value
+		}
+		ranges = append(ranges, map[string]any{"start": start, "end": end})
+	}
+	return ranges
+}
+
+func integerValue(value any) (int64, bool) {
+	switch typed := value.(type) {
+	case json.Number:
+		parsed, err := typed.Int64()
+		return parsed, err == nil
+	case int:
+		return int64(typed), true
+	case int64:
+		return typed, true
+	case int32:
+		return int64(typed), true
+	default:
+		return 0, false
+	}
 }
 
 func stringValues(value any) []string {

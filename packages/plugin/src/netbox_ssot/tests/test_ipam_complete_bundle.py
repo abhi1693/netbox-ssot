@@ -205,10 +205,15 @@ class IPAMCompleteBundleTests(TestCase):
         assert next(record for record in canonical if record.resource_kind == "asn").relationships["role"]
 
         expected = {(record.resource_kind, record.identity_key): record.payload for record in canonical}
-        application_records = [
-            ApplicationRecord(record.resource_kind, record.identity_key, record.attributes, record.relationships)
-            for record in canonical
-        ]
+        application_records = []
+        for record in canonical:
+            attributes = record.attributes
+            if record.resource_kind == "vlan_group":
+                assert attributes["/vid_ranges"] == [{"start": 1, "end": 4094}]
+                attributes = {**attributes, "/vid_ranges": [[1, 4094]]}
+            application_records.append(
+                ApplicationRecord(record.resource_kind, record.identity_key, attributes, record.relationships)
+            )
 
         for obj in reversed(objects):
             obj.delete()

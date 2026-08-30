@@ -10,12 +10,13 @@ from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 from users.models import Group, ObjectPermission, Owner, OwnerGroup
 
-from netbox_ssot.application.planning import ApplicationRecord, dependency_order
+from netbox_ssot.application.planning import ApplicationRecord
 from netbox_ssot.application.service import (
     _resolve_external_references,
-    _write_deferred_relationships,
+    _sync_items,
     _write_object,
 )
+from netbox_ssot.models import ComparisonItem
 from netbox_ssot.planning.netbox_target import MODEL_BY_KIND, load_netbox_target_records
 from netbox_ssot.planning.users import USERS_RESOURCE_KINDS
 
@@ -51,6 +52,7 @@ class UsersCompleteBundleTests(TestCase):
         )
         user.groups.add(group)
         user.object_permissions.add(permission)
+        standalone_user = get_user_model().objects.create_user(username=f"a-standalone-{suffix}")
         owner_group = OwnerGroup.objects.create(name=f"Infrastructure {suffix}", description="Managed owners")
         owner = Owner.objects.create(
             name=f"Network automation {suffix}",
@@ -64,6 +66,7 @@ class UsersCompleteBundleTests(TestCase):
             ("object_permission", str(permission.pk)),
             ("user_group", str(group.pk)),
             ("user", str(user.pk)),
+            ("user", str(standalone_user.pk)),
             ("owner_group", str(owner_group.pk)),
             ("owner", str(owner.pk)),
         }
@@ -74,7 +77,11 @@ class UsersCompleteBundleTests(TestCase):
         ]
 
         assert {record.resource_kind for record in canonical} == USERS_RESOURCE_KINDS
-        user_record = next(record for record in canonical if record.resource_kind == "user")
+        user_record = next(
+            record
+            for record in canonical
+            if record.resource_kind == "user" and record.target_object_id == str(user.pk)
+        )
         assert set(user_record.attributes) == {"/username", "/first_name", "/last_name", "/email", "/is_active"}
         assert user_record.relationships == {
             "group": [next(record.identity_key for record in canonical if record.resource_kind == "user_group")],
@@ -96,28 +103,41 @@ class UsersCompleteBundleTests(TestCase):
         }
 
         expected = {(record.resource_kind, record.identity_key): record.payload for record in canonical}
-        records = [
-            ApplicationRecord(record.resource_kind, record.identity_key, record.attributes, record.relationships)
-            for record in canonical
+        records = {
+            sequence: ApplicationRecord(
+                record.resource_kind,
+                record.identity_key,
+                record.attributes,
+                record.relationships,
+                record.display_name,
+            )
+            for sequence, record in enumerate(canonical, start=1)
+        }
+        items = [
+            ComparisonItem(
+                pk=sequence,
+                sequence=sequence,
+                action=ComparisonItem.Action.CREATE,
+                resource_kind=record.resource_kind,
+                identity_key=record.identity_key,
+                display_name=record.display_name,
+                source_external_id=record.external_id,
+                source_data=record.payload,
+            )
+            for sequence, record in enumerate(canonical, start=1)
         ]
 
         owner.delete()
         owner_group.delete()
         user.delete()
+        standalone_user.delete()
         group.delete()
         permission.delete()
 
         target_records = load_netbox_target_records()
-        target_by_key = {(record.resource_kind, record.identity_key): record for record in target_records}
-        references, problems = _resolve_external_references(records)
+        references, problems = _resolve_external_references(list(records.values()))
         assert problems == ()
-        object_cache: dict[tuple[str, str], object] = {}
-        ordered = dependency_order(records)
-        for record in ordered:
-            obj = MODEL_BY_KIND[record.resource_kind]()
-            _write_object(obj, record, target_by_key, object_cache, references)
-            object_cache[record.key] = obj
-        _write_deferred_relationships(ordered, target_by_key, object_cache)
+        _sync_items(items, records, target_records, references)
 
         recreated = {
             (record.resource_kind, record.identity_key): record.payload
@@ -132,8 +152,12 @@ class UsersCompleteBundleTests(TestCase):
         recreated_user.set_password("destination-only-password")
         recreated_user.is_superuser = True
         recreated_user.save()
-        user_application = next(record for record in records if record.resource_kind == "user")
-        _write_object(recreated_user, user_application, target_by_key, object_cache, references)
+        user_application = next(
+            record for record in records.values() if record.identity_key == user_record.identity_key
+        )
+        target_records = load_netbox_target_records()
+        target_by_key = {(record.resource_kind, record.identity_key): record for record in target_records}
+        _write_object(recreated_user, user_application, target_by_key, {}, references)
         recreated_user.refresh_from_db()
         assert recreated_user.check_password("destination-only-password")
         assert recreated_user.is_superuser

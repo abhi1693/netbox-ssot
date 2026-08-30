@@ -32,6 +32,7 @@ from ..planning.comparison import (
 )
 from ..planning.core import PORTABLE_DATA_SOURCE_PARAMETER_KEYS, portable_data_source_parameters
 from ..planning.extras import CONFIG_CONTEXT_MULTI_RELATIONSHIPS, CONTENT_TYPE_LIST_KINDS
+from ..planning.ipam import normalize_vlan_ranges
 from ..planning.netbox_target import MODEL_BY_KIND, load_netbox_target_records
 from ..planning.resource_registry import (
     ATTRIBUTE_FIELDS,
@@ -436,6 +437,7 @@ class _NetBoxMutationBackend:
         self,
         items: list[ComparisonItem],
         target_records: list[CanonicalRecord],
+        desired_records: list[CanonicalRecord],
         references: dict[ReferenceRequirement, Any],
     ) -> None:
         self.items_by_key = {
@@ -444,21 +446,32 @@ class _NetBoxMutationBackend:
             if item.action in {ComparisonItem.Action.CREATE, ComparisonItem.Action.UPDATE}
         }
         self.target_by_key = {(record.resource_kind, record.identity_key): record for record in target_records}
+        self.desired_by_key = {(record.resource_kind, record.identity_key): record for record in desired_records}
         self.references = references
         self.object_cache: dict[tuple[str, str], Any] = {}
         self.mutable_records: list[ApplicationRecord] = []
+        self.materializing: set[tuple[str, str]] = set()
 
     def create(self, canonical: CanonicalRecord) -> None:
         record = _application_record(canonical)
+        if record.key in self.object_cache:
+            return
         if record.key in self.target_by_key:
             raise ApplicationPlanError(f"Target identity {record.identity_key} appeared after comparison.")
-        obj = MODEL_BY_KIND[record.resource_kind]()
-        _write_object(obj, record, self.target_by_key, self.object_cache, self.references)
-        self.object_cache[record.key] = obj
-        self.mutable_records.append(record)
+        self._begin_materializing(record)
+        try:
+            self._materialize_dependencies(record)
+            obj = MODEL_BY_KIND[record.resource_kind]()
+            _write_object(obj, record, self.target_by_key, self.object_cache, self.references)
+            self.object_cache[record.key] = obj
+            self.mutable_records.append(record)
+        finally:
+            self.materializing.remove(record.key)
 
     def update(self, canonical: CanonicalRecord) -> None:
         record = _application_record(canonical)
+        if record.key in self.object_cache:
+            return
         item = self.items_by_key.get(record.key)
         target_record = self.target_by_key.get(record.key)
         if item is None or target_record is None:
@@ -468,10 +481,15 @@ class _NetBoxMutationBackend:
             or item.target_object_id != target_record.target_object_id
         ):
             raise ApplicationPlanError(f"Update target {record.identity_key} no longer matches the reviewed object.")
-        obj = _load_target_object(target_record)
-        _write_object(obj, record, self.target_by_key, self.object_cache, self.references)
-        self.object_cache[record.key] = obj
-        self.mutable_records.append(record)
+        self._begin_materializing(record)
+        try:
+            self._materialize_dependencies(record)
+            obj = _load_target_object(target_record)
+            _write_object(obj, record, self.target_by_key, self.object_cache, self.references)
+            self.object_cache[record.key] = obj
+            self.mutable_records.append(record)
+        finally:
+            self.materializing.remove(record.key)
 
     def delete(self, resource_kind: str, identity_key: str) -> None:
         raise ApplicationPlanError(
@@ -484,6 +502,24 @@ class _NetBoxMutationBackend:
             self.target_by_key,
             self.object_cache,
         )
+
+    def _begin_materializing(self, record: ApplicationRecord) -> None:
+        if record.key in self.materializing:
+            raise ApplicationPlanError(
+                f"The application dependency graph contains a cycle at {record.resource_kind}:{record.display_name}."
+            )
+        self.materializing.add(record.key)
+
+    def _materialize_dependencies(self, record: ApplicationRecord) -> None:
+        for key in relationship_dependencies(record, include_deferred=False):
+            item = self.items_by_key.get(key)
+            desired = self.desired_by_key.get(key)
+            if item is None or desired is None or key in self.object_cache:
+                continue
+            if item.action == ComparisonItem.Action.CREATE:
+                self.create(desired)
+            elif item.action == ComparisonItem.Action.UPDATE:
+                self.update(desired)
 
     def objects_by_item(
         self,
@@ -520,7 +556,7 @@ def _sync_items(
         record.key: _canonical_record(record, _item_for_key(items, record.key)) for record in ordered_records
     }
     ordered_canonical = [canonical_by_key[record.key] for record in ordered_records]
-    backend = _NetBoxMutationBackend(items, target_records, references)
+    backend = _NetBoxMutationBackend(items, target_records, ordered_canonical, references)
     source_adapter, target_adapter = build_adapter_pair(
         ordered_canonical,
         target_records,
@@ -891,12 +927,11 @@ def _write_declared_fields(obj: Any, resource_kind: str, attributes: dict[str, A
         if path in attributes:
             value = attributes[path]
             if resource_kind == "vlan_group" and field_name == "vid_ranges":
-                if not isinstance(value, list) or not all(
-                    isinstance(item, dict) and isinstance(item.get("start"), int) and isinstance(item.get("end"), int)
-                    for item in value
-                ):
-                    raise ApplicationPlanError("VLAN group /vid_ranges must contain integer start/end objects.")
-                value = [NumericRange(item["start"], item["end"] + 1, bounds="[)") for item in value]
+                try:
+                    ranges = normalize_vlan_ranges(value)
+                except ValueError as exc:
+                    raise ApplicationPlanError(str(exc)) from exc
+                value = [NumericRange(item["start"], item["end"] + 1, bounds="[)") for item in ranges]
             setattr(obj, field_name, value)
             continue
         field = obj._meta.get_field(field_name)

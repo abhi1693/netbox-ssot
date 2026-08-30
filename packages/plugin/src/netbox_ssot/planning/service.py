@@ -19,6 +19,7 @@ from .comparison import (
     normalize_value,
     snapshot_digest,
 )
+from .ipam import normalize_vlan_ranges
 from .netbox_target import load_netbox_target_records
 from .resource_registry import is_identity_relationship
 
@@ -337,6 +338,8 @@ def _display_name(attributes: dict[str, Any], fallback: str) -> str:
 
 def _normalize_attribute(path: str, value: Any) -> Any:
     normalized = normalize_value(value)
+    if path == "/vid_ranges":
+        return normalize_vlan_ranges(normalized)
     if path in {"/object_types", "/tags"} and isinstance(normalized, list):
         return sorted(normalized, key=str)
     return normalized

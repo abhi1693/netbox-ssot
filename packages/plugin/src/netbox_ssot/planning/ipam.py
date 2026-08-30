@@ -1,6 +1,30 @@
 from __future__ import annotations
 
-from typing import Final
+from typing import Any, Final
+
+
+def normalize_vlan_ranges(value: Any) -> list[dict[str, int]]:
+    """Return the portable VLAN range representation accepted by the engine."""
+
+    if not isinstance(value, list):
+        raise ValueError("VLAN group /vid_ranges must be a list of integer ranges.")
+
+    normalized: list[dict[str, int]] = []
+    for item in value:
+        if isinstance(item, dict):
+            start = item.get("start")
+            end = item.get("end")
+        elif isinstance(item, (list, tuple)) and len(item) == 2:
+            start, end = item
+        else:
+            raise ValueError("VLAN group /vid_ranges entries must be [start, end] pairs or start/end objects.")
+        if type(start) is not int or type(end) is not int:
+            raise ValueError("VLAN group /vid_ranges boundaries must be integers.")
+        if start > end:
+            raise ValueError("VLAN group /vid_ranges start must not exceed end.")
+        normalized.append({"start": start, "end": end})
+    return normalized
+
 
 IPAM_RESOURCE_KINDS: Final = frozenset(
     {

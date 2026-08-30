@@ -16,6 +16,7 @@ from netbox_ssot.planning.comparison import (
     normalize_relationship_cardinality,
 )
 from netbox_ssot.planning.core import portable_data_source_parameters
+from netbox_ssot.planning.ipam import normalize_vlan_ranges
 from netbox_ssot_contracts import (
     ChangeAction,
     ChangeProposal,
@@ -36,6 +37,19 @@ class SpyAdapter:
         self.target = target
         self.flags = flags
         return self.result
+
+
+def test_vlan_ranges_normalize_netbox_pairs_and_legacy_objects() -> None:
+    assert normalize_vlan_ranges([[1, 100], {"start": 200, "end": 300}]) == [
+        {"start": 1, "end": 100},
+        {"start": 200, "end": 300},
+    ]
+
+    with pytest.raises(ValueError, match="boundaries must be integers"):
+        normalize_vlan_ranges([[1, "100"]])
+
+    with pytest.raises(ValueError, match="start must not exceed end"):
+        normalize_vlan_ranges([[100, 1]])
 
 
 def test_diffsync_gateway_is_comparison_only_and_skips_destination_only_records() -> None:
