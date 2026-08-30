@@ -318,7 +318,7 @@ class AgentSecurityTests(TestCase):
         )
 
         assert overlap_response.status_code == 200
-        assert "schedule_enabled" not in overlap_response.json()["assignments"][0]
+        assert overlap_response.json()["assignments"][0]["schedule_enabled"] is True
         agent.refresh_from_db()
         assert agent.provider_capabilities == [capability.model_dump(mode="json") for capability in NETBOX_CAPABILITIES]
         revoke_agent_keys(agent=agent, actor=self.user)
@@ -336,7 +336,7 @@ class AgentSecurityTests(TestCase):
         agent, _ = enroll_agent(
             token=created.token,
             public_key=encoded_public_key,
-            agent_version="0.6.8-alpha.0",
+            agent_version="0.0.1",
             protocol_version="1.1",
             providers=NETBOX_CAPABILITIES,
         )
@@ -345,7 +345,7 @@ class AgentSecurityTests(TestCase):
         def heartbeat(*, active_source_ids: list[str] | None) -> object:
             payload: dict[str, object] = {
                 "protocol_version": "1.1",
-                "agent_version": "0.6.8-alpha.0",
+                "agent_version": "0.0.1",
                 "control_interval_seconds": 5,
                 "active_command_ids": [],
             }
@@ -386,7 +386,7 @@ class AgentSecurityTests(TestCase):
         agent, _ = enroll_agent(
             token=created.token,
             public_key=encoded_public_key,
-            agent_version="0.6.8-alpha.0",
+            agent_version="0.0.1",
             protocol_version="1.1",
             providers=NETBOX_CAPABILITIES,
         )
@@ -399,7 +399,7 @@ class AgentSecurityTests(TestCase):
         body = json.dumps(
             {
                 "protocol_version": "1.1",
-                "agent_version": "0.6.8-alpha.0",
+                "agent_version": "0.0.1",
                 "control_interval_seconds": 5,
                 "active_command_ids": [],
                 "active_source_ids": [str(other_source.pk)],
@@ -426,7 +426,7 @@ class AgentSecurityTests(TestCase):
         agent, _ = enroll_agent(
             token=created.token,
             public_key=encoded_public_key,
-            agent_version="0.6.8-alpha.0",
+            agent_version="0.0.1",
             protocol_version="1.1",
             providers=NETBOX_CAPABILITIES,
         )
@@ -457,7 +457,7 @@ class AgentSecurityTests(TestCase):
         body = json.dumps(
             {
                 "protocol_version": "1.1",
-                "agent_version": "0.6.8-alpha.0",
+                "agent_version": "0.0.1",
                 "control_interval_seconds": 5,
                 "active_command_ids": [],
                 "providers": [capability.model_dump(mode="json") for capability in NETBOX_CAPABILITIES],

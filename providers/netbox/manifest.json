@@ -15,7 +15,7 @@
   ],
   "agent_compatibility": {
     "protocol_version": "1.0",
-    "minimum_agent_version": "0.1.0-alpha.0",
+    "minimum_agent_version": "0.0.1",
     "collector_id": "netbox"
   },
   "config_schema": {

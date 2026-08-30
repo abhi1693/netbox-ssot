@@ -74,7 +74,7 @@ known-first-party = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"**/migrations/*.py" = ["RUF012"]
+"**/migrations/*.py" = ["E501", "I001", "RUF012"]
 
 [tool.mypy]
 python_version = "3.12"

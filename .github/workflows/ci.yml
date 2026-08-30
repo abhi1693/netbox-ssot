@@ -11,24 +11,19 @@ permissions:
 
 jobs:
   python:
-    runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version:
           - "3.12"
           - "3.13"
           - "3.14"
-
-    steps:
-      - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-          python-version: ${{ matrix.python-version }}
-      - run: uv sync --all-packages --locked
-      - run: uv run ruff check .
-      - run: uv run mypy
-      - run: uv run pytest tests --cov
+    uses: abhi1693/actions/.github/workflows/python-uv-tests.yml@3f57777054410f3f0e59b58ba7e16dc51288c5fd
+    with:
+      python-version: ${{ matrix.python-version }}
+      sync-command: uv sync --all-packages --locked
+      lint-command: uv run ruff check . && uv run mypy
+      test-command: uv run pytest tests --cov
 
   netbox-plugin:
     runs-on: ubuntu-latest
@@ -60,8 +55,8 @@ jobs:
           - 6379:6379
 
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           repository: netbox-community/netbox
           ref: v4.6.9
@@ -84,8 +79,8 @@ jobs:
   go:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.26.x"
           cache-dependency-path: go.mod

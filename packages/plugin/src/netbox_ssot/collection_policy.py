@@ -6,7 +6,7 @@ from netbox.plugins import get_plugin_config
 
 from .models import ApplyRun, CollectorAgent, ComparisonReview, DiscoverySource
 
-MINIMUM_PAUSE_AGENT_VERSION = (0, 6, 8)
+MINIMUM_PAUSE_AGENT_VERSION = (0, 0, 1)
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,7 +24,7 @@ def agent_collection_policy_issue(agent: CollectorAgent) -> str:
         agent.agent_version,
         MINIMUM_PAUSE_AGENT_VERSION,
     ):
-        return f"{agent.name} must be upgraded to agent 0.6.8 or newer for collection review backpressure."
+        return f"{agent.name} must be upgraded to agent 0.0.1 or newer for collection review backpressure."
     return ""
 
 

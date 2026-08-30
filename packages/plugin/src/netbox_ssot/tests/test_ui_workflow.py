@@ -340,7 +340,7 @@ class NativeListUITests(TestCase):
 
     def test_failed_collection_banner_displays_recorded_errors(self) -> None:
         self.agent.last_seen_at = timezone.now()
-        self.agent.agent_version = "0.6.8-alpha.0"
+        self.agent.agent_version = "0.0.1"
         self.agent.provider_capabilities = [
             {
                 "provider_id": "netbox",
@@ -400,7 +400,7 @@ class NativeListUITests(TestCase):
     def test_source_status_polls_and_displays_live_collection_activity(self) -> None:
         now = timezone.now()
         self.agent.last_seen_at = now
-        self.agent.agent_version = "0.6.8-alpha.0"
+        self.agent.agent_version = "0.0.1"
         self.agent.provider_capabilities = [
             {
                 "provider_id": "netbox",

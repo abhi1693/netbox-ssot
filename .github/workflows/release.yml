@@ -1,0 +1,221 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  python:
+    permissions:
+      contents: read
+    uses: abhi1693/actions/.github/workflows/python-uv-tests.yml@3f57777054410f3f0e59b58ba7e16dc51288c5fd
+    with:
+      python-version: "3.12"
+      sync-command: uv sync --all-packages --locked
+      lint-command: uv run ruff check . && uv run mypy
+      test-command: uv run pytest tests --cov
+
+  go:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.x"
+          cache-dependency-path: go.mod
+      - name: Validate release tag
+        run: |
+          if [[ ! "${GITHUB_REF_NAME}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Release tags must use semantic versioning with a leading v." >&2
+            exit 1
+          fi
+      - run: test -z "$(gofmt -l agent internal providers/netbox)"
+      - run: go test ./...
+      - run: go vet ./...
+
+  build-agent:
+    needs:
+      - python
+      - go
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-amd64
+            goos: linux
+            goarch: amd64
+            arch-label: amd64
+            goarm: ""
+            format: tar.gz
+          - name: linux-arm64
+            goos: linux
+            goarch: arm64
+            arch-label: arm64
+            goarm: ""
+            format: tar.gz
+          - name: linux-armv7
+            goos: linux
+            goarch: arm
+            arch-label: armv7
+            goarm: "7"
+            format: tar.gz
+          - name: darwin-amd64
+            goos: darwin
+            goarch: amd64
+            arch-label: amd64
+            goarm: ""
+            format: tar.gz
+          - name: darwin-arm64
+            goos: darwin
+            goarch: arm64
+            arch-label: arm64
+            goarm: ""
+            format: tar.gz
+          - name: windows-amd64
+            goos: windows
+            goarch: amd64
+            arch-label: amd64
+            goarm: ""
+            format: zip
+          - name: windows-arm64
+            goos: windows
+            goarch: arm64
+            arch-label: arm64
+            goarm: ""
+            format: zip
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.x"
+          cache-dependency-path: go.mod
+      - name: Build ${{ matrix.name }}
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+        run: |
+          release_version="${GITHUB_REF_NAME#v}"
+          archive_name="netbox-ssot-agent_${release_version}_${GOOS}_${{ matrix.arch-label }}"
+          package_dir="dist/${archive_name}"
+          binary_name="netbox-ssot-agent"
+          if [ "${GOOS}" = "windows" ]; then
+            binary_name="${binary_name}.exe"
+          fi
+
+          mkdir -p "${package_dir}"
+          go build \
+            -trimpath \
+            -ldflags="-s -w -X main.version=${release_version}" \
+            -o "${package_dir}/${binary_name}" \
+            ./agent/cmd/netbox-ssot-agent
+
+          if [ "${{ matrix.format }}" = "zip" ]; then
+            (cd "${package_dir}" && zip -q "../${archive_name}.zip" "${binary_name}")
+          else
+            tar -C "${package_dir}" -czf "dist/${archive_name}.tar.gz" "${binary_name}"
+          fi
+          rm -r "${package_dir}"
+      - name: Verify embedded release version
+        if: matrix.name == 'linux-amd64'
+        run: |
+          release_version="${GITHUB_REF_NAME#v}"
+          archive_name="netbox-ssot-agent_${release_version}_linux_amd64"
+          mkdir -p dist/version-check
+          tar -C dist/version-check -xzf "dist/${archive_name}.tar.gz"
+          test "$(dist/version-check/netbox-ssot-agent version)" = "${release_version}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: agent-${{ matrix.name }}
+          path: dist/netbox-ssot-agent_*.${{ matrix.format }}
+          if-no-files-found: error
+          retention-days: 1
+
+  build-python:
+    needs:
+      - python
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - name: Verify Python release versions
+        run: |
+          release_version="${GITHUB_REF_NAME#v}"
+          for package_name in netbox-ssot-contracts netbox-ssot-provider-netbox netbox-ssot; do
+            test "$(uv version --package "${package_name}" --short)" = "${release_version}"
+          done
+      - name: Build Python distributions
+        run: uv build --all-packages --out-dir dist --clear
+      - name: Validate Python distributions
+        run: uv run --with twine twine check --strict dist/*
+      - uses: actions/upload-artifact@v7
+        with:
+          name: python-distributions
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs:
+      - build-agent
+      - build-python
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: agent-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          name: python-distributions
+          path: dist
+      - name: Create checksums
+        run: |
+          cd dist
+          sha256sum -- * > checksums.txt
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release upload \
+              "${GITHUB_REF_NAME}" \
+              dist/* \
+              --clobber \
+              --repo "${GITHUB_REPOSITORY}"
+          else
+            release_flags=()
+            if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
+              release_flags+=(--prerelease)
+            fi
+            gh release create \
+              "${GITHUB_REF_NAME}" \
+              dist/* \
+              --generate-notes \
+              --title "${GITHUB_REF_NAME}" \
+              --verify-tag \
+              --repo "${GITHUB_REPOSITORY}" \
+              "${release_flags[@]}"
+          fi

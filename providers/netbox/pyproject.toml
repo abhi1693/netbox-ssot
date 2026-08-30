@@ -4,11 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "netbox-ssot-provider-netbox"
-version = "0.1.0a0"
+version = "0.0.1"
 description = "NetBox provider descriptor for NetBox SSoT"
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-  "netbox-ssot-contracts==0.1.0a0",
+  "netbox-ssot-contracts==0.0.1",
 ]
 
 [project.entry-points."netbox_ssot.providers"]

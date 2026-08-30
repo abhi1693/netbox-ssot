@@ -33,7 +33,7 @@ class CollectionPolicyTests(TestCase):
         self.agent = CollectorAgent.objects.create(
             name=f"policy-agent-{uuid4()}",
             public_key="A" * 43,
-            agent_version="0.6.8-alpha.0",
+            agent_version="0.0.1",
         )
         self.source = DiscoverySource.objects.create(
             name=f"policy-source-{uuid4()}",
@@ -136,6 +136,6 @@ class CollectionPolicyTests(TestCase):
 
     @override_settings(PLUGINS_CONFIG=PAUSE_CONFIG)
     def test_enabled_policy_requires_current_agent(self) -> None:
-        self.agent.agent_version = "0.6.7-alpha.0"
+        self.agent.agent_version = "0.0.0"
 
-        assert "0.6.8" in agent_collection_policy_issue(self.agent)
+        assert "0.0.1" in agent_collection_policy_issue(self.agent)

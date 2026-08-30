@@ -555,7 +555,7 @@ wheels = [
 
 [[package]]
 name = "netbox-ssot"
-version = "0.1.0a0"
+version = "0.0.1"
 source = { editable = "packages/plugin" }
 dependencies = [
     { name = "cryptography" },
@@ -572,7 +572,7 @@ requires-dist = [
 
 [[package]]
 name = "netbox-ssot-contracts"
-version = "0.1.0a0"
+version = "0.0.1"
 source = { editable = "packages/contracts" }
 dependencies = [
     { name = "jsonschema", extra = ["format"] },
@@ -587,7 +587,7 @@ requires-dist = [
 
 [[package]]
 name = "netbox-ssot-provider-netbox"
-version = "0.1.0a0"
+version = "0.0.1"
 source = { editable = "providers/netbox" }
 dependencies = [
     { name = "netbox-ssot-contracts" },

@@ -1,6 +1,6 @@
 from typing import ClassVar
 
-__version__ = "0.1.0a0"
+__version__ = "0.0.1"
 
 try:
     from netbox.plugins import PluginConfig

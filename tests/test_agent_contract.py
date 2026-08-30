@@ -202,7 +202,7 @@ def test_agent_configuration_request_reports_active_sources() -> None:
     source_id = uuid4()
     request = AgentConfigurationRequest(
         protocol_version="1.1",
-        agent_version="0.6.8-alpha.0",
+        agent_version="0.0.1",
         active_source_ids=(source_id,),
     )
 

@@ -24,7 +24,7 @@ import (
 	netboxprovider "github.com/abhi1693/netbox-ssot/providers/netbox"
 )
 
-const version = "0.6.8-alpha.0"
+var version = "0.0.1"
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

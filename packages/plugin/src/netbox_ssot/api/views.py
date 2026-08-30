@@ -411,15 +411,15 @@ def _agent_assignment(source: DiscoverySource) -> AgentAssignment:
 
 
 def _supports_server_managed_interval(agent_version: str) -> bool:
-    return _agent_version_at_least(agent_version, (0, 6, 0))
+    return _agent_version_at_least(agent_version, (0, 0, 1))
 
 
 def _supports_command_progress(agent_version: str) -> bool:
-    return _agent_version_at_least(agent_version, (0, 6, 2))
+    return _agent_version_at_least(agent_version, (0, 0, 1))
 
 
 def _supports_collection_pause(agent_version: str) -> bool:
-    return _agent_version_at_least(agent_version, (0, 6, 8))
+    return _agent_version_at_least(agent_version, (0, 0, 1))
 
 
 def _serialized_assignment(assignment: AgentAssignment, *, include_schedule_policy: bool) -> dict[str, object]:

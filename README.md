@@ -1,349 +1,96 @@
 # NetBox SSoT
 
-NetBox SSoT is a provider-driven discovery and reconciliation system for NetBox. It separates remote collection, immutable observations, change planning, human review, and mutation so that discovering a network never implies changing it.
+[![CI](https://github.com/abhi1693/netbox-ssot/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/abhi1693/netbox-ssot/actions/workflows/ci.yml)
+[![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Go 1.26](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 
-The project is being rebuilt from first principles. The current alpha foundation contains:
+NetBox SSoT helps teams bring infrastructure data from another NetBox installation into their local NetBox through a
+clear, reviewed workflow.
 
-- a NetBox-independent contracts package for providers, observations, and plans;
-- an entry-point provider registry with no database-configured Python import paths;
-- a NetBox plugin with schema-driven sources, one-time agent enrollment, signing-key rotation, immutable observation storage, durable
-  comparison previews, guarded local application, receipts, source-object bindings, and agent health visibility;
-- a real NetBox provider descriptor and Go-based read-only collector;
-- end-to-end comparison and guarded apply support for 119 portable public writable NetBox 4.6 models across Core,
-  Extras, Users, Tenancy, IPAM, DCIM, Circuits, Virtualization, VPN, and Wireless;
-- timestamped Ed25519 batch signing with idempotent plugin ingestion; and
-- architecture decisions that make review, provenance, field ownership, and safe apply mandatory.
+It collects remote data, shows how the two systems differ, and lets an authorized operator decide exactly what should
+change. Collection and comparison are always read-only. NetBox changes only after an explicit review and apply.
 
-No provider or customer-edge agent can mutate NetBox or any discovered system. Local NetBox writes exist only behind
-the plugin's separately permissioned, human-confirmed apply service.
+> [!IMPORTANT]
+> NetBox SSoT is early-stage software. Version 0.0.1 is intended for evaluation and carefully supervised deployments
+> while the project matures.
 
-## Architecture
+## What it provides
+
+- **A clear view of drift** — See how closely each source matches local NetBox and which records need attention.
+- **Scheduled collection** — Keep source data current automatically, or request an immediate run when needed.
+- **Guided review** — Inspect creates, updates, matches, conflicts, and skipped records before anything changes.
+- **Controlled apply** — Approve or reject changes, then apply an approved plan as one transaction.
+- **Operational visibility** — Follow agent health, collection progress, background work, failures, and recent activity
+  from the NetBox UI.
+- **An audit trail** — Retain collections, decisions, approvals, applications, and outcomes for later review.
+
+## How it works
 
 ```mermaid
 flowchart LR
-    P[Provider manifest] --> C[Go collector]
-    C --> O[Immutable observations]
-    O --> R[Reconciliation planner]
-    T[Target snapshot] --> R
-    R --> D[Durable change plan]
-    D --> H[Human review]
-    H --> A[Safe apply service]
-    A --> N[Local NetBox]
+    A[Connect a source] --> B[Collect data]
+    B --> C[Compare with NetBox]
+    C --> D[Review differences]
+    D --> E[Apply approved changes]
 ```
 
-See [the architecture overview](docs/architecture/overview.md) and the decisions in [`docs/adr`](docs/adr).
+1. **Connect a source** — Choose a provider, select the data to manage, and assign a collector agent.
+2. **Collect data** — The agent reads the remote system on a schedule and sends an immutable snapshot to NetBox.
+3. **Compare** — NetBox prepares a drift assessment against its current local records.
+4. **Review** — Operators inspect proposed changes and resolve anything that cannot be matched safely.
+5. **Apply** — An authorized operator applies the approved plan after NetBox validates it again.
 
-## Development
+## Built for safe reconciliation
 
-Python 3.12 and [uv](https://docs.astral.sh/uv/) are required.
+NetBox SSoT keeps discovery separate from mutation:
 
-```shell
-uv sync --all-packages
-uv run ruff check .
-uv run mypy
-uv run pytest tests --cov
-```
+- Collector agents cannot modify either NetBox installation.
+- Remote credentials stay on the agent host and are not stored by the plugin.
+- Missing or ambiguous identities are shown for review instead of being guessed.
+- Incomplete collections cannot be used to infer deletion.
+- Destination-only records are left alone, and hard deletion is not supported.
+- Every apply is revalidated and committed atomically.
+- Review and apply permissions can be assigned to different people.
 
-The NetBox-independent suite above is complemented by the database-backed plugin suite in CI. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for the equivalent NetBox, PostgreSQL, and Redis-backed local commands.
+## NetBox provider
 
-The repository is a uv workspace:
+The included provider connects one NetBox installation to another. It covers portable infrastructure and configuration
+data across Core, Extras, Users, Tenancy, IPAM, DCIM, Circuits, Virtualization, VPN, and Wireless.
 
-- `packages/contracts` contains stable, NetBox-independent public contracts.
-- `packages/plugin` contains the NetBox plugin and UI integration.
-- `providers/netbox` contains the shared NetBox manifest, Python control-plane descriptor, and Go collector.
-- `agent` builds the single customer-edge binary.
-- future production providers will live below `providers/`.
-- all customer-edge collection runs in the Go agent; Python is confined to the NetBox control plane.
+The current write direction is **source NetBox to local NetBox**. Additional providers and bidirectional
+synchronization are planned, but reverse writes are not enabled today.
 
-## Compatibility target
+See the [NetBox provider documentation](providers/netbox/README.md) for its dataset boundary and implementation details.
 
-The first supported NetBox line is 4.6. Provider contracts are independently versioned so provider releases do not need to share the plugin release cadence.
+## Start using NetBox SSoT
 
-## Automatic agent workflow
+An administrator first installs the [NetBox plugin](packages/plugin/README.md) and deploys a
+[collector agent](agent/README.md). After that, the guided setup happens in NetBox:
 
-The plugin UI is organized around **Overview**, **Sources**, **Reconciliations**, and **Activity**. Overview opens an
-operator queue by default and also provides a visual Summary of current alignment and recent drift. Provider-specific
-dataset names and configuration fields come from the installed provider manifest; the shared workflow does not
-hard-code NetBox model names.
+1. Open **SSoT → Providers** and choose **NetBox**.
+2. Configure the source and select the datasets to manage.
+3. Connect a collector agent using the enrollment command shown by NetBox.
+4. Test the connection or request a collection.
+5. Open the resulting reconciliation to compare, review, and apply.
 
-Build the static customer-edge agent:
+The source page updates automatically while commands and collections are running.
 
-```shell
-CGO_ENABLED=0 go build -trimpath -o dist/netbox-ssot-agent ./agent/cmd/netbox-ssot-agent
-```
+## Day-to-day use
 
-Create a source in **Synchronization > Sources**, choose its execution agent, and set the collection interval. NetBox stores
-provider configuration and opaque secret references. The provider credentials and the agent private key remain only on
-the agent host.
+The plugin organizes work around four areas:
 
-Open **Synchronization > Agents > Connect agent**, optionally select initial source assignments, and create a 15-minute,
-single-use enrollment token. An agent enrolled without sources remains available as a standby. On the agent host, run
-the generated command. The agent creates its Ed25519 private key as a new mode-`0600` file and submits only the public
-key plus the provider implementations compiled into that binary:
+- **Overview** shows estate alignment, recent drift, and sources that need attention.
+- **Sources** manages remote systems, data scope, collection schedules, and collection history.
+- **Reconciliations** brings collection, comparison, review, and apply into one workflow.
+- **Activity** records administrative actions, agent events, and synchronization outcomes.
 
-```shell
-export NETBOX_SSOT_ENROLLMENT_TOKEN='<one-time token shown by NetBox>'
-sudo install -d -m 0700 /etc/netbox-ssot-agent
-sudo -E ./dist/netbox-ssot-agent enroll \
-  --endpoint https://netbox.example.com/api/plugins/ssot/agent/enroll/ \
-  --token-ref env://NETBOX_SSOT_ENROLLMENT_TOKEN \
-  --private-key-path /etc/netbox-ssot-agent/signing-key
-unset NETBOX_SSOT_ENROLLMENT_TOKEN
+## Documentation
 
-export NETBOX_TOKEN='<raw NetBox token>'
-export NETBOX_SSOT_LOG_LEVEL='info'
-./dist/netbox-ssot-agent run \
-  --endpoint https://netbox.example.com/api/plugins/ssot/agent/config/ \
-  --agent-id '<enrolled agent UUID>' \
-  --private-key-ref file:///etc/netbox-ssot-agent/signing-key
-```
-
-NetBox stores only a SHA-256 digest of the enrollment token and never stores the private key. The raw token is shown
-once. Reuse, expiry, and revoked enrollment attempts return the same generic failure.
-
-The agent authenticates each configuration request with Ed25519, fetches only its assigned sources, immediately picks
-up source revisions, runs each source on its configured interval, and submits the resulting batch through the signed
-ingest API. Retryable failures are scheduled again after one minute. The ingest endpoint must have the same origin as
-the control endpoint.
-
-Every configuration poll is also a heartbeat. **Synchronization > Agents** shows the reported agent and protocol versions and
-classifies the connection as online, stale, or offline. Source pages combine that heartbeat with the latest collection
-and configured interval to show the last success, next expected collection, and actionable health state. Operators with
-the `netbox_ssot.add_agentcommand` permission can request **Test connection** or **Run now** from a source. These are
-provider-independent commands: NetBox queues them for the assigned agent, the agent executes them with its local
-credentials, and it signs the result back to NetBox. Command state and summaries appear on the source and in Activity.
-Only one active command of each kind may exist per source. Reassigning or disabling a source cancels outstanding work.
-The control poll is independent of every source collection interval. It defaults to five seconds and can be changed
-from **Synchronization > Agents > Settings** within a supported range of two to thirty seconds. `--poll-interval` supplies the
-bootstrap value until the first successful check-in; the agent then adopts the NetBox-managed value without a restart.
-The agent reports its effective interval so the UI can show desired-versus-reported state, the actual worst-case pickup
-delay, and heartbeat health against that cadence.
-
-Collection results provide a provider-neutral observation explorer. Model summaries use provider manifest names,
-support search, sorting, and pagination, and drill into paginated collected records. Record pages show canonical
-attributes, relationships, evidence, scope, safe source-system links, and unresolved relationship targets without
-mixing collection inspection with destination comparison or mutation.
-
-Each source also owns an explicit retention policy. By default, successful collections are retained for up to 30 days
-and 10,000 runs, while partial and failed collections are retained for 30 days. The newest collection, newest
-successful collection, and every collection referenced by a review or application are protected. Preview maintenance
-without deleting data:
-
-```shell
-python manage.py prune_ssot_collections
-python manage.py prune_ssot_collections --source '<source UUID or exact name>'
-```
-
-After reviewing the exact run and observation counts, add `--apply` to perform transactional cleanup. Cleanup is never
-triggered by a page view, agent poll, or collection request.
-
-Protocol 1.1 adds this command channel. The plugin continues to answer protocol 1.0 agents with the legacy assignment
-response, but UI actions require a current protocol 1.1 agent. Command result delivery is retried without repeating the
-operation while the agent process remains running, and **Run now** uses its command UUID as the batch run ID so ingest
-idempotency also protects redelivery across restarts.
-
-Agent `0.6.8` advertises its compiled provider implementation and contract versions during enrollment and every
-check-in. NetBox permits assignment only when the agent supports the installed provider version; incompatible existing
-assignments are withheld and surfaced as unhealthy until they are reassigned or the binary is upgraded. Agent `0.6.8`
-also keeps the control poll responsive while provider work runs in a bounded pool of four workers. Only one
-job may run for a source at a time, and queued administrator commands take precedence over scheduled collections when
-a worker becomes available. Commands progress through Pending, Dispatched, Running, Reporting, and a terminal state;
-the UI records their start time and duration. Active command IDs renew a five-minute server lease on every control
-poll. If an agent disappears, expired work is made available again, while an already accepted **Run now** batch is
-reconciled to success instead of executing the provider operation twice.
-
-Structured logs are written to stderr, while command and synchronization results remain JSON on stdout. The log level
-can be set to `debug`, `info`, `warn`, or `error` with `--log-level` or `NETBOX_SSOT_LOG_LEVEL`; `info` is the default.
-Use `debug` to inspect configuration polling, queue depth, worker occupancy, command dispatch and progress, collection
-counts, revision-triggered runs, result delivery, recovery, and scheduling decisions.
-
-At `info`, the agent records initial configuration and every subsequent agent/source configuration change, including
-safe source identity, provider, dataset IDs, revision, and collection/control intervals. Removed assignments are also
-recorded. Provider configuration values and secret references are deliberately excluded from logs.
-
-Failed control-plane check-ins use capped exponential backoff starting at the configured control interval. The delay
-doubles after every consecutive failure until it reaches five minutes, then remains at five minutes. A successful
-check-in resets the delay immediately to the normal administrator-configured interval. Failure and recovery logs
-include the consecutive failure count and next retry delay without exposing signed payloads or credentials.
-
-Scheduled collection backpressure is opt-in and disabled by default. Enable it in the NetBox configuration when a
-source should stop producing snapshots while its latest complete collection is awaiting review:
-
-```python
-PLUGINS_CONFIG = {
-    "netbox_ssot": {
-        "pause_scheduled_collections_until_resolved": True,
-    },
-}
-```
-
-With this enabled, agent `0.6.8` keeps the assignment and administrator command channel active but pauses its local
-schedule. A no-change comparison, finalized rejection, or successful application resumes collection. A finalized
-approval remains paused while it waits for apply. **Run now** remains an explicit way to refresh and supersede the
-pending snapshot; the new complete snapshot then becomes the one awaiting resolution.
-
-For a Linux service, install the binary at `/usr/local/bin/netbox-ssot-agent`, copy
-`agent/deploy/systemd/netbox-ssot-agent.service` to `/etc/systemd/system/`, and create
-`/etc/netbox-ssot-agent/agent.env` from the provided example with mode `0600`. The service uses systemd credentials to
-expose the private-key file read-only to its dynamic user. The endpoint and agent ID may be supplied through
-`NETBOX_SSOT_CONTROL_ENDPOINT` and `NETBOX_SSOT_AGENT_ID`, so the service needs no customer-specific command line.
-
-Use `config` to inspect assigned configuration or `sync` to run every assignment once. Manual provider commands remain
-available for troubleshooting:
-
-```shell
-./dist/netbox-ssot-agent config --endpoint '<control endpoint>' --agent-id '<agent UUID>'
-./dist/netbox-ssot-agent sync --endpoint '<control endpoint>' --agent-id '<agent UUID>'
-./dist/netbox-ssot-agent test-connection --request netbox-connection.json
-./dist/netbox-ssot-agent collect --request netbox-collection.json
-```
-
-Rotate a file-backed key from **Synchronization > Agents > Settings** using the displayed `sudo` command; enrollment creates
-the mode-`0600` key as root, so rotation must run as that key owner. NetBox accepts the old key for ten minutes, records
-both key fingerprints and the audit event, and then retires it. Restart the running agent service during that overlap
-so it reloads the replaced key (and refreshes the systemd credential snapshot). Emergency
-revocation immediately disables the agent, revokes every active/overlapping key, and fails its outstanding commands.
-For a lost key or host replacement, **Replace agent** creates a separate one-time enrollment. The old identity remains
-valid until that enrollment succeeds, then NetBox atomically revokes its keys while preserving the agent UUID and all
-source assignments. Sources can be moved between compatible agents from their edit page; assignment, replacement, and
-capability changes are recorded in Activity.
-The provider token and signing private key never enter a batch or the plugin database. Identical submissions are
-idempotent, and reusing a run ID with different content is rejected.
-
-## Comparison and apply workflow
-
-Open an accepted collection and select **Review changes**. The plugin projects the immutable source
-observations and a consistent local target snapshot into typed DiffSync adapters generated from the provider's
-declarative resource registry. It stores the resulting creates, updates, exact matches, conflicts, and skips as an
-immutable comparison preview. Destination-only objects are excluded and preview never mutates either system.
-
-Matching uses exact, kind-specific natural identities. Missing identities and ambiguous source or target identities are
-shown as skips or conflicts rather than guessed. Repeating a comparison against the same target snapshot and engine
-version returns the existing preview.
-
-Operators with the `netbox_ssot.add_comparisonreview` permission can approve or reject each proposed create or update.
-Changing a decision appends another audit event; it never edits the prior decision. Final approval requires every
-actionable record to be approved and no conflicts or skips. A rejection requires a reason and finalizes the whole
-comparison. V1 deliberately does not turn rejected records into a partial apply.
-
-Finalization stores an immutable review with the reviewer, outcome, counts, reason, and a digest over the comparison,
-all comparison items, and the latest decision for every item. An operator with the separate plugin apply permission and
-the necessary NetBox model permissions can explicitly apply only a finalized approval. Apply rechecks the review
-digest, complete collection evidence, source digest, item counts, comparison engine, and current target snapshot. It
-recalculates the same typed diff, proves that its actions still match the reviewed plan, and passes that exact diff to
-`source.sync_to(target)`. The target adapter's CRUD hooks commit the complete dependency graph in one database
-transaction. Every successful operation creates immutable apply/item receipts and updates durable source-object
-bindings. Repeating the same apply is idempotent. Destination-only objects are never changed, and there is no deletion
-path.
-
-Comparison and apply records store their synchronization direction. The local NetBox adapter currently advertises
-atomic write capability, so source-to-target execution is enabled. Target-to-source uses the same adapter contract but
-fails closed until the selected provider supplies an authenticated remote mutation backend.
-
-The NetBox provider exposes dependency-closed datasets for 119 portable public writable models across Core, Extras,
-Users, Tenancy, IPAM, DCIM, Circuits, Virtualization, VPN, and Wireless. Extras adds custom fields and choice sets,
-links, export and configuration templates, shared views, configuration contexts, webhooks, notification groups, and
-event rules.
-Internal aggregate/helper rows such as cable terminations and port mappings travel with their owning DCIM object rather
-than as independent resources. Config Templates are first-class dependencies used by DCIM objects. References outside
-these owned graphs fail closed; Rack Reservations depend on first-class Users and can create them in the same plan.
-
-Deployments that require four-eyes approval can prevent the final reviewer from also applying the comparison:
-
-```python
-PLUGINS_CONFIG = {
-    "netbox_ssot": {
-        "require_separate_reviewer_and_applier": True,
-    },
-}
-```
-
-### Current NetBox compatibility scope
-
-The NetBox provider presents dependency-closed datasets spanning Core Data Sources, portable Extras configuration,
-users and access control, contacts, IP registries, routing, VLANs, prefixes, addresses, FHRP, services, geography,
-catalogs, component templates, racks, devices, installed components, inventory, power, physical and virtual circuits,
-virtualization, VPN, wireless networks, circuit groups, and cabling. Supporting resources are included automatically so
-the Go collector emits complete, stable references rather than lossy embedded names.
-
-Each dataset also declares its provider-native source model and canonical destination kind. The source detail UI joins
-that declaration with the installed destination model registry and presents an explicit source-to-destination mapping;
-the shared UI never assumes that both systems use the same model names.
-
-- Tags include name, slug, color, weight, description, and object-type restrictions. Slugs provide stable references
-  for API surfaces such as Config Context qualifiers.
-- Owner Groups and Owners are part of the Users dataset and include portable identity, description, grouping, and
-  user/group membership bridges. Infrastructure dependencies therefore cannot silently omit ownership principals.
-- Users includes ordinary account identity/profile/active state, Groups, Object Permissions, group membership, and
-  direct permission membership. New target users receive unusable passwords. Passwords, superuser state, API Tokens,
-  login activity, built-in Django permissions, and private UserConfig preferences are never collected or applied.
-- Core includes portable Data Source identity, backend type, URL, scheduling, ignore rules, descriptive fields, Owner,
-  and the Git branch parameter. Destination credentials and unknown backend parameters are preserved locally. URLs
-  containing user information, query strings, or fragments fail collection before their contents can enter evidence.
-  Generated Data Files, synchronization status/timestamps, Jobs, Object Changes, Object Types, Config Revisions,
-  Auto-Sync records, and background queue/worker/task state are runtime or local metadata and are never copied.
-- Extras includes Custom Field Choice Sets, Custom Fields, Custom Links, Export Templates, Saved Filters, Table
-  Configurations, Config Context Profiles, Config Contexts, Config Templates, Webhooks, Notification Groups, and Event
-  Rules. Object types, supported DCIM/tenancy/virtualization context qualifiers, ownership, tags where the API exposes stable Tag
-  references, users/groups, and supported webhook/notification actions are explicit graph edges. Synced templates and
-  contexts are materialized inline at the destination; source Data File bindings and sync state are not copied.
-- Webhook secrets, additional headers, and CA file paths remain destination-local and are excluded even from evidence
-  digests. Script actions fail closed. Event Rule action data/comments are not exposed by NetBox's API and remain local.
-  Config Context tag qualifiers use Tag slugs, and supported virtualization qualifiers are typed graph edges.
-- Tenant Groups, Tenants, and Site Groups include full hierarchy, native fields, Owner, and Tags.
-- IPAM includes RIRs, Roles, ASNs and ranges, Route Targets, VRFs, Aggregates, VLAN groups/VLANs and translation rules,
-  Prefixes, IP Ranges and Addresses, FHRP groups and assignments, and service templates/services. ASN Roles are
-  first-class dependencies. Supported DCIM scopes and physical Interface assignments are typed graph edges.
-- FHRP authentication keys remain destination-local and are excluded from evidence digests. Physical and virtual
-  interface assignments and physical/virtual service parents are typed graph edges.
-- Regions, Sites, and Locations include native scalar fields, complete hierarchy, ownership, tenancy, groups, ASNs,
-  and Tags.
-- Device catalog includes Manufacturers, hierarchical Device Roles and Platforms, and Device Types with native core
-  fields, ownership, Tags, manufacturer placement, default-platform relationships, and first-class Config Template
-  relationships.
-- Racks includes Rack Groups, Rack Roles, Rack Types, Racks, and reservations with native physical fields, ownership,
-  tenancy, type, role, Site/Location placement, and Tags.
-- DCIM includes module profiles and types, every public component-template model, Devices and installed components,
-  inventory items and MAC addresses, power panels and feeds, cable bundles, and cables. Helper rows such as port
-  mappings and cable terminations remain part of their owning aggregate. Device clusters and bays, physical Interface
-  VLAN/VRF/wireless membership, and primary IP/MAC selectors are dependency-safe relationships.
-- Custom-field values are carried by all 89 supported models whose REST serializers expose them. Primitive values
-  remain attributes; object and multi-object values become typed relationships so source database primary keys are
-  never applied locally. NetBox 4.6 does not expose those values for Config Context Profiles, VLAN Translation Policies
-  or Rules, or Circuit Group Assignments, so those four fields remain destination-local.
-- Tenancy includes the contact directory and typed assignments to every supported contact-capable target.
-- Virtualization includes cluster organization, VM types and machines, interfaces, disks, assignments, and primary
-  IP/MAC selectors. VPN includes IKE/IPsec policy, tunnels, and L2VPNs. Wireless includes LAN groups, LANs, links, and
-  Interface membership. Credential fields in these apps remain destination-local.
-- Circuits includes Providers, Provider Accounts and Networks, physical and virtual Circuit Types, Circuit Groups,
-  Circuits and their terminations, Virtual Circuits and their Interface terminations, and assignments of either circuit
-  kind to a group. Circuit terminations support Region, Site Group, Site, Location, and Provider Network targets.
-- Cables support Circuit Terminations as first-class endpoints. Cabling depends on the physical Circuits dataset so a
-  reviewed apply cannot create a partial cross-app path.
-
-Image attachments, journal/history rows, generated notifications, subscriptions, bookmarks, dashboard and other
-private UI state, scripts and script modules, unsupported generic targets, wireless cable endpoints, authentication
-secrets, and unknown Data Source backend parameters remain outside this compatibility boundary. They
-are personal, generated, binary, executable, credential-bearing, or owned by a future app graph.
-
-## Safety defaults
-
-- Sources are discovery-only unless a separately reviewed apply capability is enabled.
-- Preview uses DiffSync without mutation; apply passes the revalidated reviewed diff to typed adapter CRUD hooks.
-- Adapter write, delete, and atomicity capabilities are explicit; unsupported synchronization directions fail closed.
-- Destination-only records are skipped by default.
-- Hard deletion is disabled.
-- Secrets are represented by opaque references and are never stored in observations or plans.
-- Fuzzy matches are suggestions, never automatic identity decisions.
-- Incomplete collection cannot establish absence.
-- Complete batches retain their resolved dataset IDs alongside the completeness token.
-- Agent private keys stay customer-side; the plugin stores only Ed25519 public keys and key fingerprints.
-- Enrollment tokens are random, single-use, expire after 15 minutes, and are persisted only as SHA-256 digests.
-- Key rotation has a bounded overlap for safe process restart; revocation is immediate and auditable.
-- Signed ingest rejects stale timestamps, tampered bodies, disabled agents, and sources outside an agent's assignment.
-- A plan must be revalidated against the current target immediately before apply.
-- Apply requires explicit confirmation plus plugin and model permissions, uses one transaction, and records receipts.
-- Apply requires an immutable finalized approval; optional four-eyes policy separates the reviewer and applier.
-- Required referenced records must be present in the dependency-closed plan or target; missing or ambiguous
-  dependencies block the operation.
+- [Plugin installation and administration](packages/plugin/README.md)
+- [Collector agent deployment](agent/README.md)
+- [Provider implementations](providers/README.md)
+- [Shared Python contracts](packages/contracts/README.md)
+- [Go runtime internals](internal/README.md)
+- [Architecture overview](docs/architecture/overview.md)
+- [Architecture decisions](docs/adr)
+- [Contributing guide](CONTRIBUTING.md)
