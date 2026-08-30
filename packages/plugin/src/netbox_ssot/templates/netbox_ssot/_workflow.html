@@ -1,46 +1,7 @@
-<div class="card mb-4">
-  <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-    <div>
-      <strong>Reconciliation workflow</strong>
-      <span class="text-secondary ms-2">Collect → Compare → Review → Apply</span>
-    </div>
-    {% if workflow.action %}
-      <span class="small text-secondary">Next: {{ workflow.action.label }}</span>
-    {% endif %}
-  </div>
-  <div class="card-body">
-    <div class="row g-3">
-      {% for step in workflow.steps %}
-        <div class="col-12 col-md-6 col-xl-3">
-          <div class="border rounded h-100 p-3 {% if step.state == 'current' %}border-primary bg-primary-lt{% elif step.state == 'blocked' %}border-danger bg-danger-lt{% elif step.state == 'complete' %}border-success{% endif %}">
-            <div class="d-flex align-items-center gap-2 mb-2">
-              <span class="badge rounded-pill {% if step.state == 'complete' %}text-bg-success{% elif step.state == 'current' %}text-bg-primary{% elif step.state == 'blocked' %}text-bg-danger{% else %}text-bg-secondary{% endif %}">
-                {% if step.state == 'complete' %}<i class="mdi mdi-check" aria-hidden="true"></i>{% else %}{{ step.number }}{% endif %}
-              </span>
-              <strong>{% if step.url %}<a class="text-reset" href="{{ step.url }}">{{ step.label }}</a>{% else %}{{ step.label }}{% endif %}</strong>
-              <span class="badge ms-auto {% if step.state == 'complete' %}text-bg-success{% elif step.state == 'current' %}text-bg-primary{% elif step.state == 'blocked' %}text-bg-danger{% else %}text-bg-secondary{% endif %}">{{ step.state|title }}</span>
-            </div>
-            <div class="small text-secondary">{{ step.detail }}</div>
-          </div>
-        </div>
-      {% endfor %}
-    </div>
-  </div>
-  {% if workflow.action %}
-    <div class="card-footer d-flex flex-wrap justify-content-between align-items-center gap-3">
-      <span class="text-secondary">{{ workflow.action.detail }}</span>
-      {% if workflow.action.show_control and workflow.action.allowed %}
-        {% if workflow.action.method == 'post' %}
-          <form method="post" action="{{ workflow.action.url }}">
-            {% csrf_token %}
-            <button class="btn btn-primary" type="submit">{{ workflow.action.label }} <i class="mdi mdi-arrow-right ms-1" aria-hidden="true"></i></button>
-          </form>
-        {% else %}
-          <a class="btn btn-primary" href="{{ workflow.action.url }}">{{ workflow.action.label }} <i class="mdi mdi-arrow-right ms-1" aria-hidden="true"></i></a>
-        {% endif %}
-      {% elif workflow.action.show_control %}
-        <span class="small text-secondary">You do not have permission for this action.</span>
-      {% endif %}
-    </div>
-  {% endif %}
-</div>
+<section class="card mb-4" aria-labelledby="workflow-title">
+  <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2"><div><h2 class="card-title mb-1" id="workflow-title">Reconciliation workflow</h2><div class="small text-secondary">Collection evidence remains separate from comparison, approval, and mutation.</div></div>{% if workflow.action %}<span class="badge bg-primary-lt">Next: {{ workflow.action.label }}</span>{% endif %}</div>
+  <div class="card-body"><div class="row g-3 ssot-workflow-compact">
+    {% for step in workflow.steps %}<div class="col-6 col-xl-3"><div class="ssot-step {% if step.state == 'complete' %}is-complete{% elif step.state == 'current' %}is-current{% elif step.state == 'blocked' %}is-attention{% endif %}"><div class="d-flex align-items-center gap-2"><span class="badge rounded-pill {% if step.state == 'complete' %}text-bg-success{% elif step.state == 'current' %}text-bg-primary{% elif step.state == 'blocked' %}text-bg-danger{% else %}text-bg-secondary{% endif %}">{% if step.state == 'complete' %}<i class="mdi mdi-check" aria-hidden="true"></i>{% else %}{{ step.number }}{% endif %}</span><strong>{% if step.url %}<a class="text-reset" href="{{ step.url }}">{{ step.label }}</a>{% else %}{{ step.label }}{% endif %}</strong></div><div class="small text-secondary mt-2">{{ step.detail }}</div></div></div>{% endfor %}
+  </div></div>
+  {% if workflow.action %}<div class="card-footer d-flex flex-wrap justify-content-between align-items-center gap-3"><span class="text-secondary">{{ workflow.action.detail }}</span>{% if workflow.action.show_control and workflow.action.allowed %}{% if workflow.action.method == 'post' %}<form method="post" action="{{ workflow.action.url }}">{% csrf_token %}<button class="btn btn-primary" type="submit">{{ workflow.action.label }} <i class="mdi mdi-arrow-right ms-1" aria-hidden="true"></i></button></form>{% else %}<a class="btn btn-primary" href="{{ workflow.action.url }}">{{ workflow.action.label }} <i class="mdi mdi-arrow-right ms-1" aria-hidden="true"></i></a>{% endif %}{% elif workflow.action.show_control %}<span class="small text-secondary">You do not have permission for this action.</span>{% endif %}</div>{% endif %}
+</section>

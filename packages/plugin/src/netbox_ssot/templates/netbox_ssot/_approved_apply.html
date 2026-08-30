@@ -1,0 +1,47 @@
+<div class="card border-primary mb-3 ssot-status-strip ssot-apply-panel" data-tone="primary" id="apply-actions">
+  <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-3">
+    <div class="d-flex align-items-center gap-3">
+      <span class="ssot-stage-icon bg-primary-lt text-primary"><i class="mdi mdi-playlist-check" aria-hidden="true"></i></span>
+      <div>
+        <h2 class="card-title mb-1">Ready to apply</h2>
+        <div class="small text-secondary">Approved by {{ final_review.reviewed_by }} at {{ final_review.reviewed_at }}</div>
+      </div>
+    </div>
+    <span class="badge text-bg-success"><i class="mdi mdi-check me-1" aria-hidden="true"></i>Review approved</span>
+  </div>
+  <div class="card-body">
+    <div class="row g-4 align-items-stretch">
+      <div class="col-lg-5">
+        <div class="ssot-kpi-label">Destination impact</div>
+        <div class="fs-2 fw-semibold mt-2">{{ comparison.create_count|add:comparison.update_count }} approved change{{ comparison.create_count|add:comparison.update_count|pluralize }}</div>
+        <div class="d-flex flex-wrap gap-2 mt-3">
+          <span class="badge bg-primary-lt text-primary"><strong>{{ comparison.create_count }}</strong> create{{ comparison.create_count|pluralize }}</span>
+          <span class="badge bg-warning-lt text-warning"><strong>{{ comparison.update_count }}</strong> update{{ comparison.update_count|pluralize }}</span>
+        </div>
+        <p class="small text-secondary mt-3 mb-0">Destination-only records remain untouched. The approval is immutable and applying requires separate permission.</p>
+        {% if final_review.reason %}<div class="mt-3"><div class="ssot-kpi-label">Review note</div><p class="mb-0 mt-1">{{ final_review.reason }}</p></div>{% endif %}
+      </div>
+      <div class="col-lg-7">
+        {% if readiness.ready and has_changes %}
+          <div class="ssot-apply-confirmation h-100">
+            <div><h3 class="h5 mb-1">Atomic NetBox transaction</h3><p class="text-secondary mb-3">Immediately before writing, NetBox revalidates the complete target graph, dependencies, references, and approved plan. Any drift rejects the entire transaction.</p></div>
+            {% if perms.netbox_ssot.add_applyrun %}
+              <form method="post" action="{% url 'plugins:netbox_ssot:apply_add' pk=comparison.pk %}">
+                {% csrf_token %}
+                <div class="form-check mb-3">
+                  <input class="form-check-input" id="confirm-apply" name="confirm" type="checkbox" value="apply" required>
+                  <label class="form-check-label" for="confirm-apply">I understand this performs one atomic transaction against local NetBox.</label>
+                </div>
+                <button class="btn btn-primary" type="submit"><i class="mdi mdi-play me-1" aria-hidden="true"></i>Apply {{ comparison.create_count|add:comparison.update_count }} approved changes</button>
+              </form>
+            {% else %}
+              <div class="alert alert-warning mb-0">You do not have permission to apply this approved plan. Another operator with application permission can continue.</div>
+            {% endif %}
+          </div>
+        {% else %}
+          <div class="alert alert-danger h-100 mb-0"><h3 class="h5"><i class="mdi mdi-alert-circle-outline me-1" aria-hidden="true"></i>Apply blocked</h3><ul class="mb-0 ps-3">{% for reason in readiness.reasons %}<li>{{ reason }}</li>{% endfor %}</ul></div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>

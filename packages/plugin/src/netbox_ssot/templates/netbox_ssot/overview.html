@@ -1,141 +1,83 @@
-{% extends 'base/layout.html' %}
+{% extends 'netbox_ssot/base.html' %}
 
-{% block title %}Discovery overview{% endblock %}
+{% block title %}Synchronization overview{% endblock %}
 
 {% block content %}
-  <div class="d-flex justify-content-between align-items-start mb-4">
-    <div>
-      <h1>Discovery</h1>
-      <p class="text-secondary mb-0">Bring provider data into this NetBox through a reviewable, one-way workflow.</p>
+  {% url 'plugins:netbox_ssot:provider_list' as add_source_url %}
+  {% include 'netbox_ssot/_page_header.html' with page_title='Synchronization' page_description='Understand alignment at a glance, then move each source safely from collection through review and apply.' page_action_url=add_source_url page_action_label='Add source' page_action_icon='mdi-plus' %}
+
+  <nav class="ssot-mode-tabs mb-4" aria-label="Overview mode"><div class="nav">
+    <a class="nav-link{% if selected_view == 'operations' %} active{% endif %}" href="?view=operations&period={{ selected_period }}"{% if selected_view == 'operations' %} aria-current="page"{% endif %}><i class="mdi mdi-format-list-checks me-1" aria-hidden="true"></i>Operations</a>
+    <a class="nav-link{% if selected_view == 'summary' %} active{% endif %}" href="?view=summary&period={{ selected_period }}"{% if selected_view == 'summary' %} aria-current="page"{% endif %}><i class="mdi mdi-chart-areaspline me-1" aria-hidden="true"></i>Summary</a>
+  </div></nav>
+
+  {% if selected_view == 'summary' %}
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+      <div><h2 class="h3 mb-1">Estate alignment</h2><p class="text-secondary mb-0">Latest prepared comparison for every enabled source.</p></div>
+      <div class="btn-group" role="group" aria-label="Trend period">{% for period in period_options %}<a class="btn btn-sm {% if selected_period == period %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="?view=summary&period={{ period }}">{{ period }} days</a>{% endfor %}</div>
     </div>
-    {% if perms.netbox_ssot.add_discoverysource %}
-      <a class="btn btn-primary" href="{% url 'plugins:netbox_ssot:provider_list' %}">Add source</a>
+
+    {% if can_view_drift and drift_summary.total %}
+      <div class="row g-3 mb-4">
+        <div class="col-sm-6 col-xl-3"><div class="card ssot-kpi h-100"><div class="card-body d-flex flex-column justify-content-between"><div class="ssot-kpi-label">Alignment</div><div><div class="ssot-kpi-value">{{ drift_summary.alignment_percentage|floatformat:1 }}%</div><div class="text-secondary mt-2">{{ drift_summary.matching }} of {{ drift_summary.total }} records match</div></div></div></div></div>
+        <div class="col-sm-6 col-xl-3"><div class="card ssot-kpi h-100"><div class="card-body d-flex flex-column justify-content-between"><div class="ssot-kpi-label">Actionable drift</div><div><div class="ssot-kpi-value text-warning">{{ drift_summary.drifted }}</div><div class="text-secondary mt-2">Missing or different locally</div></div></div></div></div>
+        <div class="col-sm-6 col-xl-3"><div class="card ssot-kpi h-100"><div class="card-body d-flex flex-column justify-content-between"><div class="ssot-kpi-label">Needs attention</div><div><div class="ssot-kpi-value {% if drift_summary.needs_attention %}text-danger{% endif %}">{{ drift_summary.needs_attention }}</div><div class="text-secondary mt-2">Conflicts and skipped records</div></div></div></div></div>
+        <div class="col-sm-6 col-xl-3"><div class="card ssot-kpi h-100"><div class="card-body d-flex flex-column justify-content-between"><div class="ssot-kpi-label">Healthy sources</div><div><div class="ssot-kpi-value">{{ healthy_source_count }}<span class="fs-3 text-secondary">/{{ source_count }}</span></div><div class="text-secondary mt-2">Collecting on schedule</div></div></div></div></div>
+      </div>
+
+      <div class="row g-4 mb-4">
+        <div class="col-xl-8"><div class="card ssot-chart h-100">
+          <div class="card-header"><div><h3 class="card-title mb-1">Alignment over time</h3><div class="small text-secondary">Daily end-of-day snapshots across assessed sources</div></div></div>
+          <div class="card-body">
+            {% if alignment_trend.points %}
+              <div class="d-flex flex-wrap align-items-end gap-3 mb-4"><div><div class="ssot-chart-value">{{ alignment_trend.latest.alignment|floatformat:1 }}%</div><div class="small text-secondary">Current alignment</div></div>{% if alignment_trend.points|length > 1 %}<span class="badge {% if alignment_trend.change > 0 %}text-bg-success{% elif alignment_trend.change < 0 %}text-bg-danger{% else %}bg-secondary-lt{% endif %} mb-1">{% if alignment_trend.change > 0 %}+{% endif %}{{ alignment_trend.change|floatformat:1 }} points</span>{% endif %}<span class="small text-secondary ms-auto mb-1">{{ alignment_trend.latest.assessed_sources }} source{{ alignment_trend.latest.assessed_sources|pluralize }} assessed</span></div>
+              {% if alignment_trend.points|length > 1 %}
+                <div class="ssot-chart-frame">
+                  <div class="ssot-chart-y-axis" aria-hidden="true"><span>100%</span><span>50%</span><span>0%</span></div>
+                  <div class="ssot-chart-plot">
+                    <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-labelledby="alignment-chart-title alignment-chart-description">
+                      <title id="alignment-chart-title">Alignment percentage over available history</title><desc id="alignment-chart-description">Alignment changed from {{ alignment_trend.first.alignment|floatformat:1 }} percent on {{ alignment_trend.start }} to {{ alignment_trend.latest.alignment|floatformat:1 }} percent on {{ alignment_trend.end }}.</desc>
+                      <defs><linearGradient id="ssot-alignment-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="currentColor" stop-opacity=".18"></stop><stop offset="100%" stop-color="currentColor" stop-opacity=".02"></stop></linearGradient></defs>
+                      <line class="ssot-chart-grid" x1="2" x2="98" y1="8" y2="8"></line><line class="ssot-chart-grid" x1="2" x2="98" y1="50" y2="50"></line><line class="ssot-chart-grid" x1="2" x2="98" y1="92" y2="92"></line>
+                      <polygon class="ssot-chart-fill" points="{{ alignment_trend.area }}"></polygon><polyline class="ssot-chart-line" points="{{ alignment_trend.polyline }}"></polyline>
+                    </svg>
+                    {% for point in alignment_trend.points %}{% if forloop.first or forloop.last %}<span class="ssot-chart-point" style="--ssot-chart-x: {{ point.x|floatformat:2 }}%; --ssot-chart-y: {{ point.y|floatformat:2 }}%"><span class="visually-hidden">{{ point.label }}: {{ point.alignment|floatformat:1 }}% aligned, {{ point.drifted }} drifted, {{ point.attention }} need attention</span></span>{% endif %}{% endfor %}
+                  </div>
+                </div>
+                <div class="ssot-chart-x-axis"><span>{{ alignment_trend.start }}</span><span>{{ alignment_trend.end }}</span></div>
+              {% else %}<div class="ssot-chart-single"><i class="mdi mdi-chart-timeline-variant" aria-hidden="true"></i><span>One daily snapshot is available. The trend will appear after the next comparison.</span></div>{% endif %}
+            {% else %}<p class="text-secondary mb-0">Not enough prepared comparisons exist to draw a trend.</p>{% endif %}
+          </div>
+        </div></div>
+        <div class="col-xl-4"><div class="card h-100">
+          <div class="card-header"><h3 class="card-title">Current composition</h3></div><div class="card-body">
+            <div class="progress mb-4" style="height: 1.6rem" role="img" aria-label="Current comparison results">{% for segment in drift_summary.segments %}{% if segment.count %}<div class="progress-bar bg-{{ segment.color }}" style="width: {{ segment.percentage|floatformat:2 }}%" title="{{ segment.label }}: {{ segment.count }}">{% if segment.percentage >= 10 %}{{ segment.count }}{% endif %}</div>{% endif %}{% endfor %}</div>
+            <div class="vstack gap-3">{% for segment in drift_summary.segments %}<div class="d-flex align-items-center gap-2"><span class="badge bg-{{ segment.color }}" aria-hidden="true">&nbsp;</span><span>{{ segment.label }}</span><strong class="ms-auto">{{ segment.count }}</strong><span class="text-secondary small">{{ segment.percentage|floatformat:1 }}%</span></div>{% endfor %}</div>
+          </div>
+        </div></div>
+      </div>
+
+      <div class="card mb-4"><div class="card-header d-flex justify-content-between align-items-center"><div><h3 class="card-title mb-1">Where drift is concentrated</h3><div class="small text-secondary">Sources with the most actionable or blocked records.</div></div><a href="{% url 'plugins:netbox_ssot:source_list' %}">All sources</a></div>
+        <div class="list-group list-group-flush">{% for row in contributor_rows %}<a class="list-group-item list-group-item-action py-3" href="{% if row.comparison_id %}{% url 'plugins:netbox_ssot:comparison_detail' pk=row.comparison_id %}{% else %}{% url 'plugins:netbox_ssot:source_detail' pk=row.source.pk %}{% endif %}"><div class="d-flex justify-content-between gap-3 mb-2"><strong>{{ row.source.name }}</strong><span><strong>{{ row.counts.drifted }}</strong> drifted{% if row.counts.needs_attention %} · <strong class="text-danger">{{ row.counts.needs_attention }}</strong> need attention{% endif %}</span></div>{% if row.counts.total %}<div class="progress ssot-mini-progress" role="img" aria-label="{{ row.source.name }} alignment">{% for segment in row.counts.segments %}{% if segment.count %}<div class="progress-bar bg-{{ segment.color }}" style="width: {{ segment.percentage|floatformat:2 }}%"></div>{% endif %}{% endfor %}</div>{% endif %}</a>{% empty %}<div class="list-group-item text-secondary py-4">No source drift is available.</div>{% endfor %}</div>
+      </div>
+    {% else %}
+      <div class="card mb-4">{% include 'netbox_ssot/_empty_state.html' with empty_icon='mdi-chart-areaspline' empty_title='No alignment snapshot yet' empty_description='Complete a collection and allow the background comparison to finish. This page will then show current drift and historical movement.' %}</div>
     {% endif %}
-  </div>
-
-  <div class="row row-cols-1 row-cols-md-3 g-3 mb-4">
-    <div class="col"><div class="card h-100"><div class="card-body">
-      <div class="text-secondary">Sources</div><div class="fs-2">{{ source_count|default_if_none:"—" }}</div>
-    </div></div></div>
-    <div class="col"><div class="card h-100"><div class="card-body">
-      <div class="text-secondary">Enabled agents</div><div class="fs-2">{{ enabled_agent_count|default_if_none:"—" }}</div>
-    </div></div></div>
-    <div class="col"><div class="card h-100"><div class="card-body">
-      <div class="text-secondary">Needs review</div><div class="fs-2">{{ pending_review_count|default_if_none:"—" }}</div>
-    </div></div></div>
-  </div>
-
-  {% if can_view_drift %}
-    <div class="card mb-4">
-      <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-        <div>
-          <strong>Local NetBox alignment</strong>
-          <span class="text-secondary ms-2">Latest prepared comparison for each source</span>
-        </div>
-        {% if preparing_count %}<span class="badge text-bg-info"><i class="mdi mdi-progress-clock me-1" aria-hidden="true"></i>{{ preparing_count }} preparing</span>{% endif %}
+  {% else %}
+    <div class="row g-3 mb-4">
+      <div class="col-sm-6 col-xl-3"><div class="card ssot-kpi h-100"><div class="card-body"><div class="ssot-kpi-label">Needs attention</div><div class="ssot-kpi-value mt-3{% if attention_count %} text-danger{% endif %}">{{ attention_count }}</div><div class="text-secondary mt-2">Blocked or failed</div></div></div></div>
+      <div class="col-sm-6 col-xl-3"><div class="card ssot-kpi h-100"><div class="card-body"><div class="ssot-kpi-label">Needs review</div><div class="ssot-kpi-value mt-3">{{ ready_review_count }}</div><div class="text-secondary mt-2">Waiting for a decision</div></div></div></div>
+      <div class="col-sm-6 col-xl-3"><div class="card ssot-kpi h-100"><div class="card-body"><div class="ssot-kpi-label">Ready to apply</div><div class="ssot-kpi-value mt-3">{{ ready_apply_count }}</div><div class="text-secondary mt-2">Approved plans</div></div></div></div>
+      <div class="col-sm-6 col-xl-3"><div class="card ssot-kpi h-100"><div class="card-body"><div class="ssot-kpi-label">Source health</div><div class="ssot-kpi-value mt-3">{{ healthy_source_count }}<span class="fs-3 text-secondary">/{{ source_count }}</span></div><div class="text-secondary mt-2">Collecting on schedule</div></div></div></div>
+    </div>
+    <div class="row g-4">
+      <div class="col-xl-8"><div class="card"><div class="card-header d-flex justify-content-between align-items-center"><div><h2 class="card-title mb-1">Your reconciliation queue</h2><div class="small text-secondary">Highest-priority unfinished work across all sources.</div></div><a href="{% url 'plugins:netbox_ssot:reconciliation_list' %}">View all</a></div>
+        <div class="list-group list-group-flush ssot-action-list">{% for row in operation_rows %}<div class="list-group-item ssot-status-strip" data-tone="{{ row.status.tone }}"><div class="d-flex flex-wrap justify-content-between align-items-start gap-3"><div class="flex-grow-1"><div class="d-flex flex-wrap align-items-center gap-2 mb-1"><strong>{{ row.run.source.name }}</strong><span class="badge text-bg-{{ row.status.tone }}"><i class="mdi {{ row.status.icon }} me-1" aria-hidden="true"></i>{{ row.status.label }}</span><span class="badge bg-secondary-lt">Source → NetBox</span></div><div>{{ row.detail }}</div><div class="small text-secondary mt-1">Collected {{ row.run.completed_at|timesince }} ago · {{ row.run.observation_count }} observations{% if row.comparison %} · {{ row.change_count }} changes · {{ row.match_count }} matches{% endif %}</div></div><a class="btn btn-sm btn-outline-primary" href="{{ row.action_url }}">{{ row.action_label }} <i class="mdi mdi-arrow-right ms-1" aria-hidden="true"></i></a></div></div>{% empty %}{% include 'netbox_ssot/_empty_state.html' with empty_icon='mdi-check-decagram-outline' empty_title='Nothing needs action' empty_description='Collections are aligned, completed, or have not started yet.' %}{% endfor %}</div>
+      </div></div>
+      <div class="col-xl-4">
+        <div class="card mb-4"><div class="card-header d-flex justify-content-between align-items-center"><h2 class="card-title">Source health</h2><a href="{% url 'plugins:netbox_ssot:source_list' %}">All sources</a></div><div class="list-group list-group-flush">{% for source, health in source_rows %}<a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center gap-3 py-3" href="{% url 'plugins:netbox_ssot:source_detail' pk=source.pk %}"><span><strong>{{ source.name }}</strong><span class="small text-secondary d-block">{% if source.latest_collection_at %}Last collected {{ source.latest_collection_at|timesince }} ago{% else %}Never collected{% endif %}</span></span><span class="badge text-bg-{{ health.status.color }}">{{ health.status.label }}</span></a>{% empty %}<div class="list-group-item text-secondary">No sources configured.</div>{% endfor %}</div></div>
+        <div class="card"><div class="card-header d-flex justify-content-between align-items-center"><h2 class="card-title">Recent activity</h2><a href="{% url 'plugins:netbox_ssot:activity' %}">All activity</a></div><div class="list-group list-group-flush">{% for event in events %}<a class="list-group-item list-group-item-action py-3" href="{{ event.url }}"><div class="d-flex justify-content-between gap-2"><strong>{{ event.title }}</strong><span class="small text-secondary text-nowrap">{{ event.occurred_at|timesince }} ago</span></div><div class="small text-secondary mt-1">{{ event.detail }}</div></a>{% empty %}<div class="list-group-item text-secondary">No activity yet.</div>{% endfor %}</div></div>
       </div>
-      {% if drift_summary.total %}
-        <div class="card-body border-bottom">
-          <div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-3">
-            <div>
-              <div class="fs-1 fw-semibold">{{ drift_summary.alignment_percentage|floatformat:1 }}%</div>
-              <div class="text-secondary">{{ drift_summary.matching }} of {{ drift_summary.total }} compared records match their remote source.</div>
-            </div>
-            <div class="text-end">
-              <div class="fs-3 fw-semibold">{{ drift_summary.drifted }}</div>
-              <div class="text-secondary">actionable records have drifted</div>
-            </div>
-          </div>
-          <div class="progress" style="height: 1.5rem" role="img" aria-label="Local NetBox alignment by comparison result">
-            {% for segment in drift_summary.segments %}
-              {% if segment.count %}<div class="progress-bar bg-{{ segment.color }}" style="width: {{ segment.percentage|floatformat:2 }}%" title="{{ segment.label }}: {{ segment.count }}">{% if segment.percentage >= 8 %}{{ segment.count }}{% endif %}</div>{% endif %}
-            {% endfor %}
-          </div>
-          <div class="row row-cols-2 row-cols-lg-4 g-2 mt-2">
-            {% for segment in drift_summary.segments %}
-              <div class="col"><div class="d-flex align-items-center gap-2 small"><span class="badge bg-{{ segment.color }}">&nbsp;</span><span>{{ segment.label }}</span><strong class="ms-auto">{{ segment.count }}</strong></div></div>
-            {% endfor %}
-          </div>
-        </div>
-      {% else %}
-        <div class="card-body border-bottom text-secondary">No prepared comparison is available yet. Completed collections are queued automatically.</div>
-      {% endif %}
-      <div class="table-responsive">
-        <table class="table table-vcenter mb-0">
-          <thead><tr><th>Source</th><th>Alignment snapshot</th><th>Status</th><th>Prepared</th></tr></thead>
-          <tbody>
-            {% for row in drift_rows %}
-              <tr>
-                <td><a href="{% url 'plugins:netbox_ssot:source_detail' pk=row.source.pk %}">{{ row.source.name }}</a></td>
-                <td style="min-width: 18rem">
-                  {% if row.counts.total %}
-                    <div class="progress" style="height: .75rem" role="img" aria-label="{{ row.source.name }} alignment">
-                      {% for segment in row.counts.segments %}{% if segment.count %}<div class="progress-bar bg-{{ segment.color }}" style="width: {{ segment.percentage|floatformat:2 }}%" title="{{ segment.label }}: {{ segment.count }}"></div>{% endif %}{% endfor %}
-                    </div>
-                    <div class="small text-secondary mt-1">{{ row.counts.matching }} matching · {{ row.counts.drifted }} drifted · {{ row.counts.needs_attention }} need attention</div>
-                  {% else %}
-                    <span class="text-secondary">Waiting for a prepared comparison</span>
-                  {% endif %}
-                </td>
-                <td>
-                  {% if row.preparation_state == 'pending' %}<span class="badge text-bg-info">Queued</span>
-                  {% elif row.preparation_state == 'running' %}<span class="badge text-bg-info">Preparing</span>
-                  {% elif row.preparation_state == 'failed' %}<span class="badge text-bg-danger">Failed</span>
-                  {% elif row.comparison_id and row.is_current %}<span class="badge text-bg-success">Current</span>
-                  {% elif row.comparison_id %}<span class="badge text-bg-warning">Older snapshot</span>
-                  {% else %}<span class="badge text-bg-secondary">Not prepared</span>{% endif %}
-                </td>
-                <td>{% if row.comparison_id %}<a href="{% url 'plugins:netbox_ssot:comparison_detail' pk=row.comparison_id %}">{{ row.created_at|timesince }} ago</a>{% else %}—{% endif %}</td>
-              </tr>
-            {% empty %}<tr><td colspan="4" class="text-secondary">No sources are configured.</td></tr>{% endfor %}
-          </tbody>
-        </table>
-      </div>
-      <div class="card-footer small text-secondary">Snapshots are prepared by background workers after each complete collection and refreshed after apply. Counts load from stored aggregates, not individual comparison records.</div>
     </div>
   {% endif %}
-
-  <div class="row g-4">
-    <div class="col-xl-7">
-      <div class="d-flex justify-content-between align-items-center mb-2">
-        <h2 class="h4 mb-0">Sources</h2>
-        {% if can_view_sources %}<a href="{% url 'plugins:netbox_ssot:source_list' %}">View all</a>{% endif %}
-      </div>
-      <div class="card">
-        <div class="list-group list-group-flush">
-          {% for source, health in source_rows %}
-            <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-3" href="{% url 'plugins:netbox_ssot:source_detail' pk=source.pk %}">
-              <span>
-                <strong>{{ source.name }}</strong>
-                <span class="d-block small text-secondary">{{ source.provider_id }}</span>
-              </span>
-              <span class="text-end">
-                <span class="badge text-bg-{{ health.status.color }}">{{ health.status.label }}</span>
-                <span class="d-block small text-secondary mt-1">{% if source.latest_collection_at %}Last run {{ source.latest_collection_at|timesince }} ago{% else %}Never collected{% endif %}</span>
-              </span>
-            </a>
-          {% empty %}
-            <div class="list-group-item py-4 text-center text-secondary">No source is configured yet.</div>
-          {% endfor %}
-        </div>
-      </div>
-    </div>
-
-    <div class="col-xl-5">
-      <div class="d-flex justify-content-between align-items-center mb-2">
-        <h2 class="h4 mb-0">Recent activity</h2>
-        <a href="{% url 'plugins:netbox_ssot:activity' %}">View all</a>
-      </div>
-      <div class="card"><div class="list-group list-group-flush">
-        {% for event in events %}
-          <a class="list-group-item list-group-item-action py-3" href="{{ event.url }}">
-            <div class="d-flex justify-content-between gap-3">
-              <strong>{{ event.title }}</strong><span class="small text-secondary text-nowrap">{{ event.occurred_at|timesince }} ago</span>
-            </div>
-            <div class="small text-secondary">{{ event.kind }} · {{ event.detail }}</div>
-          </a>
-        {% empty %}<div class="list-group-item py-4 text-center text-secondary">No activity yet.</div>{% endfor %}
-      </div></div>
-    </div>
-  </div>
 {% endblock %}

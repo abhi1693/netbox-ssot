@@ -338,13 +338,7 @@ def _next_action(
     preparation_failed: bool,
 ) -> WorkflowAction | None:
     if preparing:
-        return WorkflowAction(
-            "Refresh status",
-            run_url,
-            "get",
-            request.user.has_perm("netbox_ssot.view_collectionrun"),
-            "The result will open instantly when background preparation finishes.",
-        )
+        return None
     if preparation_failed:
         return WorkflowAction(
             "Retry comparison",

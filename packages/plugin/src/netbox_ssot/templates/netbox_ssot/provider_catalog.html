@@ -1,24 +1,21 @@
-{% extends 'base/layout.html' %}
+{% extends 'netbox_ssot/base.html' %}
 
 {% block title %}Add source{% endblock %}
 
 {% block content %}
-  <div class="row mb-3">
-    <div class="col">
-      <h1>Add source</h1>
-      <p class="text-secondary">Choose where the data should come from.</p>
-    </div>
-  </div>
+  {% include 'netbox_ssot/_page_header.html' with page_title='Providers' page_description='Choose the connector that defines available datasets, configuration, collection, and synchronization capabilities.' %}
+
+  <div class="d-flex align-items-center gap-2 mb-3"><span class="badge rounded-pill text-bg-primary">1</span><strong>Choose provider</strong><span class="text-secondary">→ Configure source → Connect agent</span></div>
 
   <div class="row row-cols-1 row-cols-lg-2 g-3">
     {% for provider in providers %}
       <div class="col">
         <div class="card h-100">
           <div class="card-body">
-            <h2 class="h4 card-title d-flex align-items-center gap-2"><i class="{{ provider.icon_class }} text-primary" aria-hidden="true"></i>{{ provider.display_name }}</h2>
+            <h2 class="h4 card-title d-flex align-items-center gap-2"><i class="{{ provider.icon_class }} fs-2 text-primary" aria-hidden="true"></i>{{ provider.display_name }}</h2>
             <p class="card-text">{{ provider.description }}</p>
             <a class="btn btn-primary" href="{% url 'plugins:netbox_ssot:source_wizard' provider_id=provider.provider_id %}">
-              Continue
+              Configure source <i class="mdi mdi-arrow-right ms-1" aria-hidden="true"></i>
             </a>
             <a class="btn btn-outline-secondary" href="{{ provider.documentation_url }}" rel="noopener noreferrer">
               Learn more

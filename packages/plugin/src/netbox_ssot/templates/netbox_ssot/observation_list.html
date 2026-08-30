@@ -1,19 +1,16 @@
-{% extends 'base/layout.html' %}
+{% extends 'netbox_ssot/base.html' %}
 
 {% block title %}{{ display_name }} observations{% endblock %}
 
 {% block content %}
-  <div class="mb-3">
-    <div class="small text-secondary mb-1"><a href="{% url 'plugins:netbox_ssot:run_detail' pk=run.pk %}">Collection result</a> / {{ display_name }}</div>
-    <h1 class="mb-1">{{ display_name }}</h1>
-    <p class="text-secondary mb-0"><a href="{% url 'plugins:netbox_ssot:source_detail' pk=run.source_id %}">{{ run.source }}</a> · {{ provider_name }} · <code>{{ source_model }}</code> · {{ dataset_title }}</p>
-  </div>
+  {% include 'netbox_ssot/_page_header.html' with page_title=display_name page_description='Immutable records exactly as submitted by the provider.' %}
+  <p class="text-secondary"><a href="{% url 'plugins:netbox_ssot:run_detail' pk=run.pk %}">Reconciliation evidence</a> · <a href="{% url 'plugins:netbox_ssot:source_detail' pk=run.source_id %}">{{ run.source }}</a> · {{ provider_name }} · <code>{{ source_model }}</code> · {{ dataset_title }}</p>
 
   {% if run.state != "complete" %}<div class="alert alert-warning"><strong>This collection is {{ run.state }}.</strong> The record set and its relationships may be incomplete.</div>{% endif %}
 
   <div class="card mb-3">
     <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-      <strong>Collected records</strong>
+      <div><h2 class="card-title mb-1">Collected records</h2><div class="small text-secondary">Provider-neutral evidence explorer</div></div>
       <span class="text-secondary">{{ observation_count }} record{{ observation_count|pluralize }}</span>
     </div>
     <div class="card-body border-bottom">
@@ -33,16 +30,16 @@
       {% if query %}<div class="small text-secondary mt-2">{{ page.paginator.count }} matching record{{ page.paginator.count|pluralize }}.</div>{% endif %}
     </div>
     <div class="table-responsive">
-      <table class="table table-hover table-vcenter mb-0">
+      <table class="table table-hover table-vcenter mb-0 ssot-table-cards">
         <thead><tr><th>Record</th><th>Source</th><th class="text-end">Attributes</th><th class="text-end">Relationships</th><th>Collected</th></tr></thead>
         <tbody>
           {% for row in observation_rows %}
             <tr>
-              <td><a class="fw-semibold" href="{% url 'plugins:netbox_ssot:observation_detail' run_pk=run.pk pk=row.observation.pk %}">{{ row.display_name }}</a><div><code class="small">{{ row.observation.external_id }}</code></div></td>
-              <td>{% if row.source_url %}<a href="{{ row.source_url }}" target="_blank" rel="noopener noreferrer">Open in {{ provider_name }}<i class="mdi mdi-open-in-new ms-1" aria-hidden="true"></i></a>{% else %}<span class="text-secondary">Unavailable</span>{% endif %}</td>
-              <td class="text-end">{{ row.attribute_count }}</td>
-              <td class="text-end">{{ row.relationship_count }}{% if row.unresolved_count %}<span class="badge text-bg-warning ms-1" title="Relationship targets missing from this collection">{{ row.unresolved_count }} unresolved</span>{% endif %}</td>
-              <td class="text-secondary">{{ row.observation.collected_at }}</td>
+              <td data-label="Record"><a class="fw-semibold" href="{% url 'plugins:netbox_ssot:observation_detail' run_pk=run.pk pk=row.observation.pk %}">{{ row.display_name }}</a><div><code class="small">{{ row.observation.external_id }}</code></div></td>
+              <td data-label="Source">{% if row.source_url %}<a href="{{ row.source_url }}" target="_blank" rel="noopener noreferrer">Open in {{ provider_name }}<i class="mdi mdi-open-in-new ms-1" aria-hidden="true"></i></a>{% else %}<span class="text-secondary">Unavailable</span>{% endif %}</td>
+              <td data-label="Attributes" class="text-end">{{ row.attribute_count }}</td>
+              <td data-label="Relationships" class="text-end">{{ row.relationship_count }}{% if row.unresolved_count %}<span class="badge text-bg-warning ms-1" title="Relationship targets missing from this collection">{{ row.unresolved_count }} unresolved</span>{% endif %}</td>
+              <td data-label="Collected" class="text-secondary">{{ row.observation.collected_at }}</td>
             </tr>
           {% empty %}<tr><td colspan="5" class="text-secondary">No records match “{{ query }}”.</td></tr>{% endfor %}
         </tbody>

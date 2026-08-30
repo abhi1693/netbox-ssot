@@ -1,0 +1,6 @@
+<div class="ssot-empty-state text-center py-5 px-3">
+  <i class="mdi {{ empty_icon|default:'mdi-database-off-outline' }}" aria-hidden="true"></i>
+  <h2 class="h4 mt-3">{{ empty_title }}</h2>
+  <p class="text-secondary mx-auto mb-0">{{ empty_description }}</p>
+  {% if empty_action_url %}<a class="btn btn-primary mt-3" href="{{ empty_action_url }}">{{ empty_action_label }}</a>{% endif %}
+</div>

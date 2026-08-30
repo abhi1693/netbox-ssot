@@ -146,8 +146,53 @@ class ComparisonPreparationTests(TestCase):
 
         assert response.status_code == 200
         self.assertContains(response, "The background worker is comparing remote observations with local NetBox.")
-        self.assertContains(response, "Next: Refresh status")
+        self.assertContains(response, "This status updates automatically.")
         self.assertNotContains(response, "Next: Prepare comparison")
+
+    def test_pending_status_is_polled_without_a_reload_action(self) -> None:
+        ComparisonPreparation.objects.create(
+            collection_run=self.run,
+            state=ComparisonPreparation.State.PENDING,
+            attempt_count=1,
+        )
+
+        response = self.client.get(
+            reverse("plugins:netbox_ssot:run_status", kwargs={"pk": self.run.pk}),
+            headers={"HX-Request": "true"},
+        )
+
+        assert response.status_code == 200
+        self.assertContains(response, "spinner-border-sm")
+        self.assertContains(response, 'hx-trigger="every 5s"')
+        self.assertNotContains(response, "Refresh status")
+        self.assertNotContains(response, "Check status")
+
+    def test_completed_status_opens_the_prepared_comparison(self) -> None:
+        comparison = ComparisonRun.objects.create(
+            collection_run=self.run,
+            source_payload_digest=self.run.payload_digest,
+            target_snapshot_digest="d" * 64,
+            engine_version=ENGINE_VERSION,
+            no_change_count=1,
+        )
+        ComparisonPreparation.objects.create(
+            collection_run=self.run,
+            comparison=comparison,
+            state=ComparisonPreparation.State.COMPLETED,
+            attempt_count=1,
+            completed_at=timezone.now(),
+        )
+
+        response = self.client.get(
+            reverse("plugins:netbox_ssot:run_status", kwargs={"pk": self.run.pk}),
+            headers={"HX-Request": "true"},
+        )
+
+        assert response.status_code == 204
+        assert response.headers["HX-Redirect"] == reverse(
+            "plugins:netbox_ssot:comparison_detail",
+            kwargs={"pk": comparison.pk},
+        )
 
     def test_overview_uses_stored_aggregates_for_the_drift_chart(self) -> None:
         comparison = ComparisonRun.objects.create(
@@ -169,17 +214,17 @@ class ComparisonPreparationTests(TestCase):
         )
 
         with CaptureQueriesContext(connection) as queries:
-            response = self.client.get(reverse("plugins:netbox_ssot:overview"))
+            response = self.client.get(reverse("plugins:netbox_ssot:overview") + "?view=summary&period=30")
 
         assert response.status_code == 200
         summary = response.context["drift_summary"]
         assert summary.matching == 6
         assert summary.drifted == 3
         assert summary.needs_attention == 1
-        self.assertContains(response, "Local NetBox alignment")
+        self.assertContains(response, "Estate alignment")
         self.assertContains(response, "60.0%")
-        self.assertContains(response, "6 matching · 3 drifted · 1 need attention")
-        self.assertContains(response, "Counts load from stored aggregates")
+        self.assertContains(response, "6 of 10 records match")
+        self.assertContains(response, "Actionable drift")
         assert not any("netbox_ssot_comparisonitem" in query["sql"] for query in queries.captured_queries)
 
     def test_complete_ingest_requests_background_preparation(self) -> None:

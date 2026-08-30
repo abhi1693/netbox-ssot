@@ -1,0 +1,7 @@
+{% extends 'generic/object_list.html' %}
+{% load static %}
+
+{% block head %}{{ block.super }}<link rel="stylesheet" href="{% static 'netbox_ssot/ssot.css' %}">{% endblock %}
+{% block title %}{{ page_title }}{% endblock %}
+{% block subtitle %}<p class="text-secondary mb-0 mt-1">{{ page_description }}</p>{% endblock %}
+{% block extra_controls %}{% if add_url %}<a class="btn btn-primary" href="{{ add_url }}"><i class="mdi mdi-plus" aria-hidden="true"></i> {{ add_label }}</a>{% endif %}{% endblock %}

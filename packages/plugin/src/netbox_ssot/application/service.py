@@ -90,6 +90,19 @@ def inspect_application(comparison: ComparisonRun, applied_by: Any | None = None
     )
 
 
+def inspect_application_summary(comparison: ComparisonRun, applied_by: Any | None = None) -> ApplicationReadiness:
+    """Build interactive-page readiness without reconstructing the full NetBox target graph."""
+    reasons = _basic_readiness_reasons(comparison, applied_by=applied_by)
+    target_changed = _target_changed_since(comparison)
+    if target_changed:
+        reasons.append("The local NetBox target changed after this comparison; create and review a fresh comparison.")
+    return ApplicationReadiness(
+        ready=not reasons,
+        reasons=tuple(reasons),
+        current_target_digest="" if target_changed else comparison.target_snapshot_digest,
+    )
+
+
 def apply_comparison(comparison: ComparisonRun, applied_by: Any) -> ApplicationOutcome:
     try:
         with transaction.atomic():
@@ -184,37 +197,7 @@ def _readiness_reasons(
     *,
     applied_by: Any | None = None,
 ) -> list[str]:
-    reasons: list[str] = []
-    if ApplyRun.objects.filter(comparison=comparison).exists():
-        reasons.append("This comparison has already been applied.")
-    if comparison.engine_version != ENGINE_VERSION:
-        reasons.append("This comparison was produced by an obsolete engine version; create a fresh comparison.")
-    if comparison.direction != SynchronizationDirection.SOURCE_TO_TARGET:
-        reasons.append("The selected target adapter does not currently advertise remote write capability.")
-    if comparison.collection_run.state != "complete" or not comparison.collection_run.completeness_token:
-        reasons.append("Only complete collection evidence can be applied.")
-    if comparison.source_payload_digest != comparison.collection_run.payload_digest:
-        reasons.append("The comparison source digest no longer matches its immutable collection run.")
-    if comparison.conflict_count:
-        reasons.append(f"Resolve all {comparison.conflict_count} conflict items before applying.")
-    if comparison.skipped_count:
-        reasons.append(f"A comparison containing {comparison.skipped_count} skipped items cannot be applied.")
-
-    review = ComparisonReview.objects.filter(comparison=comparison).select_related("reviewed_by").first()
-    if comparison.create_count or comparison.update_count:
-        if review is None:
-            reasons.append("This comparison must be approved in a finalized review before it can be applied.")
-        elif review.decision == ComparisonReview.Decision.REJECTED:
-            reasons.append("This comparison was rejected and cannot be applied.")
-        elif review.decision == ComparisonReview.Decision.APPROVED:
-            integrity_issue = review_integrity_issue(review)
-            if integrity_issue:
-                reasons.append(integrity_issue)
-            if applied_by is not None and _separate_reviewer_required() and review.reviewed_by_id == applied_by.pk:
-                reasons.append("A different operator must apply this approved comparison.")
-        else:
-            reasons.append("This comparison has an unsupported final review state and cannot be applied.")
-
+    reasons = _basic_readiness_reasons(comparison, applied_by=applied_by)
     items = list(comparison.items.all())
     counts = Counter(item.action for item in items)
     expected_counts = {
@@ -252,6 +235,60 @@ def _readiness_reasons(
     except ApplicationPlanError as exc:
         reasons.append(str(exc))
     return reasons
+
+
+def _basic_readiness_reasons(comparison: ComparisonRun, *, applied_by: Any | None = None) -> list[str]:
+    reasons: list[str] = []
+    if ApplyRun.objects.filter(comparison=comparison).exists():
+        reasons.append("This comparison has already been applied.")
+    if comparison.engine_version != ENGINE_VERSION:
+        reasons.append("This comparison was produced by an obsolete engine version; create a fresh comparison.")
+    if comparison.direction != SynchronizationDirection.SOURCE_TO_TARGET:
+        reasons.append("The selected target adapter does not currently advertise remote write capability.")
+    if comparison.collection_run.state != "complete" or not comparison.collection_run.completeness_token:
+        reasons.append("Only complete collection evidence can be applied.")
+    if comparison.source_payload_digest != comparison.collection_run.payload_digest:
+        reasons.append("The comparison source digest no longer matches its immutable collection run.")
+    if comparison.conflict_count:
+        reasons.append(f"Resolve all {comparison.conflict_count} conflict items before applying.")
+    if comparison.skipped_count:
+        reasons.append(f"A comparison containing {comparison.skipped_count} skipped items cannot be applied.")
+
+    review = ComparisonReview.objects.filter(comparison=comparison).select_related("reviewed_by").first()
+    if comparison.create_count or comparison.update_count:
+        if review is None:
+            reasons.append("This comparison must be approved in a finalized review before it can be applied.")
+        elif review.decision == ComparisonReview.Decision.REJECTED:
+            reasons.append("This comparison was rejected and cannot be applied.")
+        elif review.decision == ComparisonReview.Decision.APPROVED:
+            integrity_issue = review_integrity_issue(review)
+            if integrity_issue:
+                reasons.append(integrity_issue)
+            if applied_by is not None and _separate_reviewer_required() and review.reviewed_by_id == applied_by.pk:
+                reasons.append("A different operator must apply this approved comparison.")
+        else:
+            reasons.append("This comparison has an unsupported final review state and cannot be applied.")
+    return reasons
+
+
+def _target_changed_since(comparison: ComparisonRun) -> bool:
+    resource_kinds = comparison.items.order_by().values_list("resource_kind", flat=True).distinct()
+    model_types = {
+        MODEL_BY_KIND[resource_kind]
+        for resource_kind in resource_kinds
+        if resource_kind in MODEL_BY_KIND
+    }
+    for model_type in model_types:
+        field_names = {field.name for field in model_type._meta.fields}
+        timestamp_field = next(
+            (name for name in ("last_updated", "updated_at", "updated") if name in field_names),
+            None,
+        )
+        if timestamp_field and model_type.objects.filter(
+            **{f"{timestamp_field}__gt": comparison.created_at}
+        ).exists():
+            return True
+    return False
 
 
 def _separate_reviewer_required() -> bool:

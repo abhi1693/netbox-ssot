@@ -1,4 +1,4 @@
-{% extends 'base/layout.html' %}
+{% extends 'netbox_ssot/base.html' %}
 
 {% block title %}{{ item.display_name }}{% endblock %}
 
@@ -111,8 +111,8 @@
     </div>
   </div>
 
-  <details class="card">
-    <summary class="card-header"><strong>Technical details</strong></summary>
+  <details class="card ssot-technical">
+    <summary class="card-header"><strong>Technical details</strong><span class="text-secondary ms-2">Natural identity and canonical JSON</span></summary>
     <div class="card-body">
       <dl class="row mb-3">
         <dt class="col-sm-3">Natural identity</dt><dd class="col-sm-9"><code class="text-wrap">{{ item.identity_key }}</code></dd>

@@ -1,24 +1,26 @@
 from __future__ import annotations
 
 import json
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from typing import Any
 from urllib.parse import urlencode
 from uuid import uuid4
 
+from core.models import Job
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.paginator import Paginator
 from django.db import IntegrityError, models, transaction
-from django.db.models import OuterRef, Subquery
+from django.db.models import OuterRef, Prefetch, Subquery
 from django.db.models.functions import Cast
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.views import View
+from netbox.views import generic
 
 from netbox_ssot_contracts import (
     CURRENT_AGENT_PROTOCOL_VERSION,
@@ -29,6 +31,9 @@ from netbox_ssot_contracts import (
     validate_configuration,
 )
 
+from . import filtersets as ssot_filtersets
+from . import forms as ssot_forms
+from . import tables as ssot_tables
 from .agent_capabilities import agent_capability_rows, source_capability_issue
 from .agent_security import (
     AgentSecurityError,
@@ -39,7 +44,7 @@ from .agent_security import (
 from .application.service import (
     ApplicationRejectedError,
     apply_comparison,
-    inspect_application,
+    inspect_application_summary,
 )
 from .collection_policy import agent_collection_policy_issue
 from .comparison_presentation import comparison_field_rows
@@ -74,6 +79,7 @@ from .review import (
     record_review_decision,
     review_progress,
 )
+from .ui import build_alignment_trend, reconciliation_row
 from .workflow import APPROVAL_REQUIRED_REASON, workflow_presentation
 
 ACTIVE_COMMAND_STATES = (
@@ -85,7 +91,7 @@ ACTIVE_COMMAND_STATES = (
 
 
 def _ensure_review_can_progress_to_apply(comparison: ComparisonRun) -> None:
-    readiness = inspect_application(comparison)
+    readiness = inspect_application_summary(comparison)
     blockers = tuple(reason for reason in readiness.reasons if reason != APPROVAL_REQUIRED_REASON)
     if blockers:
         raise ReviewRejectedError(
@@ -96,8 +102,18 @@ class OverviewView(LoginRequiredMixin, View):
     template_name = "netbox_ssot/overview.html"
 
     def get(self, request: HttpRequest) -> HttpResponse:
+        selected_view = request.GET.get("view", "operations")
+        if selected_view not in {"operations", "summary"}:
+            selected_view = "operations"
+        try:
+            selected_period = int(request.GET.get("period", "30"))
+        except ValueError:
+            selected_period = 30
+        if selected_period not in {7, 30, 90}:
+            selected_period = 30
         can_view_sources = request.user.has_perm("netbox_ssot.view_discoverysource")
         can_view_agents = request.user.has_perm("netbox_ssot.view_collectoragent")
+        can_view_runs = request.user.has_perm("netbox_ssot.view_collectionrun")
         can_view_comparisons = request.user.has_perm("netbox_ssot.view_comparisonrun")
         sources = tuple(_source_queryset()) if can_view_sources else ()
         latest_comparison_ids = tuple(
@@ -151,11 +167,58 @@ class OverviewView(LoginRequiredMixin, View):
                         ),
                     }
                 )
+        operation_rows = ()
+        if can_view_runs:
+            operation_rows = tuple(
+                reconciliation_row(run, include_comparison=can_view_comparisons)
+                for run in _reconciliation_queryset(include_comparison=can_view_comparisons)[:100]
+            )
+            operation_rows = tuple(row for row in operation_rows if row.state_group != "complete")[:20]
+
+        alignment_trend = None
+        if selected_view == "summary" and can_view_sources and can_view_comparisons and sources:
+            current = timezone.now()
+            start = timezone.make_aware(
+                datetime.combine(timezone.localdate(current) - timedelta(days=selected_period - 1), time.min),
+                timezone.get_current_timezone(),
+            )
+            baseline = ComparisonRun.objects.filter(
+                collection_run__source=OuterRef("pk"),
+                created_at__lt=start,
+            ).order_by("-created_at")
+            baseline_ids = tuple(
+                DiscoverySource.objects.filter(pk__in=(source.pk for source in sources))
+                .annotate(ui_baseline_id=Subquery(baseline.values("pk")[:1]))
+                .exclude(ui_baseline_id=None)
+                .values_list("ui_baseline_id", flat=True)
+            )
+            trend_comparisons = ComparisonRun.objects.filter(
+                models.Q(collection_run__source_id__in=(source.pk for source in sources), created_at__gte=start)
+                | models.Q(pk__in=baseline_ids)
+            ).select_related("collection_run")
+            alignment_trend = build_alignment_trend(
+                sources,
+                trend_comparisons,
+                days=selected_period,
+                now=current,
+            )
+
+        source_health_rows = tuple((source, source_health(source)) for source in sources)
+        contributor_rows = tuple(
+            sorted(
+                drift_rows,
+                key=lambda row: (row["counts"].drifted + row["counts"].needs_attention),
+                reverse=True,
+            )[:8]
+        )
         return render(
             request,
             self.template_name,
             {
-                "source_rows": tuple((source, source_health(source)) for source in sources),
+                "selected_view": selected_view,
+                "selected_period": selected_period,
+                "period_options": (7, 30, 90),
+                "source_rows": source_health_rows,
                 "source_count": len(sources) if can_view_sources else None,
                 "can_view_sources": can_view_sources,
                 "can_view_drift": can_view_sources and can_view_comparisons,
@@ -163,7 +226,14 @@ class OverviewView(LoginRequiredMixin, View):
                 "pending_review_count": pending_reviews,
                 "drift_rows": tuple(drift_rows),
                 "drift_summary": drift_summary,
+                "alignment_trend": alignment_trend,
+                "contributor_rows": contributor_rows,
                 "preparing_count": preparing_count,
+                "operation_rows": operation_rows,
+                "attention_count": sum(row.state_group == "attention" for row in operation_rows),
+                "ready_review_count": sum(row.state_group == "review" for row in operation_rows),
+                "ready_apply_count": sum(row.state_group == "apply" for row in operation_rows),
+                "healthy_source_count": sum(health.status.color == "success" for _, health in source_health_rows),
                 "events": _activity_events(request, limit=8),
             },
         )
@@ -191,17 +261,35 @@ class ProviderCatalogView(LoginRequiredMixin, View):
         )
 
 
-class SourceListView(PermissionRequiredMixin, View):
-    permission_required = "netbox_ssot.view_discoverysource"
-    template_name = "netbox_ssot/source_list.html"
+class NativeObjectListView(generic.ObjectListView):
+    """Use NetBox's list UI for plugin models backed by standard Django querysets."""
 
-    def get(self, request: HttpRequest) -> HttpResponse:
-        sources = _source_queryset()
-        return render(
-            request,
-            self.template_name,
-            {"source_rows": tuple((source, source_health(source)) for source in sources)},
-        )
+    def has_permission(self) -> bool:
+        return self.request.user.has_perm(self.get_required_permission())
+
+
+class SourceListView(NativeObjectListView):
+    queryset = DiscoverySource.objects.all()
+    table = ssot_tables.SourceTable
+    filterset = ssot_filtersets.SourceFilterSet
+    filterset_form = ssot_forms.SourceFilterForm
+    template_name = "netbox_ssot/native_object_list.html"
+    actions = ()
+
+    def get_queryset(self, request: HttpRequest) -> models.QuerySet[DiscoverySource]:
+        return _source_queryset()
+
+    def get_extra_context(self, request: HttpRequest) -> dict[str, Any]:
+        context = {
+            "page_title": "Sources",
+            "page_description": "Remote systems that reconcile immutable provider evidence with this NetBox.",
+        }
+        if request.user.has_perm("netbox_ssot.add_discoverysource"):
+            context.update(
+                add_url=reverse("plugins:netbox_ssot:provider_list"),
+                add_label="Add source",
+            )
+        return context
 
 
 class SourceDetailView(PermissionRequiredMixin, View):
@@ -210,7 +298,22 @@ class SourceDetailView(PermissionRequiredMixin, View):
 
     def get(self, request: HttpRequest, pk: object) -> HttpResponse:
         source = get_object_or_404(_source_queryset(), pk=pk)
-        recent_runs = CollectionRun.objects.filter(source=source).select_related("agent")[:10]
+        selected_tab = request.GET.get("tab", "overview")
+        if selected_tab not in {"overview", "data", "history"}:
+            selected_tab = "overview"
+        can_view_runs = request.user.has_perm("netbox_ssot.view_collectionrun")
+        can_view_comparisons = request.user.has_perm("netbox_ssot.view_comparisonrun")
+        recent_runs = (
+            tuple(
+                _reconciliation_queryset(include_comparison=can_view_comparisons).filter(source=source)[:20]
+            )
+            if can_view_runs
+            else ()
+        )
+        reconciliation_rows = tuple(
+            reconciliation_row(run, include_comparison=can_view_comparisons) for run in recent_runs
+        )
+        current_reconciliation = reconciliation_rows[0] if reconciliation_rows else None
         recent_commands = tuple(source.commands.select_related("requested_by")[:10])
         if request.user.has_perm("netbox_ssot.view_collectionrun"):
             collection_run_ids = set(
@@ -228,6 +331,7 @@ class SourceDetailView(PermissionRequiredMixin, View):
         provider_name = source.provider_id
         source_icon_class = "mdi mdi-database-outline"
         data_mappings = ()
+        dataset_definitions = ()
         try:
             descriptor = ProviderRegistry().get(source.provider_id)
             manifest = descriptor.manifest
@@ -236,6 +340,10 @@ class SourceDetailView(PermissionRequiredMixin, View):
             provider_name = manifest.display_name
             source_icon_class = manifest.icon_class
             data_mappings = selected_data_model_mappings(manifest, source.datasets, source.configuration)
+            selected_dataset_ids = set(source.datasets)
+            dataset_definitions = tuple(
+                dataset for dataset in manifest.datasets if dataset.id in selected_dataset_ids
+            )
         except ProviderNotFoundError:
             safe_configuration = {"provider": "Installed provider is unavailable."}
         collection_request = {
@@ -257,12 +365,16 @@ class SourceDetailView(PermissionRequiredMixin, View):
                 "destination_name": "NetBox",
                 "destination_icon_class": "mdi mdi-cube-outline",
                 "data_mappings": data_mappings,
+                "dataset_definitions": dataset_definitions,
                 "safe_configuration": json.dumps(safe_configuration, indent=2, sort_keys=True),
                 "collection_request": json.dumps(collection_request, indent=2, sort_keys=True),
                 "recent_runs": recent_runs,
+                "reconciliation_rows": reconciliation_rows,
+                "current_reconciliation": current_reconciliation,
                 "recent_commands": recent_commands,
                 "health": source_health(source),
                 "retention": retention_plan(source),
+                "selected_tab": selected_tab,
             },
         )
 
@@ -617,22 +729,58 @@ def _record_source_reassignment(
     )
 
 
-class AgentListView(PermissionRequiredMixin, View):
-    permission_required = "netbox_ssot.view_collectoragent"
-    template_name = "netbox_ssot/agent_list.html"
+class AgentListView(NativeObjectListView):
+    queryset = CollectorAgent.objects.all()
+    table = ssot_tables.AgentTable
+    filterset = ssot_filtersets.AgentFilterSet
+    filterset_form = ssot_forms.AgentFilterForm
+    template_name = "netbox_ssot/native_object_list.html"
+    actions = ()
 
-    def get(self, request: HttpRequest) -> HttpResponse:
-        control_endpoint = request.build_absolute_uri(reverse("plugins-api:netbox_ssot-api:agent-config"))
+    def get_queryset(self, request: HttpRequest) -> models.QuerySet[CollectorAgent]:
+        return CollectorAgent.objects.annotate(source_count=models.Count("sources", distinct=True)).prefetch_related(
+            "sources", "signing_keys"
+        )
+
+    def get_extra_context(self, request: HttpRequest) -> dict[str, Any]:
+        context = {
+            "page_title": "Agents",
+            "page_description": "Secure edge runtimes that collect provider data without exposing credentials.",
+        }
+        if request.user.has_perm("netbox_ssot.add_collectoragent"):
+            context.update(
+                add_url=reverse("plugins:netbox_ssot:agent_add"),
+                add_label="Connect agent",
+            )
+        return context
+
+
+class AgentDetailView(PermissionRequiredMixin, View):
+    permission_required = "netbox_ssot.view_collectoragent"
+    template_name = "netbox_ssot/agent_detail.html"
+
+    def get(self, request: HttpRequest, pk: object) -> HttpResponse:
+        agent = get_object_or_404(
+            CollectorAgent.objects.prefetch_related("sources", "signing_keys", "security_events__actor"),
+            pk=pk,
+        )
+        recent_commands = AgentCommand.objects.filter(agent=agent).select_related("source", "requested_by")[:20]
         return render(
             request,
             self.template_name,
             {
-                "agent_rows": tuple(
-                    (agent, agent_health(agent))
-                    for agent in CollectorAgent.objects.prefetch_related("sources", "signing_keys")
+                "agent": agent,
+                "health": agent_health(agent),
+                "sources": tuple(
+                    (source, source_health(source)) for source in _source_queryset().filter(assigned_agent=agent)
                 ),
-                "control_endpoint": control_endpoint,
-                "control_endpoint_is_insecure": control_endpoint.startswith("http://"),
+                "signing_keys": agent.signing_keys.all(),
+                "security_events": agent.security_events.select_related("actor")[:20],
+                "capability_rows": agent_capability_rows(agent),
+                "recent_commands": recent_commands,
+                "control_endpoint": request.build_absolute_uri(
+                    reverse("plugins-api:netbox_ssot-api:agent-config")
+                ),
             },
         )
 
@@ -670,7 +818,7 @@ class AgentEditView(PermissionRequiredMixin, View):
             for source in agent.sources.all():
                 _cancel_source_commands(source, "Action cancelled because the assigned agent was disabled.")
         messages.success(request, "Agent settings saved. A running agent will adopt the interval at its next check-in.")
-        return redirect("plugins:netbox_ssot:agent_list")
+        return redirect("plugins:netbox_ssot:agent_detail", pk=agent.pk)
 
     @staticmethod
     def _context(request: HttpRequest, agent: CollectorAgent) -> dict[str, Any]:
@@ -723,7 +871,7 @@ class AgentRevokeKeysView(PermissionRequiredMixin, View):
         agent = get_object_or_404(CollectorAgent, pk=pk)
         revoked = revoke_agent_keys(agent=agent, actor=request.user)
         messages.warning(request, f"Revoked {revoked} signing key(s) and disabled {agent.name}.")
-        return redirect("plugins:netbox_ssot:agent_edit", pk=agent.pk)
+        return redirect("plugins:netbox_ssot:agent_detail", pk=agent.pk)
 
 
 class AgentEnrollmentView(PermissionRequiredMixin, View):
@@ -775,13 +923,49 @@ class AgentEnrollmentView(PermissionRequiredMixin, View):
         }
 
 
-class RunListView(PermissionRequiredMixin, View):
-    permission_required = "netbox_ssot.view_collectionrun"
-    template_name = "netbox_ssot/run_list.html"
+class ReconciliationListView(NativeObjectListView):
+    queryset = CollectionRun.objects.all()
+    table = ssot_tables.ReconciliationTable
+    filterset = ssot_filtersets.ReconciliationFilterSet
+    filterset_form = ssot_forms.ReconciliationFilterForm
+    template_name = "netbox_ssot/native_object_list.html"
+    actions = ()
 
     def get(self, request: HttpRequest) -> HttpResponse:
-        runs = CollectionRun.objects.select_related("source", "agent")[:200]
-        return render(request, self.template_name, {"runs": runs})
+        if "period" not in request.GET or "workflow_state" not in request.GET:
+            query = request.GET.copy()
+            if "period" not in query:
+                query["period"] = "30"
+            if "workflow_state" not in query:
+                query["workflow_state"] = "action_required"
+            return HttpResponseRedirect(f"{request.path}?{query.urlencode()}")
+        return super().get(request)
+
+    def get_queryset(self, request: HttpRequest) -> models.QuerySet[CollectionRun]:
+        return _reconciliation_queryset(
+            include_comparison=request.user.has_perm("netbox_ssot.view_comparisonrun")
+        )
+
+    def get_table(self, data: Any, request: HttpRequest, bulk_actions: bool = True) -> ssot_tables.ReconciliationTable:
+        table = self.table(
+            data,
+            include_comparison=request.user.has_perm("netbox_ssot.view_comparisonrun"),
+        )
+        table.configure(request)
+        return table
+
+    def get_extra_context(self, request: HttpRequest) -> dict[str, Any]:
+        return {
+            "page_title": "Reconciliations",
+            "page_description": "Follow each collection through comparison, review, and apply in one lifecycle.",
+        }
+
+
+class RunListView(PermissionRequiredMixin, View):
+    permission_required = "netbox_ssot.view_collectionrun"
+
+    def get(self, request: HttpRequest) -> HttpResponse:
+        return redirect("plugins:netbox_ssot:reconciliation_list")
 
 
 class RunDetailView(PermissionRequiredMixin, View):
@@ -789,7 +973,7 @@ class RunDetailView(PermissionRequiredMixin, View):
     template_name = "netbox_ssot/run_detail.html"
 
     def get(self, request: HttpRequest, pk: object) -> HttpResponse:
-        run = get_object_or_404(CollectionRun.objects.select_related("source", "agent"), pk=pk)
+        run = get_object_or_404(_reconciliation_queryset(), pk=pk)
         raw_counts = list(
             run.stored_observations.values("resource_kind").annotate(count=models.Count("id")).order_by("resource_kind")
         )
@@ -862,6 +1046,7 @@ class RunDetailView(PermissionRequiredMixin, View):
             self.template_name,
             {
                 "run": run,
+                "reconciliation": reconciliation_row(run),
                 "provider_name": provider_name,
                 "page": page,
                 "model_count": model_count,
@@ -872,6 +1057,7 @@ class RunDetailView(PermissionRequiredMixin, View):
                 "duration_seconds": duration_seconds,
                 "comparisons": comparisons,
                 "comparison_preparation": comparison_preparation,
+                **_preparation_status_context(request, comparison_preparation),
                 "workflow": workflow_presentation(
                     request,
                     run,
@@ -882,6 +1068,40 @@ class RunDetailView(PermissionRequiredMixin, View):
                     progress=latest_progress,
                     current_stage="run",
                 ),
+            },
+        )
+
+
+class RunStatusView(PermissionRequiredMixin, View):
+    permission_required = "netbox_ssot.view_collectionrun"
+    template_name = "netbox_ssot/_comparison_status.html"
+
+    def get(self, request: HttpRequest, pk: object) -> HttpResponse:
+        run = get_object_or_404(CollectionRun, pk=pk)
+        preparation = get_object_or_404(
+            ComparisonPreparation.objects.select_related("comparison"),
+            collection_run=run,
+        )
+        if not getattr(request, "htmx", False):
+            return redirect("plugins:netbox_ssot:run_detail", pk=run.pk)
+        if preparation.state == ComparisonPreparation.State.COMPLETED and preparation.comparison_id:
+            response = HttpResponse(status=204)
+            response["HX-Redirect"] = reverse(
+                "plugins:netbox_ssot:comparison_detail",
+                kwargs={"pk": preparation.comparison_id},
+            )
+            return response
+        if preparation.state == ComparisonPreparation.State.FAILED:
+            response = HttpResponse(status=204)
+            response["HX-Refresh"] = "true"
+            return response
+        return render(
+            request,
+            self.template_name,
+            {
+                "run": run,
+                "comparison_preparation": preparation,
+                **_preparation_status_context(request, preparation),
             },
         )
 
@@ -1005,16 +1225,9 @@ class ComparisonCreateView(PermissionRequiredMixin, View):
 
 class ComparisonListView(PermissionRequiredMixin, View):
     permission_required = "netbox_ssot.view_comparisonrun"
-    template_name = "netbox_ssot/comparison_list.html"
-
     def get(self, request: HttpRequest) -> HttpResponse:
-        comparisons = ComparisonRun.objects.select_related(
-            "collection_run",
-            "collection_run__source",
-            "final_review",
-            "apply_run",
-        )[:200]
-        return render(request, self.template_name, {"comparisons": comparisons})
+        url = reverse("plugins:netbox_ssot:reconciliation_list")
+        return HttpResponseRedirect(url)
 
 
 class ComparisonDetailView(PermissionRequiredMixin, View):
@@ -1026,7 +1239,13 @@ class ComparisonDetailView(PermissionRequiredMixin, View):
             ComparisonRun.objects.select_related("collection_run", "collection_run__source"),
             pk=pk,
         )
-        items = comparison.items.all()
+        items = comparison.items.annotate(
+            ui_change_count=models.Func(
+                models.F("changes"),
+                function="jsonb_array_length",
+                output_field=models.IntegerField(),
+            )
+        ).defer("changes", "source_data", "target_data")
         action = request.GET.get("action", "")
         resource_kind = request.GET.get("kind", "")
         if action in ComparisonItem.Action.values:
@@ -1050,7 +1269,7 @@ class ComparisonDetailView(PermissionRequiredMixin, View):
             .annotate(count=models.Count("pk"))
             .order_by("-count", "resource_kind", "reason")[:10]
         )
-        readiness = None if application else inspect_application(comparison, request.user)
+        readiness = None if application else inspect_application_summary(comparison, request.user)
         preapproval_blockers = (
             tuple(reason for reason in readiness.reasons if reason != APPROVAL_REQUIRED_REASON)
             if readiness is not None and final_review is None
@@ -1200,11 +1419,21 @@ class ComparisonReviewActionView(PermissionRequiredMixin, View):
             elif action == "approve_all_and_finalize":
                 _ensure_review_can_progress_to_apply(comparison)
                 approve_all_review_items(comparison, request.user)
-                finalize_review(comparison, ComparisonReview.Decision.APPROVED, request.user)
+                finalize_review(
+                    comparison,
+                    ComparisonReview.Decision.APPROVED,
+                    request.user,
+                    reason=reason,
+                )
                 messages.success(request, "Review approved. Continue to the apply step below.")
             elif action == "finalize_approval":
                 _ensure_review_can_progress_to_apply(comparison)
-                finalize_review(comparison, ComparisonReview.Decision.APPROVED, request.user)
+                finalize_review(
+                    comparison,
+                    ComparisonReview.Decision.APPROVED,
+                    request.user,
+                    reason=reason,
+                )
                 messages.success(request, "Review approved. Continue to the apply step below.")
             elif action == "reject":
                 finalize_review(
@@ -1290,16 +1519,9 @@ class ApplyCreateView(PermissionRequiredMixin, View):
 
 class ApplyListView(PermissionRequiredMixin, View):
     permission_required = "netbox_ssot.view_applyrun"
-    template_name = "netbox_ssot/apply_list.html"
-
     def get(self, request: HttpRequest) -> HttpResponse:
-        apply_runs = ApplyRun.objects.select_related(
-            "comparison",
-            "comparison__collection_run",
-            "comparison__collection_run__source",
-            "applied_by",
-        )[:200]
-        return render(request, self.template_name, {"apply_runs": apply_runs})
+        url = reverse("plugins:netbox_ssot:reconciliation_list")
+        return HttpResponseRedirect(f"{url}?workflow_state=complete")
 
 
 class ApplyDetailView(PermissionRequiredMixin, View):
@@ -1563,6 +1785,56 @@ def _source_queryset() -> models.QuerySet[DiscoverySource]:
     )
 
 
+def _reconciliation_queryset(*, include_comparison: bool = True) -> models.QuerySet[CollectionRun]:
+    latest_comparison = ComparisonRun.objects.filter(collection_run=OuterRef("pk")).order_by("-created_at")
+    queryset = CollectionRun.objects.select_related("source", "agent").annotate(
+        ui_latest_comparison_id=Subquery(latest_comparison.values("pk")[:1]),
+        ui_latest_direction=Subquery(latest_comparison.values("direction")[:1]),
+        ui_latest_create_count=Subquery(latest_comparison.values("create_count")[:1]),
+        ui_latest_update_count=Subquery(latest_comparison.values("update_count")[:1]),
+        ui_latest_conflict_count=Subquery(latest_comparison.values("conflict_count")[:1]),
+        ui_latest_skipped_count=Subquery(latest_comparison.values("skipped_count")[:1]),
+        ui_latest_review_decision=Subquery(latest_comparison.values("final_review__decision")[:1]),
+        ui_latest_apply_id=Subquery(latest_comparison.values("apply_run__pk")[:1]),
+    )
+    if not include_comparison:
+        return queryset
+    comparisons = ComparisonRun.objects.select_related(
+        "final_review",
+        "final_review__reviewed_by",
+        "apply_run",
+        "apply_run__applied_by",
+    ).order_by("-created_at")
+    return queryset.select_related(
+        "comparison_preparation",
+        "comparison_preparation__comparison",
+        "comparison_preparation__comparison__final_review",
+        "comparison_preparation__comparison__apply_run",
+    ).prefetch_related(Prefetch("comparisons", queryset=comparisons, to_attr="ui_comparisons"))
+
+
+def _preparation_status_context(
+    request: HttpRequest,
+    preparation: ComparisonPreparation | None,
+) -> dict[str, Any]:
+    job = Job.objects.filter(job_id=preparation.job_id).first() if preparation and preparation.job_id else None
+    stalled = bool(
+        preparation
+        and preparation.state == ComparisonPreparation.State.PENDING
+        and preparation.started_at is None
+        and timezone.now() - preparation.updated_at > timedelta(minutes=1)
+    )
+    return {
+        "preparation_job": job,
+        "preparation_stalled": stalled,
+        "preparation_job_url": (
+            reverse("core:background_task", kwargs={"job_id": preparation.job_id})
+            if job and request.user.has_perm("core.view_job")
+            else ""
+        ),
+    }
+
+
 def _source_action_redirect(source: DiscoverySource) -> HttpResponseRedirect:
     return HttpResponseRedirect(
         reverse("plugins:netbox_ssot:source_detail", kwargs={"pk": source.pk}) + "#agent-actions"
@@ -1699,7 +1971,7 @@ def _agent_security_activity(event: AgentSecurityEvent) -> dict[str, Any]:
     if event.kind == AgentSecurityEvent.Kind.SOURCE_REASSIGNED and event.details.get("source_id"):
         url = reverse("plugins:netbox_ssot:source_detail", kwargs={"pk": event.details["source_id"]})
     elif event.agent_id:
-        url = reverse("plugins:netbox_ssot:agent_edit", kwargs={"pk": event.agent_id})
+        url = reverse("plugins:netbox_ssot:agent_detail", kwargs={"pk": event.agent_id})
     else:
         url = reverse("plugins:netbox_ssot:agent_list")
     return {

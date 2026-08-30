@@ -10,3 +10,6 @@ __pycache__/
 build/
 dist/
 htmlcov/
+tests/ui/node_modules/
+tests/ui/playwright-report/
+tests/ui/test-results/

@@ -1,0 +1,68 @@
+.ssot-page-heading { max-width: 72rem; }
+.ssot-page-header h1 { font-size: clamp(1.55rem, 2vw, 2rem); letter-spacing: -.02em; }
+.ssot-mode-tabs { border-bottom: 1px solid var(--tblr-border-color); }
+.ssot-mode-tabs .nav-link { border: 0; border-bottom: 3px solid transparent; color: var(--tblr-secondary-color); padding: .75rem 1rem; }
+.ssot-mode-tabs .nav-link.active { border-bottom-color: var(--tblr-primary); color: var(--tblr-body-color); font-weight: 600; }
+.ssot-kpi { min-height: 8.5rem; }
+.ssot-kpi-value { font-size: clamp(2rem, 4vw, 3.25rem); font-weight: 650; letter-spacing: -.04em; line-height: 1; }
+.ssot-kpi-label { color: var(--tblr-secondary-color); font-size: .78rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.ssot-chart { min-height: 22rem; }
+.ssot-chart-value { font-size: 2.25rem; font-weight: 650; letter-spacing: -.04em; line-height: 1; }
+.ssot-chart-frame { min-height: 12rem; padding-left: 2.75rem; position: relative; }
+.ssot-chart-plot { color: var(--tblr-primary); height: 12rem; position: relative; }
+.ssot-chart-plot svg { display: block; height: 100%; overflow: hidden; width: 100%; }
+.ssot-chart-grid { stroke: var(--tblr-border-color); stroke-dasharray: 2 2; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.ssot-chart-line { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2.5; vector-effect: non-scaling-stroke; }
+.ssot-chart-fill { fill: url("#ssot-alignment-fill"); }
+.ssot-chart-point { background: var(--tblr-bg-surface); border: 2px solid var(--tblr-primary); border-radius: 50%; height: .7rem; left: var(--ssot-chart-x); position: absolute; top: var(--ssot-chart-y); transform: translate(-50%, -50%); width: .7rem; }
+.ssot-chart-y-axis { color: var(--tblr-secondary-color); display: flex; flex-direction: column; font-size: .72rem; height: 10.08rem; justify-content: space-between; left: 0; position: absolute; top: .96rem; }
+.ssot-chart-x-axis { color: var(--tblr-secondary-color); display: flex; font-size: .72rem; justify-content: space-between; margin-left: 2.75rem; padding: .35rem 2% 0; }
+.ssot-chart-single { align-items: center; background: var(--tblr-bg-surface-secondary); border-radius: var(--tblr-border-radius); color: var(--tblr-secondary-color); display: flex; gap: .75rem; min-height: 8rem; padding: 1.5rem; }
+.ssot-chart-single .mdi { font-size: 2rem; }
+.ssot-status-strip { border-left: .25rem solid var(--tblr-border-color); }
+.ssot-status-strip[data-tone="danger"] { border-left-color: var(--tblr-danger); }
+.ssot-status-strip[data-tone="warning"] { border-left-color: var(--tblr-warning); }
+.ssot-status-strip[data-tone="primary"] { border-left-color: var(--tblr-primary); }
+.ssot-status-strip[data-tone="success"] { border-left-color: var(--tblr-success); }
+.ssot-status-strip[data-tone="info"] { border-left-color: var(--tblr-info); }
+.ssot-action-list .list-group-item { padding: 1rem 1.25rem; }
+.ssot-action-list .list-group-item:hover { background: var(--tblr-bg-surface-secondary); }
+.ssot-mini-progress { height: .55rem; min-width: 10rem; }
+.ssot-summary-filter { border: 1px solid transparent; border-radius: var(--tblr-border-radius); color: inherit; display: block; padding: .45rem .25rem; text-decoration: none; transition: background-color .15s ease, border-color .15s ease; }
+.ssot-summary-filter:not(.is-disabled):hover { background: var(--tblr-bg-surface-secondary); border-color: var(--tblr-border-color); text-decoration: none; }
+.ssot-summary-filter.is-active { background: color-mix(in srgb, var(--tblr-primary) 10%, transparent); border-color: var(--tblr-primary); }
+.ssot-summary-filter.is-disabled { opacity: .65; }
+.ssot-decision-action { align-items: center; display: inline-flex; height: 2.25rem; justify-content: center; padding: 0; width: 2.25rem; }
+.ssot-decision-action .mdi { font-size: 1.15rem; line-height: 1; }
+.ssot-stage-icon { align-items: center; border-radius: 50%; display: inline-flex; flex: 0 0 auto; font-size: 1.25rem; height: 2.5rem; justify-content: center; width: 2.5rem; }
+.ssot-apply-confirmation { background: var(--tblr-bg-surface-secondary); border: 1px solid var(--tblr-border-color); border-radius: var(--tblr-border-radius); display: flex; flex-direction: column; justify-content: center; padding: 1.25rem; }
+.ssot-table-action { align-items: center; display: inline-flex; height: 2rem; justify-content: center; padding: 0; width: 2rem; }
+.ssot-table-action .mdi { font-size: 1rem; line-height: 1; }
+.ssot-empty-state > .mdi { color: var(--tblr-secondary-color); font-size: 3rem; }
+.ssot-empty-state p { max-width: 36rem; }
+.ssot-timeline { border-left: 2px solid var(--tblr-border-color); margin-left: .7rem; padding-left: 1.5rem; }
+.ssot-timeline-item { position: relative; }
+.ssot-timeline-item::before { background: var(--tblr-bg-surface); border: 2px solid var(--tblr-primary); border-radius: 50%; content: ""; height: .8rem; left: -1.96rem; position: absolute; top: .3rem; width: .8rem; }
+.ssot-definition dt { color: var(--tblr-secondary-color); font-size: .75rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.ssot-definition dd { margin-bottom: 1.1rem; overflow-wrap: anywhere; }
+.ssot-technical pre { max-height: 32rem; overflow: auto; white-space: pre-wrap; }
+.ssot-record-note { max-width: 34rem; white-space: normal; }
+.ssot-workflow-compact .ssot-step { border-top: 3px solid var(--tblr-border-color); min-width: 8rem; padding-top: .65rem; }
+.ssot-workflow-compact .ssot-step.is-complete { border-color: var(--tblr-success); }
+.ssot-workflow-compact .ssot-step.is-current { border-color: var(--tblr-primary); }
+.ssot-workflow-compact .ssot-step.is-attention { border-color: var(--tblr-danger); }
+@media (max-width: 767.98px) {
+  .ssot-chart { min-height: 18rem; }
+  .ssot-chart-frame { min-height: 9rem; padding-left: 2.25rem; }
+  .ssot-chart-plot { height: 9rem; }
+  .ssot-chart-y-axis { height: 7.56rem; top: .72rem; }
+  .ssot-chart-x-axis { margin-left: 2.25rem; }
+  .ssot-table-cards thead { display: none; }
+  .ssot-table-cards tbody, .ssot-table-cards tr, .ssot-table-cards td { display: block; width: 100%; }
+  .ssot-table-cards tr { border-bottom: 1px solid var(--tblr-border-color); padding: .75rem; }
+  .ssot-table-cards td { border: 0; padding: .3rem 0; text-align: left !important; }
+  .ssot-table-cards td[data-label]::before { color: var(--tblr-secondary-color); content: attr(data-label); display: block; font-size: .7rem; font-weight: 600; text-transform: uppercase; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ssot-mode-tabs .nav-link { transition: none; }
+}

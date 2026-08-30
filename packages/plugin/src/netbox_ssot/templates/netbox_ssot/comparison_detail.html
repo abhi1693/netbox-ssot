@@ -1,9 +1,9 @@
-{% extends 'base/layout.html' %}
+{% extends 'netbox_ssot/base.html' %}
 
 {% block title %}Review changes{% endblock %}
 
 {% block content %}
-  <h1>Review changes</h1>
+  {% include 'netbox_ssot/_page_header.html' with page_title='Review changes' page_description='Decide whether the immutable comparison is safe to apply. Reviewing never changes NetBox.' %}
   <p class="text-secondary"><a href="{% url 'plugins:netbox_ssot:source_detail' pk=comparison.collection_run.source_id %}">{{ comparison.collection_run.source }}</a> · {{ comparison.get_direction_display }} · {{ comparison.created_at }}</p>
 
   {% include 'netbox_ssot/_workflow.html' %}
@@ -14,8 +14,6 @@
     <div class="alert alert-danger"><strong>Review stale.</strong> Local NetBox data changed after this comparison. Create a fresh comparison before applying.</div>
   {% elif review_state == 'rejected' %}
     <div class="alert alert-warning"><strong>Review rejected.</strong> This comparison is finalized and cannot be applied.</div>
-  {% elif review_state == 'approved' %}
-    <div class="alert alert-success"><strong>Review approved.</strong> The immutable approval is ready for a separately permissioned apply.</div>
   {% elif comparison.conflict_count or comparison.skipped_count %}
     <div class="alert alert-warning">
       <strong>Apply unavailable.</strong>
@@ -28,14 +26,17 @@
     <div class="alert alert-success"><strong>Everything already matches.</strong> No changes are needed.</div>
   {% endif %}
 
-  <div class="row row-cols-2 row-cols-lg-6 g-3 mb-3">
-    <div class="col"><div class="card h-100"><div class="card-body"><div class="text-secondary">Review</div><div class="fs-5">{{ review_state_label }}</div></div></div></div>
-    <div class="col"><div class="card h-100"><div class="card-body"><div class="text-secondary">Creates</div><div class="fs-3">{{ comparison.create_count }}</div></div></div></div>
-    <div class="col"><div class="card h-100"><div class="card-body"><div class="text-secondary">Updates</div><div class="fs-3">{{ comparison.update_count }}</div></div></div></div>
-    <div class="col"><div class="card h-100"><div class="card-body"><div class="text-secondary">Matches</div><div class="fs-3">{{ comparison.no_change_count }}</div></div></div></div>
-    <div class="col"><div class="card h-100"><div class="card-body"><div class="text-secondary">Conflicts</div><div class="fs-3">{{ comparison.conflict_count }}</div></div></div></div>
-    <div class="col"><div class="card h-100"><div class="card-body"><div class="text-secondary">Skipped</div><div class="fs-3">{{ comparison.skipped_count }}</div></div></div></div>
-  </div>
+  {% if not application and final_review.decision == 'approved' %}
+    {% include 'netbox_ssot/_approved_apply.html' %}
+  {% endif %}
+
+  <div class="card mb-3"><div class="card-body"><div class="row g-4 align-items-center"><div class="col-lg-3"><div class="ssot-kpi-label">{% if final_review.decision == 'approved' %}Approved plan{% else %}Review state{% endif %}</div><div class="fs-2 fw-semibold mt-2">{% if final_review.decision == 'approved' %}{{ comparison.create_count|add:comparison.update_count }} changes{% else %}{{ review_state_label }}{% endif %}</div>{% if final_review.decision == 'approved' %}<div class="small text-secondary mt-1">Source → NetBox</div>{% endif %}</div><div class="col-lg-9"><div class="progress mb-3" style="height: 1.4rem" role="img" aria-label="Comparison result composition">{% if comparison.no_change_count %}<div class="progress-bar bg-success" style="width: {% widthratio comparison.no_change_count comparison.item_count 100 %}%" title="Matches: {{ comparison.no_change_count }}"></div>{% endif %}{% if comparison.create_count %}<div class="progress-bar bg-primary" style="width: {% widthratio comparison.create_count comparison.item_count 100 %}%" title="Creates: {{ comparison.create_count }}"></div>{% endif %}{% if comparison.update_count %}<div class="progress-bar bg-warning" style="width: {% widthratio comparison.update_count comparison.item_count 100 %}%" title="Updates: {{ comparison.update_count }}"></div>{% endif %}{% if comparison.conflict_count %}<div class="progress-bar bg-danger" style="width: {% widthratio comparison.conflict_count comparison.item_count 100 %}%" title="Conflicts: {{ comparison.conflict_count }}"></div>{% endif %}{% if comparison.skipped_count %}<div class="progress-bar bg-secondary" style="width: {% widthratio comparison.skipped_count comparison.item_count 100 %}%" title="Skipped: {{ comparison.skipped_count }}"></div>{% endif %}</div><div class="row row-cols-2 row-cols-md-5 g-2 text-center">
+    <div class="col">{% if comparison.create_count %}<a class="ssot-summary-filter{% if selected_action == 'create' %} is-active{% endif %}" href="?action=create#comparison-records" aria-label="Show {{ comparison.create_count }} create records"{% if selected_action == 'create' %} aria-current="true"{% endif %}><strong class="d-block fs-3 text-primary">{{ comparison.create_count }}</strong><span class="small text-secondary">Creates</span></a>{% else %}<span class="ssot-summary-filter is-disabled" aria-disabled="true"><strong class="d-block fs-3 text-secondary">0</strong><span class="small text-secondary">Creates</span></span>{% endif %}</div>
+    <div class="col">{% if comparison.update_count %}<a class="ssot-summary-filter{% if selected_action == 'update' %} is-active{% endif %}" href="?action=update#comparison-records" aria-label="Show {{ comparison.update_count }} update records"{% if selected_action == 'update' %} aria-current="true"{% endif %}><strong class="d-block fs-3 text-warning">{{ comparison.update_count }}</strong><span class="small text-secondary">Updates</span></a>{% else %}<span class="ssot-summary-filter is-disabled" aria-disabled="true"><strong class="d-block fs-3 text-secondary">0</strong><span class="small text-secondary">Updates</span></span>{% endif %}</div>
+    <div class="col">{% if comparison.no_change_count %}<a class="ssot-summary-filter{% if selected_action == 'no_change' %} is-active{% endif %}" href="?action=no_change#comparison-records" aria-label="Show {{ comparison.no_change_count }} matching records"{% if selected_action == 'no_change' %} aria-current="true"{% endif %}><strong class="d-block fs-3 text-success">{{ comparison.no_change_count }}</strong><span class="small text-secondary">Matches</span></a>{% else %}<span class="ssot-summary-filter is-disabled" aria-disabled="true"><strong class="d-block fs-3 text-secondary">0</strong><span class="small text-secondary">Matches</span></span>{% endif %}</div>
+    <div class="col">{% if comparison.conflict_count %}<a class="ssot-summary-filter{% if selected_action == 'conflict' %} is-active{% endif %}" href="?action=conflict#comparison-records" aria-label="Show {{ comparison.conflict_count }} conflict records"{% if selected_action == 'conflict' %} aria-current="true"{% endif %}><strong class="d-block fs-3 text-danger">{{ comparison.conflict_count }}</strong><span class="small text-secondary">Conflicts</span></a>{% else %}<span class="ssot-summary-filter is-disabled" aria-disabled="true"><strong class="d-block fs-3 text-secondary">0</strong><span class="small text-secondary">Conflicts</span></span>{% endif %}</div>
+    <div class="col">{% if comparison.skipped_count %}<a class="ssot-summary-filter{% if selected_action == 'skipped' %} is-active{% endif %}" href="?action=skipped#comparison-records" aria-label="Show {{ comparison.skipped_count }} skipped records"{% if selected_action == 'skipped' %} aria-current="true"{% endif %}><strong class="d-block fs-3">{{ comparison.skipped_count }}</strong><span class="small text-secondary">Skipped</span></a>{% else %}<span class="ssot-summary-filter is-disabled" aria-disabled="true"><strong class="d-block fs-3 text-secondary">0</strong><span class="small text-secondary">Skipped</span></span>{% endif %}</div>
+  </div></div></div></div></div></div>
 
   {% if not application and blocked_item_reasons %}
     <div class="card border-warning mb-3"><div class="card-body">
@@ -58,64 +59,43 @@
     </div></div>
   {% endif %}
 
-  {% if not application and final_review %}
+  {% if not application and final_review.decision == 'rejected' %}
     <div class="card mb-3"><div class="card-body">
-      <h2 class="h5">Final review</h2>
-      <p class="mb-1"><span class="badge {% if final_review.decision == 'approved' %}text-bg-success{% else %}text-bg-warning{% endif %}">{{ final_review.get_decision_display }}</span> by {{ final_review.reviewed_by }} at {{ final_review.reviewed_at }}.</p>
+      <h2 class="h5">Review rejected</h2>
+      <p class="mb-1"><span class="badge text-bg-warning">{{ final_review.get_decision_display }}</span> by {{ final_review.reviewed_by }} at {{ final_review.reviewed_at }}.</p>
       <p class="text-secondary mb-0">{{ final_review.approved_count }} approved · {{ final_review.rejected_count }} rejected{% if final_review.reason %} · {{ final_review.reason }}{% endif %}</p>
     </div></div>
   {% elif not application and review_state == 'in_review' %}
-    <div class="card border-primary mb-3" id="review-actions"><div class="card-body">
-      <h2 class="h5">Approve proposed changes</h2>
-      <p>{{ review_progress.approved_count }} approved · {{ review_progress.rejected_count }} rejected · {{ review_progress.undecided_count }} undecided. Decisions are append-only audit events until this review is finalized.</p>
-      {% if perms.netbox_ssot.add_comparisonreview %}
-        {% if has_changes and not comparison.conflict_count and not comparison.skipped_count and not preapproval_blockers %}<div class="d-flex flex-wrap gap-2 mb-3">
-          {% if review_progress.undecided_count or review_progress.rejected_count %}
-            <form method="post" action="{% url 'plugins:netbox_ssot:comparison_review' pk=comparison.pk %}">
-              {% csrf_token %}<input name="action" type="hidden" value="approve_all_and_finalize">
-              <button class="btn btn-primary" type="submit">Approve all and continue to apply <i class="mdi mdi-arrow-right ms-1" aria-hidden="true"></i></button>
-            </form>
-          {% else %}
-            <form method="post" action="{% url 'plugins:netbox_ssot:comparison_review' pk=comparison.pk %}">
-              {% csrf_token %}<input name="action" type="hidden" value="finalize_approval">
-              <button class="btn btn-primary" type="submit">Finalize approval and continue <i class="mdi mdi-arrow-right ms-1" aria-hidden="true"></i></button>
-            </form>
-          {% endif %}
+    <div class="card border-primary mb-3 ssot-status-strip" data-tone="primary" id="review-actions">
+      <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div><h2 class="card-title mb-1">Review decision</h2><div class="small text-secondary">{{ review_progress.approved_count }} approved · {{ review_progress.rejected_count }} rejected · {{ review_progress.undecided_count }} undecided</div></div>
+        {% if perms.netbox_ssot.add_comparisonreview %}<div class="d-flex gap-2">
+          {% if has_changes and not comparison.conflict_count and not comparison.skipped_count and not preapproval_blockers %}<button class="btn btn-success ssot-decision-action" type="button" title="Approve review" aria-label="Approve review" data-bs-toggle="modal" data-bs-target="#approve-review-modal"><i class="mdi mdi-check" aria-hidden="true"></i></button>{% endif %}
+          <button class="btn btn-outline-danger ssot-decision-action" type="button" title="Reject review" aria-label="Reject review" data-bs-toggle="modal" data-bs-target="#reject-review-modal"><i class="mdi mdi-close" aria-hidden="true"></i></button>
         </div>{% endif %}
-        <form class="row g-2 align-items-end" method="post" action="{% url 'plugins:netbox_ssot:comparison_review' pk=comparison.pk %}">
-          {% csrf_token %}<input name="action" type="hidden" value="reject">
-          <div class="col-md-9"><label class="form-label" for="review-reason">Rejection reason</label><input class="form-control" id="review-reason" maxlength="1000" name="reason" required></div>
-          <div class="col-md-3"><button class="btn btn-outline-danger w-100" type="submit">Reject review</button></div>
-        </form>
-      {% else %}
-        <p class="text-secondary mb-0">You do not have permission to record or finalize review decisions.</p>
-      {% endif %}
-    </div></div>
+      </div>
+      <div class="card-body py-3"><p class="mb-0">Approve the complete proposed plan or reject this review. Every final decision is confirmed and recorded as an immutable audit event.</p>{% if not perms.netbox_ssot.add_comparisonreview %}<p class="text-secondary mb-0 mt-2">You do not have permission to finalize review decisions.</p>{% endif %}</div>
+    </div>
+
+    {% if perms.netbox_ssot.add_comparisonreview %}
+      {% if has_changes and not comparison.conflict_count and not comparison.skipped_count and not preapproval_blockers %}<div class="modal fade" id="approve-review-modal" tabindex="-1" aria-labelledby="approve-review-title" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><form method="post" action="{% url 'plugins:netbox_ssot:comparison_review' pk=comparison.pk %}">
+        {% csrf_token %}<input name="action" type="hidden" value="{% if review_progress.undecided_count or review_progress.rejected_count %}approve_all_and_finalize{% else %}finalize_approval{% endif %}">
+        <div class="modal-header"><h2 class="modal-title fs-5" id="approve-review-title">Approve proposed changes?</h2><button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="Close"></button></div>
+        <div class="modal-body"><p>This finalizes approval for {{ comparison.create_count|add:comparison.update_count }} proposed change{{ comparison.create_count|add:comparison.update_count|pluralize }} and continues to the separately confirmed apply step.</p><label class="form-label" for="approve-review-note">Review note <span class="text-secondary fw-normal">(optional)</span></label><textarea class="form-control" id="approve-review-note" maxlength="1000" name="reason" rows="3" placeholder="Add context for the audit record"></textarea></div>
+        <div class="modal-footer"><button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancel</button><button class="btn btn-success" type="submit"><i class="mdi mdi-check me-1" aria-hidden="true"></i>{% if review_progress.undecided_count or review_progress.rejected_count %}Approve all and continue to apply{% else %}Finalize approval and continue{% endif %}</button></div>
+      </form></div></div></div>{% endif %}
+
+      <div class="modal fade" id="reject-review-modal" tabindex="-1" aria-labelledby="reject-review-title" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><form method="post" action="{% url 'plugins:netbox_ssot:comparison_review' pk=comparison.pk %}">
+        {% csrf_token %}<input name="action" type="hidden" value="reject">
+        <div class="modal-header"><h2 class="modal-title fs-5" id="reject-review-title">Reject this review?</h2><button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="Close"></button></div>
+        <div class="modal-body"><p>Rejecting finalizes this immutable comparison. A fresh collection and comparison will be required before any changes can be applied.</p><label class="form-label" for="reject-review-reason">Rejection reason</label><textarea class="form-control" id="reject-review-reason" maxlength="1000" name="reason" rows="3" placeholder="Explain what must be corrected" required></textarea><div class="form-hint">Required for the audit record.</div></div>
+        <div class="modal-footer"><button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancel</button><button class="btn btn-danger" type="submit"><i class="mdi mdi-close me-1" aria-hidden="true"></i>Reject review</button></div>
+      </form></div></div></div>
+    {% endif %}
   {% endif %}
 
-  {% if not application and final_review.decision == 'approved' and readiness.ready and has_changes %}
-    <div class="card border-warning mb-3" id="apply-actions"><div class="card-body">
-      <h2 class="h5">Apply approved changes to NetBox</h2>
-      <p>This will create {{ comparison.create_count }} and update {{ comparison.update_count }} local records. Existing destination-only records are left alone.</p>
-      {% if perms.netbox_ssot.add_applyrun %}
-        <form method="post" action="{% url 'plugins:netbox_ssot:apply_add' pk=comparison.pk %}">
-          {% csrf_token %}
-          <div class="form-check mb-3">
-            <input class="form-check-input" id="confirm-apply" name="confirm" type="checkbox" value="apply" required>
-            <label class="form-check-label" for="confirm-apply">I reviewed these changes and want to apply them.</label>
-          </div>
-          <button class="btn btn-warning" type="submit">Apply approved changes</button>
-        </form>
-      {% else %}
-        <p class="text-secondary mb-0">You do not have permission to apply changes.</p>
-      {% endif %}
-    </div></div>
-  {% elif not application and final_review and not readiness.ready %}
-    <div class="alert alert-danger" id="apply-actions"><h2 class="h5">Apply blocked</h2><ul class="mb-0">{% for reason in readiness.reasons %}<li>{{ reason }}</li>{% endfor %}</ul></div>
-  {% endif %}
-
-  <div class="card mb-3">
-    <div class="card-header"><strong>Review individual records</strong></div>
+  <div class="card mb-3" id="comparison-records">
+    <div class="card-header"><div><h2 class="card-title mb-1">Review individual records</h2><div class="small text-secondary">Inspect and decide individual creates and updates; matches remain read-only evidence.</div></div></div>
     <div class="card-body border-bottom"><form method="get"><div class="row g-2 align-items-end">
       <div class="col-md-4"><label class="form-label" for="action">Result</label><select class="form-select" id="action" name="action"><option value="">All results</option>{% for value, label in actions %}<option value="{{ value }}" {% if selected_action == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
       <div class="col-md-4"><label class="form-label" for="kind">Data type</label><select class="form-select" id="kind" name="kind"><option value="">All types</option>{% for kind in kinds %}<option value="{{ kind }}" {% if selected_kind == kind %}selected{% endif %}>{{ kind }}</option>{% endfor %}</select></div>
@@ -126,7 +106,7 @@
       <tbody>{% for item in page %}<tr>
         <td><span class="badge {% if item.action == 'create' %}text-bg-success{% elif item.action == 'update' %}text-bg-warning{% elif item.action == 'conflict' %}text-bg-danger{% elif item.action == 'skipped' %}text-bg-secondary{% else %}text-bg-info{% endif %}">{{ item.get_action_display }}</span></td>
         <td>{% if item.current_review_decision %}<span class="badge {% if item.current_review_decision.decision == 'approve' %}text-bg-success{% else %}text-bg-danger{% endif %}">{{ item.current_review_decision.get_decision_display }}</span>{% elif item.action == 'create' or item.action == 'update' %}<span class="badge text-bg-secondary">Undecided</span>{% else %}<span class="text-secondary">—</span>{% endif %}</td>
-        <td>{{ item.resource_kind }}</td><td><a href="{% url 'plugins:netbox_ssot:comparison_item_detail' comparison_pk=comparison.pk pk=item.pk %}">{{ item.display_name }}</a></td><td>{{ item.changes|length }}</td><td>{{ item.reason }}</td>
+        <td>{{ item.resource_kind }}</td><td><a href="{% url 'plugins:netbox_ssot:comparison_item_detail' comparison_pk=comparison.pk pk=item.pk %}">{{ item.display_name }}</a></td><td>{{ item.ui_change_count }}</td><td>{{ item.reason }}</td>
         <td class="text-end text-nowrap">
           {% if not final_review and perms.netbox_ssot.add_comparisonreview %}
             {% if item.action == 'create' or item.action == 'update' %}
@@ -135,15 +115,7 @@
                 {% csrf_token %}<input name="decision" type="hidden" value="approve"><input name="return" type="hidden" value="comparison"><input name="return_action" type="hidden" value="{{ selected_action }}"><input name="return_kind" type="hidden" value="{{ selected_kind }}"><input name="return_page" type="hidden" value="{{ page.number }}">
                 <button class="btn btn-sm btn-outline-success" type="submit" title="Approve {{ item.display_name }}" aria-label="Approve {{ item.display_name }}"{% if item.current_review_decision.decision == 'approve' %} disabled{% endif %}><i class="mdi mdi-check" aria-hidden="true"></i></button>
               </form>
-              <button class="btn btn-sm btn-outline-danger" type="button" title="Reject {{ item.display_name }}" aria-label="Reject {{ item.display_name }}" data-bs-toggle="modal" data-bs-target="#reject-item-{{ item.pk }}"{% if item.current_review_decision.decision == 'reject' %} disabled{% endif %}><i class="mdi mdi-close" aria-hidden="true"></i></button>
-            </div>
-            <div class="modal fade text-start" id="reject-item-{{ item.pk }}" tabindex="-1" aria-labelledby="reject-item-title-{{ item.pk }}" aria-hidden="true">
-              <div class="modal-dialog"><div class="modal-content"><form method="post" action="{% url 'plugins:netbox_ssot:comparison_item_decide' comparison_pk=comparison.pk pk=item.pk %}">
-                {% csrf_token %}<input name="decision" type="hidden" value="reject"><input name="return" type="hidden" value="comparison"><input name="return_action" type="hidden" value="{{ selected_action }}"><input name="return_kind" type="hidden" value="{{ selected_kind }}"><input name="return_page" type="hidden" value="{{ page.number }}">
-                <div class="modal-header"><h2 class="modal-title fs-5" id="reject-item-title-{{ item.pk }}">Reject {{ item.display_name }}</h2><button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="Close"></button></div>
-                <div class="modal-body"><label class="form-label" for="reject-reason-{{ item.pk }}">Rejection reason</label><textarea class="form-control" id="reject-reason-{{ item.pk }}" maxlength="1000" name="reason" rows="3" required></textarea></div>
-                <div class="modal-footer"><button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancel</button><button class="btn btn-danger" type="submit">Reject record</button></div>
-              </form></div></div>
+              <button class="btn btn-sm btn-outline-danger" type="button" title="Reject {{ item.display_name }}" aria-label="Reject {{ item.display_name }}" data-bs-toggle="modal" data-bs-target="#reject-item-modal" data-reject-label="{{ item.display_name }}" data-reject-url="{% url 'plugins:netbox_ssot:comparison_item_decide' comparison_pk=comparison.pk pk=item.pk %}"{% if item.current_review_decision.decision == 'reject' %} disabled{% endif %}><i class="mdi mdi-close" aria-hidden="true"></i></button>
             </div>
             {% else %}<span class="text-secondary">—</span>{% endif %}
           {% else %}<span class="text-secondary">—</span>{% endif %}
@@ -152,14 +124,40 @@
     </table></div>
   </div>
 
+  {% if not final_review and perms.netbox_ssot.add_comparisonreview %}
+    <div class="modal fade text-start" id="reject-item-modal" tabindex="-1" aria-labelledby="reject-item-title" aria-hidden="true">
+      <div class="modal-dialog"><div class="modal-content"><form id="reject-item-form" method="post" action="">
+        {% csrf_token %}<input name="decision" type="hidden" value="reject"><input name="return" type="hidden" value="comparison"><input name="return_action" type="hidden" value="{{ selected_action }}"><input name="return_kind" type="hidden" value="{{ selected_kind }}"><input name="return_page" type="hidden" value="{{ page.number }}">
+        <div class="modal-header"><h2 class="modal-title fs-5" id="reject-item-title">Reject record</h2><button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="Close"></button></div>
+        <div class="modal-body"><label class="form-label" for="reject-reason">Rejection reason</label><textarea class="form-control" id="reject-reason" maxlength="1000" name="reason" rows="3" required></textarea></div>
+        <div class="modal-footer"><button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancel</button><button class="btn btn-danger" type="submit">Reject record</button></div>
+      </form></div></div>
+    </div>
+  {% endif %}
+
   {% if page.paginator.num_pages > 1 %}<nav class="mb-3"><ul class="pagination">
     {% if page.has_previous %}<li class="page-item"><a class="page-link" href="?action={{ selected_action }}&kind={{ selected_kind }}&page={{ page.previous_page_number }}">Previous</a></li>{% endif %}
     <li class="page-item disabled"><span class="page-link">Page {{ page.number }} of {{ page.paginator.num_pages }}</span></li>
     {% if page.has_next %}<li class="page-item"><a class="page-link" href="?action={{ selected_action }}&kind={{ selected_kind }}&page={{ page.next_page_number }}">Next</a></li>{% endif %}
   </ul></nav>{% endif %}
 
-  <details class="card"><summary class="card-header"><strong>Technical details</strong></summary><div class="card-body small text-secondary">
+  <details class="card ssot-technical"><summary class="card-header"><strong>Technical details</strong><span class="text-secondary ms-2">Digests and engine provenance</span></summary><div class="card-body small text-secondary">
     <p>Collection: <a href="{% url 'plugins:netbox_ssot:run_detail' pk=comparison.collection_run_id %}"><code>{{ comparison.collection_run_id }}</code></a> · Direction {{ comparison.get_direction_display }} · Engine {{ comparison.engine_version }}</p>
     Source digest <code>{{ comparison.source_payload_digest }}</code><br>Target snapshot digest <code>{{ comparison.target_snapshot_digest }}</code>
   </div></details>
 {% endblock %}
+
+{% block javascript %}
+  {{ block.super }}
+  <script>
+    document.getElementById('reject-item-modal')?.addEventListener('show.bs.modal', (event) => {
+      const button = event.relatedTarget;
+      const form = document.getElementById('reject-item-form');
+      const title = document.getElementById('reject-item-title');
+      const reason = document.getElementById('reject-reason');
+      form.action = button.dataset.rejectUrl;
+      title.textContent = `Reject ${button.dataset.rejectLabel}`;
+      reason.value = '';
+    });
+  </script>
+{% endblock javascript %}

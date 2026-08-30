@@ -1,12 +1,11 @@
-{% extends 'base/layout.html' %}
+{% extends 'netbox_ssot/base.html' %}
 
 {% block title %}{% if editing %}Edit {{ source.name }}{% else %}Connect {{ wizard.provider.display_name }}{% endif %}{% endblock %}
 
 {% block content %}
   <div class="row justify-content-center">
     <div class="col-xl-8">
-      <h1 class="d-flex align-items-center gap-2"><i class="{{ wizard.provider.icon_class }} text-primary" aria-hidden="true"></i>{% if editing %}Edit {{ source.name }}{% else %}Connect {{ wizard.provider.display_name }}{% endif %}</h1>
-      <p class="text-secondary">{{ wizard.provider.description }}</p>
+      {% if editing %}{% include 'netbox_ssot/_page_header.html' with page_title='Source settings' page_description=wizard.provider.description %}{% else %}{% include 'netbox_ssot/_page_header.html' with page_title='Configure source' page_description=wizard.provider.description %}<div class="d-flex align-items-center gap-2 mb-3"><span class="badge rounded-pill text-bg-primary">2</span><strong>Configure source</strong><span class="text-secondary">Provider → Source configuration → Agent</span></div>{% endif %}
 
       <div class="alert alert-info">
         Credentials stay on the agent host and are never stored in NetBox.

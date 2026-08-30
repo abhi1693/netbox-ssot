@@ -1,32 +1,33 @@
-{% extends 'base/layout.html' %}
+{% extends 'netbox_ssot/base.html' %}
 
 {% block title %}Collection result{% endblock %}
 
 {% block content %}
-  <div class="mb-3">
-    <h1>Collection result</h1>
-    <p class="text-secondary mb-0"><a href="{% url 'plugins:netbox_ssot:source_detail' pk=run.source_id %}">{{ run.source }}</a> · {{ provider_name }} · {{ run.completed_at }}</p>
-  </div>
+  {% include 'netbox_ssot/_page_header.html' with page_title='Reconciliation evidence' page_description='Immutable provider observations collected before comparison or mutation.' page_status=reconciliation.status %}
+  <div class="d-flex flex-wrap gap-2 align-items-center mb-3"><a href="{% url 'plugins:netbox_ssot:source_detail' pk=run.source_id %}">{{ run.source }}</a><span class="text-secondary">·</span><span>{{ provider_name }}</span><span class="text-secondary">·</span><span>Source → NetBox</span><span class="text-secondary">·</span><time datetime="{{ run.completed_at|date:'c' }}">{{ run.completed_at }}</time></div>
 
   {% include 'netbox_ssot/_workflow.html' %}
+  {% if comparison_preparation.state == 'pending' or comparison_preparation.state == 'running' %}
+    {% include 'netbox_ssot/_comparison_status.html' %}
+  {% endif %}
   {% if comparison_preparation.state == 'failed' %}
-    <div class="alert alert-danger mb-3">
+    <div class="card border-danger mb-3"><div class="card-body">
       <strong>Comparison preparation failed.</strong>
       <span>{{ comparison_preparation.error|default:"The background worker did not provide an error." }}</span>
-    </div>
+    </div></div>
   {% endif %}
   {% if run.state == "complete" %}
-    <div class="alert alert-success d-flex flex-wrap gap-2 mb-3">
+    <div class="card ssot-status-strip mb-3" data-tone="success"><div class="card-body d-flex flex-wrap gap-2">
       <strong>Collection complete.</strong>
       <span>{{ run.observation_count }} records across {{ model_count }} model type{{ model_count|pluralize }} were received in {{ duration_seconds|floatformat:2 }} seconds.</span>
-    </div>
+    </div></div>
   {% else %}
-    <div class="alert alert-warning mb-3"><strong>Collection {{ run.state }}.</strong> Some records or relationship targets may be missing.{% if run.messages %}<ul class="mb-0 mt-2">{% for message in run.messages %}<li>{{ message.message }}{% if message.retryable %} <span class="badge text-bg-warning">Retryable</span>{% endif %}</li>{% endfor %}</ul>{% endif %}</div>
+    <div class="card ssot-status-strip mb-3" data-tone="warning"><div class="card-body"><strong>Collection {{ run.state }}.</strong> Some records or relationship targets may be missing.{% if run.messages %}<ul class="mb-0 mt-2">{% for message in run.messages %}<li>{{ message.message }}{% if message.retryable %} <span class="badge text-bg-warning">Retryable</span>{% endif %}</li>{% endfor %}</ul>{% endif %}</div></div>
   {% endif %}
 
   <div class="card mb-3">
     <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-      <div><strong>Collected data</strong><span class="text-secondary ms-2">{{ run.observation_count }} records · {{ model_count }} model type{{ model_count|pluralize }}</span></div>
+      <div><h2 class="card-title mb-1">Collected data</h2><span class="text-secondary">{{ run.observation_count }} records · {{ model_count }} model type{{ model_count|pluralize }}</span></div>
     </div>
     <div class="card-body border-bottom">
       <form method="get" class="row g-2 align-items-end">
@@ -83,7 +84,7 @@
     </div></div>
   {% endif %}
 
-  <details class="card"><summary class="card-header"><strong>Technical details</strong></summary><div class="card-body"><dl class="row mb-0">
+  <details class="card ssot-technical"><summary class="card-header"><strong>Technical details</strong><span class="text-secondary ms-2">Digests, completeness, and provider messages</span></summary><div class="card-body"><dl class="row mb-0">
     <dt class="col-sm-3">Run ID</dt><dd class="col-sm-9"><code>{{ run.run_id }}</code></dd>
     <dt class="col-sm-3">Agent</dt><dd class="col-sm-9">{{ run.agent }}</dd>
     <dt class="col-sm-3">State</dt><dd class="col-sm-9">{{ run.state }}</dd>

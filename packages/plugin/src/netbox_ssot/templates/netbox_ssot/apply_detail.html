@@ -1,25 +1,19 @@
-{% extends 'base/layout.html' %}
+{% extends 'netbox_ssot/base.html' %}
 
 {% block title %}Applied changes{% endblock %}
 
 {% block content %}
-  <h1>Changes applied</h1>
-  <p class="text-secondary">{{ apply_run.comparison.collection_run.source }} · {{ apply_run.get_direction_display }} · {{ apply_run.created_at }} · {{ apply_run.applied_by }}</p>
+  {% include 'netbox_ssot/_page_header.html' with page_title='Application receipt' page_description='Immutable proof of the approved changes committed to NetBox in one transaction.' %}
+  <p class="text-secondary"><a href="{% url 'plugins:netbox_ssot:source_detail' pk=apply_run.comparison.collection_run.source_id %}">{{ apply_run.comparison.collection_run.source }}</a> · {{ apply_run.get_direction_display }} · {{ apply_run.created_at }} · {{ apply_run.applied_by }}</p>
 
   {% include 'netbox_ssot/_workflow.html' %}
 
-  <div class="row row-cols-1 row-cols-md-3 g-3 mb-3">
-    <div class="col"><div class="card h-100"><div class="card-body"><div class="text-secondary">Created</div><div class="fs-3">{{ apply_run.create_count }}</div></div></div></div>
-    <div class="col"><div class="card h-100"><div class="card-body"><div class="text-secondary">Updated</div><div class="fs-3">{{ apply_run.update_count }}</div></div></div></div>
-    <div class="col"><div class="card h-100"><div class="card-body"><div class="text-secondary">Matched</div><div class="fs-3">{{ apply_run.no_change_count }}</div></div></div></div>
-  </div>
-
-  <div class="alert alert-success">All changes were saved together. Records that only exist in this NetBox were left unchanged.</div>
-  <div class="card"><div class="card-header"><strong>Changed records</strong></div><div class="table-responsive"><table class="table table-hover mb-0">
+  <div class="card ssot-status-strip mb-3" data-tone="success"><div class="card-body"><div class="row g-3 align-items-center"><div class="col-lg-6"><div class="d-flex align-items-center gap-2 mb-2"><i class="mdi mdi-check-decagram text-success fs-2" aria-hidden="true"></i><h2 class="h4 mb-0">Applied successfully</h2></div><p class="mb-0">All changes were saved together. Destination-only records were left unchanged.</p></div><div class="col-lg-6"><div class="row row-cols-3 text-center"><div class="col"><strong class="d-block fs-2 text-success">{{ apply_run.create_count }}</strong><span class="small text-secondary">Created</span></div><div class="col"><strong class="d-block fs-2 text-warning">{{ apply_run.update_count }}</strong><span class="small text-secondary">Updated</span></div><div class="col"><strong class="d-block fs-2">{{ apply_run.no_change_count }}</strong><span class="small text-secondary">Matched</span></div></div></div></div></div></div>
+  <div class="card"><div class="card-header"><div><h2 class="card-title mb-1">Changed records</h2><div class="small text-secondary">Target objects written by this exact reviewed plan.</div></div></div><div class="table-responsive"><table class="table table-hover mb-0 ssot-table-cards">
     <thead><tr><th>Result</th><th>Data type</th><th>Source record</th><th>Local record</th></tr></thead>
     <tbody>{% for item, links in record_rows %}<tr>
-      <td>{{ item.get_action_display }}</td><td>{{ item.resource_kind }}</td><td>{% if links.source_url %}<a href="{{ links.source_url }}" target="_blank" rel="noopener noreferrer"><code>{{ item.source_external_id }}</code><i class="mdi mdi-open-in-new ms-1" aria-hidden="true"></i></a>{% else %}<code>{{ item.source_external_id }}</code>{% endif %}</td>
-      <td>{% if links.destination_url %}<a href="{{ links.destination_url }}"><code>{{ item.target_object_type }}:{{ item.target_object_id }}</code></a>{% else %}<code>{{ item.target_object_type }}:{{ item.target_object_id }}</code>{% endif %}</td>
+      <td data-label="Result"><span class="badge text-bg-{% if item.action == 'create' %}success{% else %}warning{% endif %}">{{ item.get_action_display }}</span></td><td data-label="Data type">{{ item.resource_kind }}</td><td data-label="Source record">{% if links.source_url %}<a href="{{ links.source_url }}" target="_blank" rel="noopener noreferrer"><code>{{ item.source_external_id }}</code><i class="mdi mdi-open-in-new ms-1" aria-hidden="true"></i></a>{% else %}<code>{{ item.source_external_id }}</code>{% endif %}</td>
+      <td data-label="Local record">{% if links.destination_url %}<a href="{{ links.destination_url }}"><code>{{ item.target_object_type }}:{{ item.target_object_id }}</code></a>{% else %}<code>{{ item.target_object_type }}:{{ item.target_object_id }}</code>{% endif %}</td>
     </tr>{% empty %}<tr><td colspan="4" class="text-secondary">No changed records were recorded.</td></tr>{% endfor %}</tbody>
   </table></div></div>
 
@@ -29,7 +23,7 @@
     {% if page.has_next %}<li class="page-item"><a class="page-link" href="?page={{ page.next_page_number }}">Next</a></li>{% endif %}
   </ul></nav>{% endif %}
 
-  <details class="card mt-3"><summary class="card-header"><strong>Technical details</strong></summary><div class="card-body small text-secondary">
+  <details class="card mt-3 ssot-technical"><summary class="card-header"><strong>Technical details</strong><span class="text-secondary ms-2">Receipt and review identifiers</span></summary><div class="card-body small text-secondary">
     Result ID <code>{{ apply_run.id }}</code> · Review <a href="{% url 'plugins:netbox_ssot:comparison_detail' pk=apply_run.comparison_id %}"><code>{{ apply_run.comparison_id }}</code></a>
   </div></details>
 {% endblock %}

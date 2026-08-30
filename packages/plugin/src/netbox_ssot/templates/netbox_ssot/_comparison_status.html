@@ -1,0 +1,29 @@
+<div
+  class="card mb-3 ssot-status-strip"
+  data-tone="{% if preparation_stalled %}warning{% else %}info{% endif %}"
+  id="comparison-status"
+  aria-live="polite"
+  hx-get="{% url 'plugins:netbox_ssot:run_status' pk=run.pk %}"
+  hx-trigger="every 5s"
+  hx-swap="outerHTML"
+>
+  <div class="card-body">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+      <div>
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+          <span class="spinner-border spinner-border-sm text-{% if preparation_stalled %}warning{% else %}primary{% endif %}" role="status"><span class="visually-hidden">Checking comparison status</span></span>
+          <h2 class="h4 mb-0">Comparison {{ comparison_preparation.get_state_display|lower }}</h2>
+          <span class="badge text-bg-{% if preparation_job.status == 'failed' or preparation_job.status == 'errored' %}danger{% elif preparation_job.status == 'running' %}primary{% else %}info{% endif %}">Background job: {{ preparation_job.get_status_display|default:'record unavailable' }}</span>
+        </div>
+        {% if comparison_preparation.state == 'running' %}
+          <p class="mb-1">A NetBox worker started comparing this collection at {{ comparison_preparation.started_at }}. This status updates automatically.</p>
+        {% else %}
+          <p class="mb-1">The comparison was queued {{ comparison_preparation.updated_at|timesince }} ago and is waiting for a NetBox worker on the <code>{{ preparation_job.queue_name|default:'default' }}</code> queue. This status updates automatically.</p>
+        {% endif %}
+        <div class="small text-secondary">Attempt {{ comparison_preparation.attempt_count }}{% if comparison_preparation.job_id %} · job <code>{{ comparison_preparation.job_id }}</code>{% endif %}</div>
+      </div>
+      {% if preparation_job_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ preparation_job_url }}">View background job <i class="mdi mdi-open-in-new ms-1" aria-hidden="true"></i></a>{% endif %}
+    </div>
+    {% if preparation_stalled %}<div class="alert alert-warning mb-0 mt-3"><strong>No worker has started this job yet.</strong> Verify that a NetBox RQ worker is running and consuming the <code>{{ preparation_job.queue_name|default:'default' }}</code> queue.</div>{% endif %}
+  </div>
+</div>

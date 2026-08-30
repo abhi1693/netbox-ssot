@@ -379,7 +379,13 @@ class ReviewWorkflowTests(TestCase):
         self.reviewer.save(update_fields=("is_superuser",))
         self.client.force_login(self.reviewer)
 
-        with patch("netbox_ssot.views.latest_review_decisions", wraps=latest_review_decisions) as latest:
+        with (
+            patch("netbox_ssot.views.latest_review_decisions", wraps=latest_review_decisions) as latest,
+            patch(
+                "netbox_ssot.application.service.load_netbox_target_records",
+                side_effect=AssertionError("comparison GET rebuilt the complete target graph"),
+            ),
+        ):
             response = self.client.get(
                 reverse("plugins:netbox_ssot:comparison_detail", kwargs={"pk": self.comparison.pk})
             )
@@ -387,11 +393,21 @@ class ReviewWorkflowTests(TestCase):
         assert response.status_code == 200
         assert latest.call_args.kwargs["item_ids"] == tuple(item.pk for item in self.items)
         self.assertContains(response, "Reconciliation workflow")
-        self.assertContains(response, "Approve proposed changes")
+        self.assertContains(response, "Review decision")
         self.assertContains(response, "Approve all and continue to apply")
+        self.assertContains(response, 'aria-label="Approve review"')
+        self.assertContains(response, 'aria-label="Reject review"')
+        self.assertContains(response, 'id="approve-review-modal"', count=1)
+        self.assertContains(response, 'id="reject-review-modal"', count=1)
+        self.assertContains(response, 'id="approve-review-note"', count=1)
+        self.assertContains(response, 'id="reject-review-reason"', count=1)
         self.assertContains(response, f'aria-label="Approve {self.items[0].display_name}"')
         self.assertContains(response, f'aria-label="Reject {self.items[0].display_name}"')
-        self.assertContains(response, f'id="reject-reason-{self.items[0].pk}"')
+        self.assertContains(response, 'id="reject-reason"', count=1)
+        self.assertContains(response, 'id="reject-item-modal"', count=1)
+        self.assertContains(response, 'href="?action=create#comparison-records"')
+        self.assertContains(response, 'id="comparison-records"')
+        self.assertContains(response, 'class="ssot-summary-filter is-disabled"', count=4)
         self.assertContains(response, "In review")
         self.assertNotContains(response, "In_Review")
 
@@ -435,7 +451,13 @@ class ReviewWorkflowTests(TestCase):
         assert response.status_code == 200
         self.assertContains(response, "Next: Apply approved changes")
         self.assertContains(response, "Confirm the atomic application in the section below.")
-        self.assertContains(response, ">Apply approved changes</button>", count=1, html=False)
+        self.assertContains(response, "Ready to apply")
+        self.assertContains(response, "Atomic NetBox transaction")
+        self.assertContains(response, "Approved by")
+        self.assertContains(response, ">Apply 2 approved changes</button>", count=1, html=False)
+        self.assertContains(response, 'id="apply-actions"', count=1)
+        self.assertNotContains(response, "The immutable approval is ready for a separately permissioned apply.")
+        self.assertNotContains(response, ">Final review<", html=False)
         self.assertNotContains(response, "Application performs one atomic transaction.")
         self.assertNotContains(response, f'aria-label="Approve {self.items[0].display_name}"')
         self.assertNotContains(response, f'aria-label="Reject {self.items[0].display_name}"')
@@ -533,13 +555,35 @@ class ReviewWorkflowTests(TestCase):
             current_target_digest=self.comparison.target_snapshot_digest,
         )
 
-        with patch("netbox_ssot.views.inspect_application", return_value=readiness):
+        with patch("netbox_ssot.views.inspect_application_summary", return_value=readiness):
             response = self.client.post(url, {"action": "approve_all_and_finalize"}, follow=True)
 
         assert response.status_code == 200
         assert not ComparisonReview.objects.filter(comparison=self.comparison).exists()
         assert not ReviewDecision.objects.filter(comparison=self.comparison).exists()
         self.assertContains(response, "Approval cannot be finalized while apply is blocked")
+
+    def test_approval_confirmation_stores_its_optional_audit_note(self) -> None:
+        self.reviewer.is_superuser = True
+        self.reviewer.save(update_fields=("is_superuser",))
+        self.client.force_login(self.reviewer)
+
+        with patch(
+            "netbox_ssot.application.service.load_netbox_target_records",
+            side_effect=AssertionError("approval rebuilt the complete target graph"),
+        ):
+            response = self.client.post(
+                reverse("plugins:netbox_ssot:comparison_review", kwargs={"pk": self.comparison.pk}),
+                {
+                    "action": "approve_all_and_finalize",
+                    "reason": "Validated during the scheduled change window.",
+                },
+            )
+
+        assert response.status_code == 302
+        review = ComparisonReview.objects.get(comparison=self.comparison)
+        assert review.decision == ComparisonReview.Decision.APPROVED
+        assert review.reason == "Validated during the scheduled change window."
 
     def test_item_detail_fetches_only_its_latest_decision(self) -> None:
         self.reviewer.is_superuser = True
@@ -632,7 +676,7 @@ class ReviewWorkflowTests(TestCase):
         self.assertContains(response, "Requirements before this review can be approved")
         self.assertNotContains(response, "Approve all and continue to apply")
 
-    def test_comparison_list_marks_no_change_comparison_as_resolved(self) -> None:
+    def test_legacy_comparison_list_redirects_to_unified_reconciliations(self) -> None:
         ComparisonRun.objects.create(
             collection_run=self.comparison.collection_run,
             source_payload_digest=self.comparison.source_payload_digest,
@@ -646,6 +690,5 @@ class ReviewWorkflowTests(TestCase):
 
         response = self.client.get(reverse("plugins:netbox_ssot:comparison_list"))
 
-        assert response.status_code == 200
-        self.assertContains(response, "No changes", count=1)
-        self.assertContains(response, "In review", count=1)
+        assert response.status_code == 302
+        assert response.url == reverse("plugins:netbox_ssot:reconciliation_list")

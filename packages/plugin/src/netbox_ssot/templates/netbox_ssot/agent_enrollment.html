@@ -1,17 +1,17 @@
-{% extends 'base/layout.html' %}
+{% extends 'netbox_ssot/base.html' %}
 
 {% block title %}Connect agent{% endblock %}
 
 {% block content %}
   <div class="row justify-content-center"><div class="col-xl-9">
-    <h1>Connect agent</h1>
-    <p class="text-secondary">Create a short-lived enrollment token. The agent generates its signing key locally and sends only the public key to NetBox.</p>
+    {% include 'netbox_ssot/_page_header.html' with page_title='Connect agent' page_description='Create a short-lived enrollment. The agent generates its signing key locally and sends only the public key to NetBox.' %}
+    <div class="d-flex align-items-center gap-2 mb-3"><span class="badge rounded-pill text-bg-primary">3</span><strong>Connect agent</strong><span class="text-secondary">Provider → Source configuration → Agent</span></div>
 
     {% if enrollment_token %}
-      <div class="alert alert-warning">
+      <div class="card border-warning mb-3"><div class="card-body">
         <strong>Copy this command now.</strong> The enrollment token is shown once and expires at
         {{ created_enrollment.expires_at }}.
-      </div>
+      </div></div>
       <div class="card mb-4">
         <div class="card-header"><strong>Enroll {{ agent_name }}</strong></div>
         <div class="card-body">

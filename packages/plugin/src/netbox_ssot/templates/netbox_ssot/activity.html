@@ -1,24 +1,13 @@
-{% extends 'base/layout.html' %}
+{% extends 'netbox_ssot/base.html' %}
 
-{% block title %}Discovery activity{% endblock %}
+{% block title %}Synchronization activity{% endblock %}
 
 {% block content %}
-  <div class="mb-4">
-    <h1>Activity</h1>
-    <p class="text-secondary mb-0">Agent actions, collections, reviews, and applied changes in one place.</p>
-  </div>
+  {% include 'netbox_ssot/_page_header.html' with page_title='Activity' page_description='A chronological audit trail of agent actions, collections, comparisons, reviews, applications, and security events.' %}
 
-  <div class="card"><div class="list-group list-group-flush">
+  <div class="card"><div class="card-body"><div class="ssot-timeline">
     {% for event in events %}
-      <a class="list-group-item list-group-item-action py-3" href="{{ event.url }}">
-        <div class="row align-items-center g-2">
-          <div class="col-md-2">
-            <span class="badge {% if event.state == 'attention' %}text-bg-warning{% elif event.state == 'complete' %}text-bg-success{% elif event.state == 'running' or event.state == 'reporting' %}text-bg-info{% else %}text-bg-secondary{% endif %}">{{ event.kind }}</span>
-          </div>
-          <div class="col-md-7"><strong>{{ event.title }}</strong><div class="small text-secondary">{{ event.detail }}</div></div>
-          <div class="col-md-3 text-md-end text-secondary">{{ event.occurred_at }}</div>
-        </div>
-      </a>
-    {% empty %}<div class="list-group-item py-5 text-center text-secondary">No discovery activity yet.</div>{% endfor %}
-  </div></div>
+      <div class="ssot-timeline-item pb-4"><div class="d-flex flex-wrap justify-content-between gap-2"><a class="fw-semibold" href="{{ event.url }}">{{ event.title }}</a><time class="small text-secondary" datetime="{{ event.occurred_at|date:'c' }}">{{ event.occurred_at }}</time></div><div class="mt-1"><span class="badge {% if event.state == 'attention' %}text-bg-warning{% elif event.state == 'complete' %}text-bg-success{% elif event.state == 'running' or event.state == 'reporting' %}text-bg-info{% else %}text-bg-secondary{% endif %}">{{ event.kind }}</span><span class="text-secondary ms-2">{{ event.detail }}</span></div></div>
+    {% empty %}{% include 'netbox_ssot/_empty_state.html' with empty_icon='mdi-history' empty_title='No activity yet' empty_description='Collections, reviews, agent actions, and applications will appear here.' %}{% endfor %}
+  </div></div></div>
 {% endblock %}

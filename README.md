@@ -62,9 +62,10 @@ The first supported NetBox line is 4.6. Provider contracts are independently ver
 
 ## Automatic agent workflow
 
-The plugin UI is organized around **Overview**, **Sources**, and **Activity**. Provider-specific dataset names and
-configuration fields come from the installed provider manifest; the shared workflow does not hard-code NetBox model
-names.
+The plugin UI is organized around **Overview**, **Sources**, **Reconciliations**, and **Activity**. Overview opens an
+operator queue by default and also provides a visual Summary of current alignment and recent drift. Provider-specific
+dataset names and configuration fields come from the installed provider manifest; the shared workflow does not
+hard-code NetBox model names.
 
 Build the static customer-edge agent:
 
@@ -72,11 +73,11 @@ Build the static customer-edge agent:
 CGO_ENABLED=0 go build -trimpath -o dist/netbox-ssot-agent ./agent/cmd/netbox-ssot-agent
 ```
 
-Create a source in **Discovery > Sources**, choose its execution agent, and set the collection interval. NetBox stores
+Create a source in **Synchronization > Sources**, choose its execution agent, and set the collection interval. NetBox stores
 provider configuration and opaque secret references. The provider credentials and the agent private key remain only on
 the agent host.
 
-Open **Discovery > Agents > Connect agent**, optionally select initial source assignments, and create a 15-minute,
+Open **Synchronization > Agents > Connect agent**, optionally select initial source assignments, and create a 15-minute,
 single-use enrollment token. An agent enrolled without sources remains available as a standby. On the agent host, run
 the generated command. The agent creates its Ed25519 private key as a new mode-`0600` file and submits only the public
 key plus the provider implementations compiled into that binary:
@@ -106,7 +107,7 @@ up source revisions, runs each source on its configured interval, and submits th
 ingest API. Retryable failures are scheduled again after one minute. The ingest endpoint must have the same origin as
 the control endpoint.
 
-Every configuration poll is also a heartbeat. **Discovery > Agents** shows the reported agent and protocol versions and
+Every configuration poll is also a heartbeat. **Synchronization > Agents** shows the reported agent and protocol versions and
 classifies the connection as online, stale, or offline. Source pages combine that heartbeat with the latest collection
 and configured interval to show the last success, next expected collection, and actionable health state. Operators with
 the `netbox_ssot.add_agentcommand` permission can request **Test connection** or **Run now** from a source. These are
@@ -114,7 +115,7 @@ provider-independent commands: NetBox queues them for the assigned agent, the ag
 credentials, and it signs the result back to NetBox. Command state and summaries appear on the source and in Activity.
 Only one active command of each kind may exist per source. Reassigning or disabling a source cancels outstanding work.
 The control poll is independent of every source collection interval. It defaults to five seconds and can be changed
-from **Discovery > Agents > Settings** within a supported range of two to thirty seconds. `--poll-interval` supplies the
+from **Synchronization > Agents > Settings** within a supported range of two to thirty seconds. `--poll-interval` supplies the
 bootstrap value until the first successful check-in; the agent then adopts the NetBox-managed value without a restart.
 The agent reports its effective interval so the UI can show desired-versus-reported state, the actual worst-case pickup
 delay, and heartbeat health against that cadence.
@@ -198,7 +199,7 @@ available for troubleshooting:
 ./dist/netbox-ssot-agent collect --request netbox-collection.json
 ```
 
-Rotate a file-backed key from **Discovery > Agents > Settings** using the displayed `sudo` command; enrollment creates
+Rotate a file-backed key from **Synchronization > Agents > Settings** using the displayed `sudo` command; enrollment creates
 the mode-`0600` key as root, so rotation must run as that key owner. NetBox accepts the old key for ten minutes, records
 both key fingerprints and the audit event, and then retires it. Restart the running agent service during that overlap
 so it reloads the replaced key (and refreshes the systemd credential snapshot). Emergency

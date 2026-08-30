@@ -1,9 +1,9 @@
-{% extends 'base/layout.html' %}
+{% extends 'netbox_ssot/base.html' %}
 
 {% block title %}Agent settings{% endblock %}
 
 {% block content %}
-  <div class="mb-4"><h1>Agent settings</h1><p class="text-secondary mb-0">{{ agent.name }}</p></div>
+  {% include 'netbox_ssot/_page_header.html' with page_title='Agent settings' page_description=agent.name %}
 
   <form method="post" class="card mb-4">
     {% csrf_token %}
@@ -37,7 +37,7 @@
     <div class="table-responsive"><table class="table mb-0"><thead><tr><th>Fingerprint</th><th>State</th><th>Activated</th><th>Last used</th><th>Retires</th></tr></thead><tbody>
       {% for key in signing_keys %}<tr><td><code title="{{ key.fingerprint }}">{{ key.fingerprint|slice:":24" }}…</code></td><td><span class="badge text-bg-{% if key.state == 'active' %}success{% elif key.state == 'retiring' %}warning{% elif key.state == 'revoked' %}danger{% else %}secondary{% endif %}">{{ key.get_state_display }}</span></td><td>{{ key.activated_at }}</td><td>{{ key.last_used_at|default:"Never" }}</td><td>{{ key.retire_after|default:"—" }}</td></tr>{% empty %}<tr><td colspan="5" class="text-secondary">No signing keys are recorded.</td></tr>{% endfor %}
     </tbody></table></div>
-    <div class="card-body border-top"><p class="mb-2">Rotate from the agent host as the owner of the root-managed signing key, then restart the running agent within ten minutes so it reloads the replaced key. The previous key remains valid during that overlap.</p><pre class="mb-0">sudo netbox-ssot-agent rotate-key --endpoint {{ rotation_endpoint }} --agent-id {{ agent.id }} --private-key-ref file:///etc/netbox-ssot-agent/signing-key{% if rotation_endpoint_is_insecure %} --allow-insecure-http{% endif %}
+    <div class="card-body border-top ssot-technical"><p class="mb-2">Rotate from the agent host as the owner of the root-managed signing key, then restart the running agent within ten minutes so it reloads the replaced key. The previous key remains valid during that overlap.</p><pre class="mb-0">sudo netbox-ssot-agent rotate-key --endpoint {{ rotation_endpoint }} --agent-id {{ agent.id }} --private-key-ref file:///etc/netbox-ssot-agent/signing-key{% if rotation_endpoint_is_insecure %} --allow-insecure-http{% endif %}
 sudo systemctl restart netbox-ssot-agent</pre></div>
   </div>
 
