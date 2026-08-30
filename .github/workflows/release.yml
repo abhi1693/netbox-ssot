@@ -164,7 +164,7 @@ jobs:
             test "$(uv version --package "${package_name}" --short)" = "${release_version}"
           done
       - name: Build Python distributions
-        run: uv build --all-packages --out-dir dist --clear
+        run: uv build --all-packages --out-dir dist
       - name: Validate Python distributions
         run: uv run --with twine twine check --strict dist/*
       - uses: actions/upload-artifact@v7
