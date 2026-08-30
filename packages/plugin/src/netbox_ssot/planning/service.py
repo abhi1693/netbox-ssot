@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from itertools import batched
 from typing import Any
 
 from django.db import connection, transaction
@@ -95,28 +96,29 @@ def create_comparison(
             conflict_count=counts[ComparisonAction.CONFLICT.value],
             skipped_count=counts[ComparisonAction.SKIPPED.value],
         )
-        ComparisonItem.objects.bulk_create(
-            [
-                ComparisonItem(
-                    comparison=comparison,
-                    sequence=sequence,
-                    action=draft.action.value,
-                    resource_kind=draft.resource_kind,
-                    identity_key=draft.identity_key,
-                    display_name=draft.display_name,
-                    source_external_id=draft.source_external_id,
-                    target_object_type=draft.target_object_type,
-                    target_object_id=draft.target_object_id,
-                    match_basis=draft.match_basis,
-                    reason=draft.reason,
-                    source_data=draft.source_data or {},
-                    target_data=draft.target_data or {},
-                    changes=list(draft.changes),
-                )
-                for sequence, draft in enumerate(drafts)
-            ],
-            batch_size=1_000,
-        )
+        for draft_batch in batched(enumerate(drafts), 1_000):
+            ComparisonItem.objects.bulk_create(
+                [
+                    ComparisonItem(
+                        comparison=comparison,
+                        sequence=sequence,
+                        action=draft.action.value,
+                        resource_kind=draft.resource_kind,
+                        identity_key=draft.identity_key,
+                        display_name=draft.display_name,
+                        source_external_id=draft.source_external_id,
+                        target_object_type=draft.target_object_type,
+                        target_object_id=draft.target_object_id,
+                        match_basis=draft.match_basis,
+                        reason=draft.reason,
+                        source_data=draft.source_data or {},
+                        target_data=draft.target_data or {},
+                        changes=list(draft.changes),
+                    )
+                    for sequence, draft in draft_batch
+                ],
+                batch_size=1_000,
+            )
         return ComparisonOutcome(comparison, True)
 
 

@@ -11,6 +11,7 @@ from netbox_ssot.models import (
     ApplyRun,
     CollectionRun,
     CollectorAgent,
+    ComparisonPreparation,
     ComparisonRun,
     DiscoverySource,
     StoredObservation,
@@ -47,6 +48,12 @@ class RetentionTests(TestCase):
         reviewed = self._run(state="complete", age=timedelta(days=40), reviewed=True)
         applied = self._run(state="complete", age=timedelta(days=50), reviewed=True, applied=True)
         outside_age = self._run(state="complete", age=timedelta(days=60))
+        preparation = ComparisonPreparation.objects.create(
+            collection_run=outside_age,
+            state=ComparisonPreparation.State.FAILED,
+            attempt_count=1,
+            error="Worker unavailable",
+        )
         expired_failure = self._run(state="failed", age=timedelta(days=10))
         latest_partial = self._run(state="partial", age=timedelta(minutes=30))
 
@@ -64,6 +71,7 @@ class RetentionTests(TestCase):
 
         assert result.deleted_runs == 3
         assert result.deleted_observations == 2
+        assert not ComparisonPreparation.objects.filter(pk=preparation.pk).exists()
         assert set(CollectionRun.objects.filter(source=self.source).values_list("run_id", flat=True)) == {
             newest_success.run_id,
             retained_by_count.run_id,

@@ -9,6 +9,12 @@
   </div>
 
   {% include 'netbox_ssot/_workflow.html' %}
+  {% if comparison_preparation.state == 'failed' %}
+    <div class="alert alert-danger mb-3">
+      <strong>Comparison preparation failed.</strong>
+      <span>{{ comparison_preparation.error|default:"The background worker did not provide an error." }}</span>
+    </div>
+  {% endif %}
   {% if run.state == "complete" %}
     <div class="alert alert-success d-flex flex-wrap gap-2 mb-3">
       <strong>Collection complete.</strong>

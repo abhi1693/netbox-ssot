@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import timedelta
 from typing import Any
+from urllib.parse import urlencode
 from uuid import uuid4
 
 from django.contrib import messages
@@ -43,6 +44,7 @@ from .application.service import (
 from .collection_policy import agent_collection_policy_issue
 from .comparison_presentation import comparison_field_rows
 from .destination import dataset_data_model_mappings, selected_data_model_mappings
+from .drift import DriftSummary
 from .health import agent_health, source_health
 from .models import (
     AgentCommand,
@@ -51,13 +53,15 @@ from .models import (
     CollectionRun,
     CollectorAgent,
     ComparisonItem,
+    ComparisonPreparation,
     ComparisonReview,
     ComparisonRun,
     DiscoverySource,
     StoredObservation,
 )
 from .planning.netbox_target import MODEL_BY_KIND
-from .planning.service import ComparisonRejectedError, create_comparison
+from .planning.service import ComparisonRejectedError
+from .preparation import request_comparison_preparation
 from .providers import ProviderNotFoundError, ProviderRegistry, build_provider_card, build_provider_wizard
 from .record_links import RecordLinkResolver, RecordLinks, source_object_id
 from .retention import retention_plan
@@ -95,23 +99,71 @@ class OverviewView(LoginRequiredMixin, View):
         can_view_sources = request.user.has_perm("netbox_ssot.view_discoverysource")
         can_view_agents = request.user.has_perm("netbox_ssot.view_collectoragent")
         can_view_comparisons = request.user.has_perm("netbox_ssot.view_comparisonrun")
-        sources = _source_queryset() if can_view_sources else DiscoverySource.objects.none()
+        sources = tuple(_source_queryset()) if can_view_sources else ()
+        latest_comparison_ids = tuple(
+            source.latest_comparison_id
+            for source in sources
+            if getattr(source, "latest_comparison_id", None)
+        )
         pending_reviews = (
-            ComparisonRun.objects.filter(apply_run__isnull=True, final_review__isnull=True)
+            ComparisonRun.objects.filter(
+                pk__in=latest_comparison_ids,
+                apply_run__isnull=True,
+                final_review__isnull=True,
+            )
             .exclude(create_count=0, update_count=0, conflict_count=0, skipped_count=0)
             .count()
-            if can_view_comparisons
+            if can_view_comparisons and can_view_sources
             else None
         )
+        drift_rows = []
+        drift_summary = DriftSummary()
+        preparing_count = 0
+        if can_view_comparisons and can_view_sources:
+            for source in sources:
+                preparation_state = getattr(source, "latest_preparation_state", "") or ""
+                if preparation_state in {
+                    ComparisonPreparation.State.PENDING,
+                    ComparisonPreparation.State.RUNNING,
+                }:
+                    preparing_count += 1
+                comparison_id = getattr(source, "latest_comparison_id", None)
+                counts = DriftSummary(
+                    missing_locally=getattr(source, "latest_create_count", 0) or 0,
+                    different_locally=getattr(source, "latest_update_count", 0) or 0,
+                    matching=getattr(source, "latest_no_change_count", 0) or 0,
+                    needs_attention=(getattr(source, "latest_conflict_count", 0) or 0)
+                    + (getattr(source, "latest_skipped_count", 0) or 0),
+                )
+                if comparison_id:
+                    drift_summary += counts
+                drift_rows.append(
+                    {
+                        "source": source,
+                        "comparison_id": comparison_id,
+                        "created_at": getattr(source, "latest_comparison_at", None),
+                        "counts": counts,
+                        "preparation_state": preparation_state,
+                        "is_current": bool(
+                            comparison_id
+                            and getattr(source, "latest_comparison_collection_id", None)
+                            == getattr(source, "latest_run_id", None)
+                        ),
+                    }
+                )
         return render(
             request,
             self.template_name,
             {
                 "source_rows": tuple((source, source_health(source)) for source in sources),
-                "source_count": sources.count() if can_view_sources else None,
+                "source_count": len(sources) if can_view_sources else None,
                 "can_view_sources": can_view_sources,
+                "can_view_drift": can_view_sources and can_view_comparisons,
                 "enabled_agent_count": CollectorAgent.objects.filter(enabled=True).count() if can_view_agents else None,
                 "pending_review_count": pending_reviews,
+                "drift_rows": tuple(drift_rows),
+                "drift_summary": drift_summary,
+                "preparing_count": preparing_count,
                 "events": _activity_events(request, limit=8),
             },
         )
@@ -792,6 +844,11 @@ class RunDetailView(PermissionRequiredMixin, View):
                 "apply_run__applied_by",
             )[:20]
         )
+        comparison_preparation = (
+            ComparisonPreparation.objects.select_related("comparison")
+            .filter(collection_run=run)
+            .first()
+        )
         latest_comparison = comparisons[0] if comparisons else None
         latest_review = getattr(latest_comparison, "final_review", None) if latest_comparison else None
         latest_application = getattr(latest_comparison, "apply_run", None) if latest_comparison else None
@@ -814,10 +871,12 @@ class RunDetailView(PermissionRequiredMixin, View):
                 "selected_sort": selected_sort,
                 "duration_seconds": duration_seconds,
                 "comparisons": comparisons,
+                "comparison_preparation": comparison_preparation,
                 "workflow": workflow_presentation(
                     request,
                     run,
                     comparison=latest_comparison,
+                    preparation=comparison_preparation,
                     final_review=latest_review,
                     application=latest_application,
                     progress=latest_progress,
@@ -928,15 +987,20 @@ class ComparisonCreateView(PermissionRequiredMixin, View):
     def post(self, request: HttpRequest, pk: object) -> HttpResponse:
         run = get_object_or_404(CollectionRun, pk=pk)
         try:
-            outcome = create_comparison(run)
+            outcome = request_comparison_preparation(run, force=run.comparisons.exists())
         except ComparisonRejectedError as exc:
             messages.error(request, str(exc))
             return redirect("plugins:netbox_ssot:run_detail", pk=run.pk)
-        if outcome.created:
-            messages.success(request, "Comparison ready. Review the proposed changes; no NetBox records were changed.")
+        if outcome.preparation.state == ComparisonPreparation.State.FAILED:
+            messages.error(
+                request,
+                "The comparison could not be queued. Retry after checking the NetBox background worker.",
+            )
+        elif outcome.queued:
+            messages.success(request, "Comparison queued. It will be prepared safely in the background.")
         else:
-            messages.info(request, "Continuing the existing comparison for this collection and local snapshot.")
-        return redirect("plugins:netbox_ssot:comparison_detail", pk=outcome.comparison.pk)
+            messages.info(request, "This comparison is already being prepared in the background.")
+        return redirect("plugins:netbox_ssot:run_detail", pk=run.pk)
 
 
 class ComparisonListView(PermissionRequiredMixin, View):
@@ -1175,6 +1239,19 @@ class ComparisonItemDecisionView(PermissionRequiredMixin, View):
             messages.error(request, str(exc))
         else:
             messages.success(request, f"Recorded {decision.get_decision_display().lower()} for {item.display_name}.")
+        if request.POST.get("return") == "comparison":
+            parameters = {}
+            return_action = request.POST.get("return_action", "")
+            return_kind = request.POST.get("return_kind", "").strip()[:64]
+            return_page = request.POST.get("return_page", "")
+            if return_action in ComparisonItem.Action.values:
+                parameters["action"] = return_action
+            if return_kind:
+                parameters["kind"] = return_kind
+            if return_page.isdigit() and int(return_page) > 1:
+                parameters["page"] = return_page
+            url = reverse("plugins:netbox_ssot:comparison_detail", kwargs={"pk": comparison.pk})
+            return HttpResponseRedirect(f"{url}?{urlencode(parameters)}" if parameters else url)
         return redirect(
             "plugins:netbox_ssot:comparison_item_detail",
             comparison_pk=comparison.pk,
@@ -1203,6 +1280,9 @@ class ApplyCreateView(PermissionRequiredMixin, View):
             return redirect("plugins:netbox_ssot:comparison_detail", pk=comparison.pk)
         if outcome.created:
             messages.success(request, "The reviewed comparison was applied in one transaction.")
+            refresh = request_comparison_preparation(comparison.collection_run, force=True)
+            if refresh.queued:
+                messages.info(request, "Refreshing the drift snapshot in the background.")
         else:
             messages.info(request, "This comparison was already applied; no target objects were changed.")
         return redirect("plugins:netbox_ssot:apply_detail", pk=outcome.apply_run.pk)
@@ -1458,10 +1538,28 @@ def _required_target_permissions(comparison: ComparisonRun) -> tuple[str, ...]:
 
 def _source_queryset() -> models.QuerySet[DiscoverySource]:
     latest_runs = CollectionRun.objects.filter(source=OuterRef("pk")).order_by("-received_at")
+    latest_comparisons = ComparisonRun.objects.filter(collection_run__source=OuterRef("pk")).order_by(
+        "-collection_run__completed_at",
+        "-created_at",
+    )
+    latest_preparations = ComparisonPreparation.objects.filter(collection_run__source=OuterRef("pk")).order_by(
+        "-collection_run__completed_at",
+        "-updated_at",
+    )
     return DiscoverySource.objects.select_related("assigned_agent").annotate(
+        latest_run_id=Subquery(latest_runs.values("run_id")[:1]),
         latest_collection_at=Subquery(latest_runs.values("received_at")[:1]),
         latest_collection_state=Subquery(latest_runs.values("state")[:1]),
         last_success_at=models.Max("runs__received_at", filter=models.Q(runs__state="complete")),
+        latest_comparison_id=Subquery(latest_comparisons.values("id")[:1]),
+        latest_comparison_collection_id=Subquery(latest_comparisons.values("collection_run_id")[:1]),
+        latest_comparison_at=Subquery(latest_comparisons.values("created_at")[:1]),
+        latest_create_count=Subquery(latest_comparisons.values("create_count")[:1]),
+        latest_update_count=Subquery(latest_comparisons.values("update_count")[:1]),
+        latest_no_change_count=Subquery(latest_comparisons.values("no_change_count")[:1]),
+        latest_conflict_count=Subquery(latest_comparisons.values("conflict_count")[:1]),
+        latest_skipped_count=Subquery(latest_comparisons.values("skipped_count")[:1]),
+        latest_preparation_state=Subquery(latest_preparations.values("state")[:1]),
     )
 
 

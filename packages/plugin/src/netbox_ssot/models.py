@@ -371,6 +371,43 @@ class ComparisonRun(AppendOnlyModel):
         return str(self.id)
 
 
+class ComparisonPreparation(models.Model):
+    class State(models.TextChoices):
+        PENDING = "pending", "Queued"
+        RUNNING = "running", "Preparing"
+        COMPLETED = "completed", "Ready"
+        FAILED = "failed", "Failed"
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    collection_run = models.OneToOneField(
+        CollectionRun,
+        on_delete=models.PROTECT,
+        related_name="comparison_preparation",
+    )
+    comparison = models.ForeignKey(
+        ComparisonRun,
+        on_delete=models.PROTECT,
+        related_name="preparations",
+        null=True,
+        blank=True,
+    )
+    state = models.CharField(max_length=16, choices=State.choices, default=State.PENDING)
+    job_id = models.UUIDField(null=True, blank=True)
+    attempt_count = models.PositiveIntegerField(default=0)
+    requested_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    error = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ("-requested_at",)
+        indexes = (models.Index(fields=("state", "-updated_at"), name="ssot_cmp_prep_state_idx"),)
+
+    def __str__(self) -> str:
+        return f"{self.collection_run_id}: {self.get_state_display()}"
+
+
 class ComparisonItem(AppendOnlyModel):
     class Action(models.TextChoices):
         CREATE = "create", "Create"

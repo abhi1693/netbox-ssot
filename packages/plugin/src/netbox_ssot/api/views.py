@@ -38,6 +38,7 @@ from ..collection_policy import (
 )
 from ..ingestion.service import IngestionConflictError, IngestionRejectedError, ingest_batch
 from ..models import AgentCommand, AgentSecurityEvent, CollectionRun, CollectorAgent, DiscoverySource
+from ..preparation import request_comparison_preparation
 from .authentication import AgentSignatureAuthentication
 
 
@@ -358,6 +359,12 @@ class BatchIngestView(APIView):
         except IngestionConflictError as exc:
             return Response({"code": "run_conflict", "message": str(exc)}, status=status.HTTP_409_CONFLICT)
 
+        preparation_state = "not_requested"
+        run = CollectionRun.objects.get(pk=outcome.run_id)
+        if run.state == "complete" and run.completeness_token:
+            preparation = request_comparison_preparation(run).preparation
+            preparation_state = preparation.state
+
         response_status = status.HTTP_201_CREATED if outcome.status == "accepted" else status.HTTP_200_OK
         return Response(
             {
@@ -365,6 +372,7 @@ class BatchIngestView(APIView):
                 "run_id": outcome.run_id,
                 "observation_count": outcome.observation_count,
                 "payload_digest": outcome.payload_digest,
+                "comparison_preparation": preparation_state,
             },
             status=response_status,
         )

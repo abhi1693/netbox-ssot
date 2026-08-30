@@ -389,8 +389,56 @@ class ReviewWorkflowTests(TestCase):
         self.assertContains(response, "Reconciliation workflow")
         self.assertContains(response, "Approve proposed changes")
         self.assertContains(response, "Approve all and continue to apply")
+        self.assertContains(response, f'aria-label="Approve {self.items[0].display_name}"')
+        self.assertContains(response, f'aria-label="Reject {self.items[0].display_name}"')
+        self.assertContains(response, f'id="reject-reason-{self.items[0].pk}"')
         self.assertContains(response, "In review")
         self.assertNotContains(response, "In_Review")
+
+    def test_row_approval_returns_to_the_filtered_comparison(self) -> None:
+        self.reviewer.is_superuser = True
+        self.reviewer.save(update_fields=("is_superuser",))
+        self.client.force_login(self.reviewer)
+
+        response = self.client.post(
+            reverse(
+                "plugins:netbox_ssot:comparison_item_decide",
+                kwargs={"comparison_pk": self.comparison.pk, "pk": self.items[0].pk},
+            ),
+            {
+                "decision": ReviewDecision.Decision.APPROVE,
+                "return": "comparison",
+                "return_action": ComparisonItem.Action.CREATE,
+                "return_kind": "region",
+                "return_page": "2",
+            },
+        )
+
+        assert response.status_code == 302
+        assert response.url == (
+            reverse("plugins:netbox_ssot:comparison_detail", kwargs={"pk": self.comparison.pk})
+            + "?action=create&kind=region&page=2"
+        )
+        assert latest_review_decision(self.items[0]).decision == ReviewDecision.Decision.APPROVE
+
+    def test_approved_page_has_one_apply_control(self) -> None:
+        approve_all_review_items(self.comparison, self.reviewer)
+        finalize_review(self.comparison, ComparisonReview.Decision.APPROVED, self.reviewer)
+        self.reviewer.is_superuser = True
+        self.reviewer.save(update_fields=("is_superuser",))
+        self.client.force_login(self.reviewer)
+
+        response = self.client.get(
+            reverse("plugins:netbox_ssot:comparison_detail", kwargs={"pk": self.comparison.pk})
+        )
+
+        assert response.status_code == 200
+        self.assertContains(response, "Next: Apply approved changes")
+        self.assertContains(response, "Confirm the atomic application in the section below.")
+        self.assertContains(response, ">Apply approved changes</button>", count=1, html=False)
+        self.assertNotContains(response, "Application performs one atomic transaction.")
+        self.assertNotContains(response, f'aria-label="Approve {self.items[0].display_name}"')
+        self.assertNotContains(response, f'aria-label="Reject {self.items[0].display_name}"')
 
     def test_stale_review_leads_directly_to_a_fresh_comparison(self) -> None:
         self.reviewer.is_superuser = True
@@ -467,7 +515,7 @@ class ReviewWorkflowTests(TestCase):
         response = self.client.get(reverse("plugins:netbox_ssot:run_detail", kwargs={"pk": run.pk}))
 
         assert response.status_code == 200
-        self.assertContains(response, "Next: Compare with NetBox")
+        self.assertContains(response, "Next: Prepare comparison")
         self.assertContains(response, "This creates a read-only comparison; it does not change NetBox.")
         self.assertNotContains(response, "Review changes")
 

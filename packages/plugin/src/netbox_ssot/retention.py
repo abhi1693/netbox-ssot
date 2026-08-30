@@ -8,7 +8,7 @@ from django.db import transaction
 from django.db.models import Count, Q, Sum
 from django.utils import timezone
 
-from .models import CollectionRun, ComparisonRun, DiscoverySource, StoredObservation
+from .models import CollectionRun, ComparisonPreparation, ComparisonRun, DiscoverySource, StoredObservation
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +108,10 @@ def prune_collections(
         )
         deleted_observations = StoredObservation.objects.filter(run_id__in=locked_run_ids).count()
         StoredObservation.objects.filter(run_id__in=locked_run_ids).delete()
+        ComparisonPreparation.objects.filter(
+            collection_run_id__in=locked_run_ids,
+            comparison__isnull=True,
+        ).delete()
 
         # Append-only models reject ordinary instance deletion. Retention is the sole deliberate maintenance
         # boundary and uses a locked queryset only after every protected dependency has been excluded.

@@ -104,7 +104,7 @@
             <input class="form-check-input" id="confirm-apply" name="confirm" type="checkbox" value="apply" required>
             <label class="form-check-label" for="confirm-apply">I reviewed these changes and want to apply them.</label>
           </div>
-          <button class="btn btn-warning" type="submit">Apply changes</button>
+          <button class="btn btn-warning" type="submit">Apply approved changes</button>
         </form>
       {% else %}
         <p class="text-secondary mb-0">You do not have permission to apply changes.</p>
@@ -122,12 +122,33 @@
       <div class="col-md-4"><button class="btn btn-primary" type="submit">Filter</button> <a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_ssot:comparison_detail' pk=comparison.pk %}">Reset</a></div>
     </div></form></div>
     <div class="table-responsive"><table class="table table-hover mb-0">
-      <thead><tr><th>Result</th><th>Review</th><th>Data type</th><th>Record</th><th>Changes</th><th>Note</th></tr></thead>
+      <thead><tr><th>Result</th><th>Review</th><th>Data type</th><th>Record</th><th>Changes</th><th>Note</th><th class="text-end">Actions</th></tr></thead>
       <tbody>{% for item in page %}<tr>
         <td><span class="badge {% if item.action == 'create' %}text-bg-success{% elif item.action == 'update' %}text-bg-warning{% elif item.action == 'conflict' %}text-bg-danger{% elif item.action == 'skipped' %}text-bg-secondary{% else %}text-bg-info{% endif %}">{{ item.get_action_display }}</span></td>
         <td>{% if item.current_review_decision %}<span class="badge {% if item.current_review_decision.decision == 'approve' %}text-bg-success{% else %}text-bg-danger{% endif %}">{{ item.current_review_decision.get_decision_display }}</span>{% elif item.action == 'create' or item.action == 'update' %}<span class="badge text-bg-secondary">Undecided</span>{% else %}<span class="text-secondary">—</span>{% endif %}</td>
         <td>{{ item.resource_kind }}</td><td><a href="{% url 'plugins:netbox_ssot:comparison_item_detail' comparison_pk=comparison.pk pk=item.pk %}">{{ item.display_name }}</a></td><td>{{ item.changes|length }}</td><td>{{ item.reason }}</td>
-      </tr>{% empty %}<tr><td colspan="6" class="text-secondary">No records match the selected filters.</td></tr>{% endfor %}</tbody>
+        <td class="text-end text-nowrap">
+          {% if not final_review and perms.netbox_ssot.add_comparisonreview %}
+            {% if item.action == 'create' or item.action == 'update' %}
+            <div class="btn-group" role="group" aria-label="Review {{ item.display_name }}">
+              <form method="post" action="{% url 'plugins:netbox_ssot:comparison_item_decide' comparison_pk=comparison.pk pk=item.pk %}">
+                {% csrf_token %}<input name="decision" type="hidden" value="approve"><input name="return" type="hidden" value="comparison"><input name="return_action" type="hidden" value="{{ selected_action }}"><input name="return_kind" type="hidden" value="{{ selected_kind }}"><input name="return_page" type="hidden" value="{{ page.number }}">
+                <button class="btn btn-sm btn-outline-success" type="submit" title="Approve {{ item.display_name }}" aria-label="Approve {{ item.display_name }}"{% if item.current_review_decision.decision == 'approve' %} disabled{% endif %}><i class="mdi mdi-check" aria-hidden="true"></i></button>
+              </form>
+              <button class="btn btn-sm btn-outline-danger" type="button" title="Reject {{ item.display_name }}" aria-label="Reject {{ item.display_name }}" data-bs-toggle="modal" data-bs-target="#reject-item-{{ item.pk }}"{% if item.current_review_decision.decision == 'reject' %} disabled{% endif %}><i class="mdi mdi-close" aria-hidden="true"></i></button>
+            </div>
+            <div class="modal fade text-start" id="reject-item-{{ item.pk }}" tabindex="-1" aria-labelledby="reject-item-title-{{ item.pk }}" aria-hidden="true">
+              <div class="modal-dialog"><div class="modal-content"><form method="post" action="{% url 'plugins:netbox_ssot:comparison_item_decide' comparison_pk=comparison.pk pk=item.pk %}">
+                {% csrf_token %}<input name="decision" type="hidden" value="reject"><input name="return" type="hidden" value="comparison"><input name="return_action" type="hidden" value="{{ selected_action }}"><input name="return_kind" type="hidden" value="{{ selected_kind }}"><input name="return_page" type="hidden" value="{{ page.number }}">
+                <div class="modal-header"><h2 class="modal-title fs-5" id="reject-item-title-{{ item.pk }}">Reject {{ item.display_name }}</h2><button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="Close"></button></div>
+                <div class="modal-body"><label class="form-label" for="reject-reason-{{ item.pk }}">Rejection reason</label><textarea class="form-control" id="reject-reason-{{ item.pk }}" maxlength="1000" name="reason" rows="3" required></textarea></div>
+                <div class="modal-footer"><button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancel</button><button class="btn btn-danger" type="submit">Reject record</button></div>
+              </form></div></div>
+            </div>
+            {% else %}<span class="text-secondary">—</span>{% endif %}
+          {% else %}<span class="text-secondary">—</span>{% endif %}
+        </td>
+      </tr>{% empty %}<tr><td colspan="7" class="text-secondary">No records match the selected filters.</td></tr>{% endfor %}</tbody>
     </table></div>
   </div>
 
