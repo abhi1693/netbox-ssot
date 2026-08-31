@@ -22,6 +22,7 @@ import (
 	"github.com/abhi1693/netbox-ssot/internal/secrets"
 	"github.com/abhi1693/netbox-ssot/internal/submission"
 	netboxprovider "github.com/abhi1693/netbox-ssot/providers/netbox"
+	unifiprovider "github.com/abhi1693/netbox-ssot/providers/unifi"
 )
 
 var version = "0.0.1"
@@ -36,7 +37,7 @@ func main() {
 }
 
 func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
-	registry, err := providercontract.NewRegistry(netboxprovider.New())
+	registry, err := providercontract.NewRegistry(netboxprovider.New(), unifiprovider.New())
 	if err != nil {
 		return errors.New("agent collector registry could not be initialized")
 	}

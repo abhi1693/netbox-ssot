@@ -11,6 +11,7 @@ members = [
     "netbox-ssot",
     "netbox-ssot-contracts",
     "netbox-ssot-provider-netbox",
+    "netbox-ssot-provider-unifi",
 ]
 
 [manifest.dependency-groups]
@@ -589,6 +590,17 @@ requires-dist = [
 name = "netbox-ssot-provider-netbox"
 version = "0.0.1"
 source = { editable = "providers/netbox" }
+dependencies = [
+    { name = "netbox-ssot-contracts" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "netbox-ssot-contracts", editable = "packages/contracts" }]
+
+[[package]]
+name = "netbox-ssot-provider-unifi"
+version = "0.0.1"
+source = { editable = "providers/unifi" }
 dependencies = [
     { name = "netbox-ssot-contracts" },
 ]

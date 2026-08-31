@@ -24,6 +24,8 @@ plugin, and customer-edge orchestration stays in the Go runtime.
 - Secrets are represented only by opaque references and are never valid observation values.
 - Provider manifests are declarative data; they cannot contain import paths, templates, scripts, or HTML.
 - Dataset dependencies are explicit and deterministic.
+- Provider field ownership is explicit: `complete` owns the full canonical record, while `observed` preserves
+  destination fields and relationships that the provider omitted.
 - Every complete batch identifies its declared scope and carries a completeness token.
 - Observations use canonical resource kinds, stable external identities, typed relationships, and source evidence.
 - Breaking changes require a new contract version and an explicit compatibility path.

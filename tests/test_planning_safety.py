@@ -13,6 +13,7 @@ from netbox_ssot.planning.comparison import (
     CanonicalRecord,
     ComparisonAction,
     compare_canonical_records,
+    merge_observed_fields,
     natural_identity,
     normalize_relationship_cardinality,
 )
@@ -109,6 +110,36 @@ def test_canonical_comparison_reports_create_update_and_no_change_without_target
             "target_value": "Old name",
         },
     )
+
+
+def test_observed_field_merge_preserves_destination_only_metadata() -> None:
+    source = canonical_record("home", "Home")
+    source.relationships["region"] = "region:slug:north"
+    target = CanonicalRecord(
+        resource_kind="site",
+        identity_key="home",
+        display_name="Old home",
+        external_id="target:1",
+        attributes={"/name": "Old home", "/slug": "home", "/comments": "Keep this"},
+        relationships={"region": "region:slug:south", "tenant": "tenant:root:home"},
+        target_object_type="dcim.site",
+        target_object_id="1",
+    )
+
+    merged = merge_observed_fields(source, target)
+
+    assert merged.attributes == {"/name": "Home", "/slug": "home", "/comments": "Keep this"}
+    assert merged.relationships == {"region": "region:slug:north", "tenant": "tenant:root:home"}
+    result = compare_canonical_records([merged], [target])[0]
+    assert tuple(change["field"] for change in result.changes) == (
+        "attributes:/name",
+        "relationships:region",
+    )
+
+
+def test_observed_field_merge_rejects_different_natural_identities() -> None:
+    with pytest.raises(ValueError, match="same natural identity"):
+        merge_observed_fields(canonical_record("one", "One"), canonical_record("two", "Two", target=True))
 
 
 def test_natural_identity_requires_relationship_context_for_locations() -> None:

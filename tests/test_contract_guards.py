@@ -48,6 +48,7 @@ def manifest_with(**updates: Any) -> dict[str, Any]:
     [
         ({"execution_modes": ("agent", "agent")}, "execution_modes must be unique"),
         ({"capabilities": ("source_read", "source_read")}, "capabilities must be unique"),
+        ({"field_ownership": "unknown"}, "Input should be 'complete' or 'observed'"),
         ({"icon_class": "<script>"}, "String should match pattern"),
         (
             {

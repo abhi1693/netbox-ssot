@@ -150,6 +150,11 @@ class CompletenessMode(StrEnum):
     DECLARED_SCOPE = "declared_scope"
 
 
+class FieldOwnershipMode(StrEnum):
+    COMPLETE = "complete"
+    OBSERVED = "observed"
+
+
 class DataModelMapping(ContractModel):
     source_name: str = Field(min_length=1, max_length=80)
     source_model: str = Field(min_length=1, max_length=120)
@@ -198,6 +203,7 @@ class ProviderManifest(ContractModel):
     documentation_url: HttpUrl
     execution_modes: tuple[ExecutionMode, ...] = Field(min_length=1)
     capabilities: tuple[ProviderCapability, ...] = Field(min_length=1)
+    field_ownership: FieldOwnershipMode = FieldOwnershipMode.COMPLETE
     agent_compatibility: AgentCompatibility
     config_schema: dict[str, Any]
     secret_fields: tuple[JsonPointer, ...] = ()

@@ -10,7 +10,7 @@ from .adapters import build_adapter_pair
 from .diffsync_engine import ComparisonOnlyDiffSyncEngine
 from .resource_registry import ATTRIBUTE_FIELDS, is_multi_relationship
 
-ENGINE_VERSION = "1.0"
+ENGINE_VERSION = "1.1"
 SUPPORTED_RESOURCE_KINDS = frozenset(ATTRIBUTE_FIELDS)
 MULTI_RELATIONSHIPS = {
     "tenant_group": frozenset({"tag"}),
@@ -76,6 +76,22 @@ class ComparisonResult:
     changes: tuple[dict[str, Any], ...] = field(default_factory=tuple)
     match_basis: str = "exact_natural_key"
     reason: str = ""
+
+
+def merge_observed_fields(source: CanonicalRecord, target: CanonicalRecord) -> CanonicalRecord:
+    """Build a full desired record while preserving destination fields the provider did not observe."""
+    if source.uid != target.uid:
+        raise ValueError("Observed fields can be merged only for records with the same natural identity.")
+    return CanonicalRecord(
+        resource_kind=source.resource_kind,
+        identity_key=source.identity_key,
+        display_name=source.display_name,
+        external_id=source.external_id,
+        attributes={**target.attributes, **source.attributes},
+        relationships={**target.relationships, **source.relationships},
+        target_object_type=source.target_object_type,
+        target_object_id=source.target_object_id,
+    )
 
 
 def normalize_value(value: Any) -> Any:

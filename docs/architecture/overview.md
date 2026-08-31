@@ -157,6 +157,7 @@ Every provider publishes a versioned manifest with:
 - a closed JSON Schema for non-secret configuration;
 - explicit opaque secret-reference paths;
 - datasets, provider-native source models, and the canonical resource kinds they map to;
+- whether the provider owns complete canonical records or only the fields it observes;
 - scope and completeness capabilities; and
 - a documentation URL.
 

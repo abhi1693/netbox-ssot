@@ -71,7 +71,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r .netbox/requirements.txt
           python -m pip install pytest
-          python -m pip install -e packages/contracts -e providers/netbox -e packages/plugin
+          python -m pip install -e packages/contracts -e providers/netbox -e providers/unifi -e packages/plugin
       - name: Check plugin migrations
         run: python .netbox/netbox/manage.py makemigrations netbox_ssot --check --dry-run
       - name: Run plugin tests
@@ -85,7 +85,7 @@ jobs:
         with:
           go-version: "1.26.x"
           cache-dependency-path: go.mod
-      - run: test -z "$(gofmt -l agent internal providers/netbox)"
+      - run: test -z "$(gofmt -l agent internal providers/netbox providers/unifi)"
       - run: go test ./...
       - run: go vet ./...
       - run: CGO_ENABLED=0 go build -trimpath -o dist/netbox-ssot-agent ./agent/cmd/netbox-ssot-agent

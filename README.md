@@ -4,8 +4,8 @@
 [![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Go 1.26](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 
-NetBox SSoT helps teams bring infrastructure data from another NetBox installation into their local NetBox through a
-clear, reviewed workflow.
+NetBox SSoT helps teams bring infrastructure data from supported source systems into their local NetBox through a clear,
+reviewed workflow.
 
 It collects remote data, shows how the two systems differ, and lets an authorized operator decide exactly what should
 change. Collection and comparison are always read-only. NetBox changes only after an explicit review and apply.
@@ -52,22 +52,23 @@ NetBox SSoT keeps discovery separate from mutation:
 - Every apply is revalidated and committed atomically.
 - Review and apply permissions can be assigned to different people.
 
-## NetBox provider
+## Included providers
 
-The included provider connects one NetBox installation to another. It covers portable infrastructure and configuration
-data across Core, Extras, Users, Tenancy, IPAM, DCIM, Circuits, Virtualization, VPN, and Wireless.
+The NetBox provider connects one NetBox installation to another and covers portable infrastructure and configuration
+data across Core, Extras, Users, Tenancy, IPAM, DCIM, Circuits, Virtualization, VPN, and Wireless. The UniFi Network
+provider uses the official Integration API to collect sites, adopted infrastructure devices, interfaces, management
+addresses, VLANs, prefixes, and wireless networks without collecting volatile clients or credentials.
 
-The current write direction is **source NetBox to local NetBox**. Additional providers and bidirectional
-synchronization are planned, but reverse writes are not enabled today.
+The current write direction is **source system to local NetBox**. Bidirectional synchronization is not enabled.
 
-See the [NetBox provider documentation](providers/netbox/README.md) for its dataset boundary and implementation details.
+See the [provider documentation](providers/README.md) for each dataset boundary and implementation details.
 
 ## Start using NetBox SSoT
 
 An administrator first installs the [NetBox plugin](packages/plugin/README.md) and deploys a
 [collector agent](agent/README.md). After that, the guided setup happens in NetBox:
 
-1. Open **SSoT → Providers** and choose **NetBox**.
+1. Open **SSoT → Providers** and choose a provider.
 2. Configure the source and select the datasets to manage.
 3. Connect a collector agent using the enrollment command shown by NetBox.
 4. Test the connection or request a collection.

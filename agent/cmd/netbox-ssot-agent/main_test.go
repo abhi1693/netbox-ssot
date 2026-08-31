@@ -153,8 +153,10 @@ func TestEnrollCommandCreatesPrivateFileAndReturnsOnlyPublicIdentity(t *testing.
 		if err := json.NewDecoder(request.Body).Decode(&enrollment); err != nil {
 			t.Errorf("decode enrollment request: %v", err)
 		}
-		if len(enrollment.Providers) != 1 || enrollment.Providers[0].ProviderID != "netbox" ||
-			enrollment.Providers[0].ImplementationVersion != "0.0.1" {
+		if len(enrollment.Providers) != 2 || enrollment.Providers[0].ProviderID != "netbox" ||
+			enrollment.Providers[0].ImplementationVersion != "0.0.1" ||
+			enrollment.Providers[1].ProviderID != "unifi" ||
+			enrollment.Providers[1].ImplementationVersion != "0.0.1" {
 			t.Errorf("provider capabilities = %+v", enrollment.Providers)
 		}
 		publicKey, err := base64.RawURLEncoding.DecodeString(enrollment.PublicKey)

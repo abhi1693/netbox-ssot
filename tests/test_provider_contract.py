@@ -8,7 +8,7 @@ from netbox_ssot.providers import (
     build_source_model_url,
     build_source_record_url,
 )
-from netbox_ssot_contracts import ExecutionMode, ProviderCapability, selected_dataset_ids
+from netbox_ssot_contracts import ExecutionMode, FieldOwnershipMode, ProviderCapability, selected_dataset_ids
 from netbox_ssot_provider_netbox import provider_definition
 
 MANIFEST = provider_definition().manifest
@@ -138,6 +138,7 @@ def test_netbox_provider_is_agent_read_only() -> None:
     assert MANIFEST.implementation_version == "0.0.1"
     assert MANIFEST.execution_modes == (ExecutionMode.AGENT,)
     assert MANIFEST.capabilities == (ProviderCapability.SOURCE_READ,)
+    assert MANIFEST.field_ownership is FieldOwnershipMode.COMPLETE
     assert MANIFEST.agent_compatibility.collector_id == "netbox"
     assert MANIFEST.agent_compatibility.protocol_version == "1.0"
 
@@ -162,9 +163,10 @@ def test_source_model_url_is_optional_and_rejects_unsafe_instance_urls() -> None
 def test_installed_netbox_provider_is_discovered_by_entry_point() -> None:
     catalog = ProviderRegistry().discover()
 
-    assert tuple(item.manifest.provider_id for item in catalog.providers) == ("netbox",)
+    assert tuple(item.manifest.provider_id for item in catalog.providers) == ("netbox", "unifi")
     assert catalog.failures == ()
-    wizard = build_provider_wizard(catalog.providers[0].manifest)
+    netbox_manifest = next(item.manifest for item in catalog.providers if item.manifest.provider_id == "netbox")
+    wizard = build_provider_wizard(netbox_manifest)
     assert wizard.provider.display_name == "NetBox"
     assert wizard.provider.icon_class == "mdi mdi-cube-outline"
     assert wizard.default_datasets == (

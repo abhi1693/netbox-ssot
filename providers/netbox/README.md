@@ -6,6 +6,9 @@ agent.
 
 The implementation version is `0.0.1` and the compatible contract version is `1.0`.
 
+The provider declares complete-field ownership because it projects the full supported canonical record surface. An
+omitted supported field therefore remains meaningful desired state for NetBox-to-NetBox reconciliation.
+
 ## Configuration
 
 The provider accepts:

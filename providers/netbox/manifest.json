@@ -13,6 +13,7 @@
   "capabilities": [
     "source_read"
   ],
+  "field_ownership": "complete",
   "agent_compatibility": {
     "protocol_version": "1.0",
     "minimum_agent_version": "0.0.1",

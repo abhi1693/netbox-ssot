@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "netbox-ssot-provider-unifi"
+version = "0.0.1"
+description = "UniFi Network provider descriptor for NetBox SSoT"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "netbox-ssot-contracts==0.0.1",
+]
+
+[project.entry-points."netbox_ssot.providers"]
+unifi = "netbox_ssot_provider_unifi:provider_definition"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/netbox_ssot_provider_unifi"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"manifest.json" = "netbox_ssot_provider_unifi/manifest.json"

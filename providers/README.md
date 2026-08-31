@@ -9,6 +9,7 @@ target.
 | Provider | Implementation | Status | Documentation |
 | --- | --- | --- | --- |
 | NetBox | `0.0.1` | Alpha | [NetBox provider](netbox/README.md) |
+| UniFi Network | `0.0.1` | Alpha | [UniFi Network provider](unifi/README.md) |
 
 Provider implementation versions remain at `0.0.1` during pre-release development. They change only as part of an
 explicitly authorized provider release. The shared contract version is managed independently.
@@ -34,6 +35,7 @@ datasets, dependencies, and source-to-canonical model mappings. It must validate
 - Secret values never appear in configuration returned to the plugin, observations, logs, or fixtures.
 - Unknown datasets and incompatible contract versions fail closed.
 - A complete result is emitted only after the full declared dataset scope has been collected.
+- Sparse providers declare observed-field ownership so omitted values cannot clear destination-only metadata.
 - Provider-specific payloads are normalized before crossing the observation boundary.
 
 See the [contributing guide](../CONTRIBUTING.md) before adding a provider or changing a public provider contract.

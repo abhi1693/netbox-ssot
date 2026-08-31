@@ -39,7 +39,7 @@ jobs:
             echo "Release tags must use semantic versioning with a leading v." >&2
             exit 1
           fi
-      - run: test -z "$(gofmt -l agent internal providers/netbox)"
+      - run: test -z "$(gofmt -l agent internal providers/netbox providers/unifi)"
       - run: go test ./...
       - run: go vet ./...
 
@@ -160,7 +160,7 @@ jobs:
       - name: Verify Python release versions
         run: |
           release_version="${GITHUB_REF_NAME#v}"
-          for package_name in netbox-ssot-contracts netbox-ssot-provider-netbox netbox-ssot; do
+          for package_name in netbox-ssot-contracts netbox-ssot-provider-netbox netbox-ssot-provider-unifi netbox-ssot; do
             test "$(uv version --package "${package_name}" --short)" = "${release_version}"
           done
       - name: Build Python distributions

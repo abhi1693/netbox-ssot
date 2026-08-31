@@ -1,0 +1,254 @@
+{
+  "provider_id": "unifi",
+  "display_name": "UniFi Network",
+  "icon_class": "mdi mdi-access-point-network",
+  "description": "Read-only infrastructure, network, and wireless discovery through the official UniFi Network Integration API.",
+  "instance_url_field": "api_url",
+  "implementation_version": "0.0.1",
+  "contract_version": "1.0",
+  "documentation_url": "https://github.com/abhi1693/netbox-ssot/tree/master/providers/unifi",
+  "execution_modes": [
+    "agent"
+  ],
+  "capabilities": [
+    "source_read"
+  ],
+  "field_ownership": "observed",
+  "agent_compatibility": {
+    "protocol_version": "1.0",
+    "minimum_agent_version": "0.0.1",
+    "collector_id": "unifi"
+  },
+  "config_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "title": "UniFi Network source configuration",
+    "description": "Official Integration API settings passed to an enrolled Go agent. API keys remain agent-local.",
+    "additionalProperties": false,
+    "x-netbox-ssot-order": [
+      "api_url",
+      "api_key_ref",
+      "site_ref",
+      "site_name_override",
+      "site_slug_override",
+      "verify_tls",
+      "page_size",
+      "timeout_seconds"
+    ],
+    "properties": {
+      "api_url": {
+        "type": "string",
+        "title": "Integration API URL",
+        "description": "UniFi Network Integration API base URL without the /v1 suffix.",
+        "format": "uri",
+        "x-netbox-ssot-placeholder": "https://unifi.example.com/proxy/network/integration"
+      },
+      "api_key_ref": {
+        "type": "string",
+        "title": "API key reference",
+        "description": "Agent-local env:// or absolute file:/// secret reference. The key itself is never sent to the plugin.",
+        "pattern": "^(env://[A-Z_][A-Z0-9_]*|file:///[^\\s?#]+)$",
+        "writeOnly": true,
+        "x-netbox-ssot-secret": true,
+        "x-netbox-ssot-widget": "secret-reference"
+      },
+      "site_ref": {
+        "type": "string",
+        "title": "Site reference",
+        "description": "Exact UniFi site UUID or internal reference. One site is required so canonical identities remain unambiguous.",
+        "minLength": 1,
+        "maxLength": 128,
+        "x-netbox-ssot-placeholder": "default"
+      },
+      "site_name_override": {
+        "type": "string",
+        "title": "NetBox site name override",
+        "description": "Optional canonical NetBox site name for one selected UniFi site.",
+        "minLength": 1,
+        "maxLength": 100,
+        "x-netbox-ssot-placeholder": "Home"
+      },
+      "site_slug_override": {
+        "type": "string",
+        "title": "NetBox site slug override",
+        "description": "Optional canonical NetBox site slug for one selected UniFi site.",
+        "pattern": "^[a-z0-9]+(?:[-_][a-z0-9]+)*$",
+        "maxLength": 100,
+        "x-netbox-ssot-placeholder": "home"
+      },
+      "verify_tls": {
+        "type": "boolean",
+        "title": "Verify TLS",
+        "description": "Require the UniFi certificate to validate against the agent trust store.",
+        "default": true
+      },
+      "page_size": {
+        "type": "integer",
+        "title": "API page size",
+        "description": "Number of records requested per official Integration API page.",
+        "default": 200,
+        "minimum": 1,
+        "maximum": 200
+      },
+      "timeout_seconds": {
+        "type": "number",
+        "title": "Request timeout",
+        "description": "Per-request timeout in seconds.",
+        "default": 30,
+        "minimum": 1,
+        "maximum": 120
+      }
+    },
+    "required": [
+      "api_url",
+      "api_key_ref",
+      "site_ref"
+    ]
+  },
+  "secret_fields": [
+    "/api_key_ref"
+  ],
+  "datasets": [
+    {
+      "id": "unifi_sites",
+      "title": "Sites",
+      "description": "UniFi sites normalized as canonical NetBox sites.",
+      "resource_kinds": [
+        "site"
+      ],
+      "default_enabled": true,
+      "selectable": true,
+      "completeness": "declared_scope",
+      "depends_on": [],
+      "data_mappings": [
+        {
+          "source_name": "Site",
+          "source_model": "unifi.Site",
+          "source_path": "v1/sites/",
+          "destination_kind": "site"
+        }
+      ]
+    },
+    {
+      "id": "unifi_devices",
+      "title": "Device inventory",
+      "description": "Adopted UniFi devices and the canonical catalog records required to create them safely.",
+      "resource_kinds": [
+        "manufacturer",
+        "device_role",
+        "device_type",
+        "device"
+      ],
+      "default_enabled": true,
+      "selectable": true,
+      "completeness": "declared_scope",
+      "depends_on": [
+        "unifi_sites"
+      ],
+      "data_mappings": [
+        {
+          "source_name": "Manufacturer",
+          "source_model": "unifi.Manufacturer",
+          "destination_kind": "manufacturer"
+        },
+        {
+          "source_name": "Device role",
+          "source_model": "unifi.DeviceRole",
+          "destination_kind": "device_role"
+        },
+        {
+          "source_name": "Device model",
+          "source_model": "unifi.DeviceModel",
+          "destination_kind": "device_type"
+        },
+        {
+          "source_name": "Adopted device",
+          "source_model": "unifi.AdoptedDevice",
+          "destination_kind": "device"
+        }
+      ]
+    },
+    {
+      "id": "unifi_interfaces",
+      "title": "Device interfaces",
+      "description": "Authoritative device ports, radios, management interfaces, MAC addresses, and management IP addresses.",
+      "resource_kinds": [
+        "interface",
+        "mac_address",
+        "ip_address"
+      ],
+      "default_enabled": true,
+      "selectable": true,
+      "completeness": "declared_scope",
+      "depends_on": [
+        "unifi_devices"
+      ],
+      "data_mappings": [
+        {
+          "source_name": "Device interface",
+          "source_model": "unifi.DeviceInterface",
+          "destination_kind": "interface"
+        },
+        {
+          "source_name": "Device MAC address",
+          "source_model": "unifi.DeviceMacAddress",
+          "destination_kind": "mac_address"
+        },
+        {
+          "source_name": "Device management IP",
+          "source_model": "unifi.DeviceManagementIp",
+          "destination_kind": "ip_address"
+        }
+      ]
+    },
+    {
+      "id": "unifi_networks",
+      "title": "Networks",
+      "description": "UniFi network VLANs and authoritative IPv4 prefixes scoped to their site.",
+      "resource_kinds": [
+        "vlan",
+        "prefix"
+      ],
+      "default_enabled": true,
+      "selectable": true,
+      "completeness": "declared_scope",
+      "depends_on": [
+        "unifi_sites"
+      ],
+      "data_mappings": [
+        {
+          "source_name": "Network VLAN",
+          "source_model": "unifi.Network",
+          "destination_kind": "vlan"
+        },
+        {
+          "source_name": "Network IPv4 prefix",
+          "source_model": "unifi.NetworkIpv4Configuration",
+          "destination_kind": "prefix"
+        }
+      ]
+    },
+    {
+      "id": "unifi_wireless",
+      "title": "Wireless networks",
+      "description": "UniFi Wi-Fi broadcasts without passwords or other credential material.",
+      "resource_kinds": [
+        "wireless_lan"
+      ],
+      "default_enabled": true,
+      "selectable": true,
+      "completeness": "declared_scope",
+      "depends_on": [
+        "unifi_sites",
+        "unifi_networks"
+      ],
+      "data_mappings": [
+        {
+          "source_name": "Wi-Fi broadcast",
+          "source_model": "unifi.WifiBroadcast",
+          "destination_kind": "wireless_lan"
+        }
+      ]
+    }
+  ]
+}

@@ -10,7 +10,7 @@ Python packages live under `packages/`: `contracts` defines vendor-neutral schem
 - `uv run ruff check . && uv run mypy` runs Python linting and strict type checks.
 - `uv run pytest tests --cov` runs the fast, NetBox-independent suite with coverage.
 - `go test ./... && go vet ./...` tests and analyzes the agent and provider runtime.
-- `gofmt -w agent internal providers/netbox` formats Go sources.
+- `gofmt -w agent internal providers/netbox providers/unifi` formats Go sources.
 - `CGO_ENABLED=0 go build -trimpath -o dist/netbox-ssot-agent ./agent/cmd/netbox-ssot-agent` builds the agent.
 - `cd tests/ui && npm ci && npx playwright install chromium && npm test` runs opt-in UI/accessibility checks against a configured development NetBox.
 

@@ -7,14 +7,15 @@ It supports NetBox 4.6 and requires Python 3.12 or newer.
 
 ## Install a release
 
-Tagged GitHub releases include wheels and source distributions for `netbox-ssot-contracts`,
-`netbox-ssot-provider-netbox`, and `netbox-ssot`. Download the three matching wheels from the release and install them
-together so pip can resolve their exact internal dependency versions:
+Tagged GitHub releases include wheels and source distributions for `netbox-ssot-contracts`, the NetBox and UniFi
+provider descriptors, and `netbox-ssot`. Download the four matching wheels from the release and install them together
+so pip can resolve their exact internal dependency versions:
 
 ```shell
 python -m pip install \
   ./netbox_ssot_contracts-<version>-py3-none-any.whl \
   ./netbox_ssot_provider_netbox-<version>-py3-none-any.whl \
+  ./netbox_ssot_provider_unifi-<version>-py3-none-any.whl \
   ./netbox_ssot-<version>-py3-none-any.whl
 ```
 
@@ -29,6 +30,7 @@ checkout:
 python -m pip install \
   -e packages/contracts \
   -e providers/netbox \
+  -e providers/unifi \
   -e packages/plugin
 ```
 
@@ -124,7 +126,7 @@ user-facing import API.
 - `jobs.py` — NetBox background jobs
 
 Provider-specific datasets and field coverage live in the
-[NetBox provider documentation](../../providers/netbox/README.md). Shared wire and manifest types live in the
+[provider documentation](../../providers/README.md). Shared wire and manifest types live in the
 [contracts package](../contracts/README.md).
 
 ## Development

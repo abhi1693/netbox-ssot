@@ -37,7 +37,7 @@ at the edge and must remain wire-compatible with contract version `1.0`.
 Keep tests next to each package and run the complete Go gate from the repository root:
 
 ```shell
-test -z "$(gofmt -l agent internal providers/netbox)"
+test -z "$(gofmt -l agent internal providers/netbox providers/unifi)"
 go test ./...
 go vet ./...
 ```

@@ -7,7 +7,10 @@ from typing import Any
 
 from django.db import connection, transaction
 
+from netbox_ssot_contracts import FieldOwnershipMode
+
 from ..models import CollectionRun, ComparisonItem, ComparisonRun, SynchronizationDirection
+from ..providers import ProviderNotFoundError, ProviderRegistry
 from .comparison import (
     ENGINE_VERSION,
     SUPPORTED_RESOURCE_KINDS,
@@ -15,6 +18,7 @@ from .comparison import (
     ComparisonAction,
     ComparisonResult,
     compare_canonical_records,
+    merge_observed_fields,
     natural_identity,
     normalize_relationship_cardinality,
     normalize_value,
@@ -82,7 +86,11 @@ def create_comparison(
         if existing is not None:
             return ComparisonOutcome(existing, False)
 
-        drafts = _build_drafts(source_records, target_records, rejected)
+        try:
+            field_ownership = ProviderRegistry().get(collection_run.provider_id).manifest.field_ownership
+        except ProviderNotFoundError as exc:
+            raise ComparisonRejectedError("The collection provider is no longer installed.") from exc
+        drafts = _build_drafts(source_records, target_records, rejected, field_ownership=field_ownership)
         counts = Counter(draft.action.value for draft in drafts)
         comparison = ComparisonRun.objects.create(
             collection_run=collection_run,
@@ -242,6 +250,8 @@ def _build_drafts(
     source_records: list[CanonicalRecord],
     target_records: list[CanonicalRecord],
     rejected: list[ItemDraft],
+    *,
+    field_ownership: FieldOwnershipMode = FieldOwnershipMode.COMPLETE,
 ) -> list[ItemDraft]:
     source_groups = _group_by_uid(source_records)
     target_groups = _group_by_uid(target_records)
@@ -273,9 +283,12 @@ def _build_drafts(
                 )
             )
             continue
-        comparable_source.append(record)
         if targets:
-            comparable_target.append(targets[0])
+            target = targets[0]
+            if field_ownership == FieldOwnershipMode.OBSERVED:
+                record = merge_observed_fields(record, target)
+            comparable_target.append(target)
+        comparable_source.append(record)
 
     results = compare_canonical_records(comparable_source, comparable_target)
     drafts.extend(_result_to_draft(result) for result in results)

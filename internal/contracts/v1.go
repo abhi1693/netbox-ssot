@@ -46,6 +46,7 @@ type ProviderManifest struct {
 	DocumentationURL      string              `json:"documentation_url"`
 	ExecutionModes        []string            `json:"execution_modes"`
 	Capabilities          []string            `json:"capabilities"`
+	FieldOwnership        string              `json:"field_ownership"`
 	AgentCompatibility    AgentCompatibility  `json:"agent_compatibility"`
 	ConfigSchema          json.RawMessage     `json:"config_schema"`
 	SecretFields          []string            `json:"secret_fields"`
