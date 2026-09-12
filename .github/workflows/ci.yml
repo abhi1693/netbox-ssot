@@ -18,7 +18,7 @@ jobs:
           - "3.12"
           - "3.13"
           - "3.14"
-    uses: abhi1693/actions/.github/workflows/python-uv-tests.yml@34e92ba1eee6a47e9b10f13e2180114fc01b6027
+    uses: abhi1693/actions/.github/workflows/python-ci.yml@59178a1adfb1547da9ba94fdd46962c510b8eb1f
     with:
       python-version: ${{ matrix.python-version }}
       sync-command: uv sync --all-packages --locked
