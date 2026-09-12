@@ -16,7 +16,7 @@ jobs:
   python:
     permissions:
       contents: read
-    uses: abhi1693/actions/.github/workflows/python-uv-tests.yml@3f57777054410f3f0e59b58ba7e16dc51288c5fd
+    uses: abhi1693/actions/.github/workflows/python-ci.yml@v1
     with:
       python-version: "3.12"
       sync-command: uv sync --all-packages --locked
